@@ -19,6 +19,7 @@ cortex-m-rt = "0.7"
 panic-halt = "0.2"
 stm32f0xx-hal = { version = "0.18.0", features = ["stm32f072", "rt"] }
 embedded-graphics = "0.8.1"
+embedded-icon = { version = "0.0.1", default-features = false, features = ["12px", "mdi"] }
 usb-device = "0.3.2"
 stm32-usbd = "0.8.0"
 usbd-hid = "0.10.2"

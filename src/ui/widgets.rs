@@ -157,6 +157,114 @@ pub fn navigate_4slot_list(
     }
 }
 
+/// Handle 3-slot circular scrolling list navigation with tone feedback.
+pub fn navigate_3slot_list(
+    selected: &mut usize,
+    scroll_offset: &mut usize,
+    count: usize,
+    up_pressed: bool,
+    down_pressed: bool,
+    buzzer: &mut Buzzer,
+) {
+    if count == 0 {
+        return;
+    }
+    if down_pressed {
+        if *selected + 1 < count {
+            *selected += 1;
+            if *selected >= *scroll_offset + 3 {
+                *scroll_offset = *selected - 2;
+            }
+        } else {
+            *selected = 0;
+            *scroll_offset = 0;
+        }
+        buzzer.play_tone(2200, 30);
+    }
+    if up_pressed {
+        if *selected > 0 {
+            *selected -= 1;
+            if *selected < *scroll_offset {
+                *scroll_offset = *selected;
+            }
+        } else {
+            *selected = count - 1;
+            *scroll_offset = count.saturating_sub(3);
+        }
+        buzzer.play_tone(2200, 30);
+    }
+}
+
+/// Draw a vertical scrollbar on the right edge of the screen (x = 125..127).
+pub fn draw_scrollbar(
+    lcd: &mut St7567,
+    selected: usize,
+    count: usize,
+    top_y: i32,
+    height: u32,
+) {
+    if count <= 1 {
+        return;
+    }
+    let track_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
+    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
+
+    // 1px track line on x = 126
+    Line::new(Point::new(126, top_y), Point::new(126, top_y + height as i32 - 1))
+        .into_styled(track_style)
+        .draw(lcd)
+        .ok();
+
+    // Thumb height: proportional or minimum 6px
+    let thumb_h = ((height * 3) / count as u32).clamp(6, height);
+    let travel = height.saturating_sub(thumb_h);
+    let thumb_y = top_y + ((selected as u32 * travel) / (count as u32 - 1)) as i32;
+
+    Rectangle::new(Point::new(125, thumb_y), Size::new(3, thumb_h))
+        .into_styled(fill_style)
+        .draw(lcd)
+        .ok();
+}
+
+/// Render a single list item row within a 3-slot view (14px row height) with optional 12x12 icon.
+pub fn draw_icon_row<F>(
+    lcd: &mut St7567,
+    slot: usize,
+    is_selected: bool,
+    draw_icon: Option<F>,
+    label: &str,
+    value: Option<&str>,
+    value_x: i32,
+) where
+    F: FnOnce(&mut St7567, Point, BinaryColor),
+{
+    let y = 13 + (slot as i32 * 14);
+    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
+    let (text_color, icon_color) = if is_selected {
+        Rectangle::new(Point::new(2, y), Size::new(121, 13))
+            .into_styled(fill_style)
+            .draw(lcd)
+            .ok();
+        (BinaryColor::Off, BinaryColor::Off)
+    } else {
+        (BinaryColor::On, BinaryColor::On)
+    };
+
+    let text_style = MonoTextStyle::new(&FONT_6X10, text_color);
+
+    let text_x = if let Some(draw_fn) = draw_icon {
+        draw_fn(lcd, Point::new(4, y + 1), icon_color);
+        19
+    } else {
+        4
+    };
+
+    Text::new(label, Point::new(text_x, y + 10), text_style).draw(lcd).ok();
+    if let Some(val) = value {
+        Text::new(val, Point::new(value_x, y + 10), text_style).draw(lcd).ok();
+    }
+}
+
 /// Render a single list item row within a 4-slot view with highlight.
 pub fn draw_list_row(
     lcd: &mut St7567,
