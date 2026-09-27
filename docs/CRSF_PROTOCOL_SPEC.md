@@ -100,7 +100,7 @@ When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()
    Byte 5: CRC   (crc8 over [0x28, 0x00, 0xEA] -> 0x54)
    ```
    **Total Size**: 6 bytes.
-3. **Transmission & Retry**: Transmitted over USART2. If no response arrives, `elrs_tick()` re-transmits every **300 ms**.
+3. **Transmission & Retry**: Transmitted over USART2. If no response arrives, `elrs_tick()` re-transmits every **1000 ms** (1 Hz), avoiding bus congestion and RX buffer overrun.
 
 ---
 
@@ -121,7 +121,7 @@ The external module responds with frame type `0x29` addressed to `0xEA`:
    param_count_offset = offset_after_null + 4 (Serial) + 4 (Hardware ID) + 4 (Firmware ID);
    param_count = payload[param_count_offset];
    ```
-5. **State Transition**: Sets `CONFIG_ENGINE.param_count`. Transitions immediately to `ElrsConfigState::LoadingParam(1)` and requests Parameter 1.
+5. **State Transition**: Sets `CONFIG_ENGINE.param_count`. If in `Discovering`, transitions to `ElrsConfigState::LoadingParam(1)` and schedules the first parameter read after a **40 ms pacing delay** (no synchronous transmission inside the RX packet handler).
 
 ---
 
@@ -147,8 +147,8 @@ Byte 7: CRC          (crc8 over bytes 2..6)
 [0xEA] [Len] [0x2B] [0xEA] [0xEE] [Param ID] [Chunks Remain] [Chunk Payload...] [CRC]
 ```
 
-#### C. Chunk Reassembly & Payload Structure:
-Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. The handset accumulates chunk payloads into a 96-byte contiguous buffer (`CHUNK_BUF`) until `Chunks Remain == 0`:
+#### C. Chunk Reassembly, Sequencing & Payload Structure:
+Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. The handset validates chunk sequence order using `expect_chunks_remain` and accumulates chunk payloads into a 96-byte contiguous buffer (`CHUNK_BUF`) until `Chunks Remain == 0`:
 
 1. `Parent ID` (1 byte, `0x00` = root)
 2. `Type` (1 byte):
@@ -162,11 +162,14 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
    - **For `COMMAND` (0x0D)**:
      - Followed by 1 byte: Command Status (`0` = Ready, `1` = Start, `2` = In Progress, `3` = Confirmation Needed, etc.).
 
-#### D. Chunk Advancement & State Machine Progression:
-- If `Chunks Remain > 0`: Appends chunk to `CHUNK_BUF`, increments `current_chunk`, and sends `0x2C` requesting `chunk + 1`.
-- If `Chunks Remain == 0`: Parses the reassembled `CHUNK_BUF`.
-  - If in `ElrsConfigState::LoadingParam(id)`: advances to `next_id = param_id + 1` until `param_count` or `MAX_PARAMS (16)` is reached, then enters `ElrsConfigState::Ready`.
-  - If already in `ElrsConfigState::Ready` (e.g. during command execution or option change): updates the cached parameter and **remains in `Ready`**, preserving the active UI display.
+#### D. Pacing, Timeout Recovery & State Machine Progression:
+- **Pacing Guard Time**: To prevent receiver input queue overrun and wire collisions, no requests are sent synchronously in RX packet callbacks. All requests are scheduled with a **40 ms guard time** and transmitted exclusively via `elrs_tick()`.
+- **Chunk Sequencing**: Incoming chunks must match `expect_chunks_remain`. Stale or duplicate chunks from re-transmissions are safely discarded.
+- **Timeout and Retries**: If no response arrives within **500 ms** (for local TX `0xEE`) or **1000 ms** (for remote receiver `0xEC`), `elrs_tick()` retries the request up to **4 times**. If retries are exhausted, the engine safely advances to `id + 1` to prevent UI lockup.
+- **Completion**: When `Chunks Remain == 0`:
+  - Parses and stores the reassembled parameter.
+  - If in `ElrsConfigState::LoadingParam(id)`: advances to `next_id = param_id + 1` (scheduled after 40 ms) until `param_count` or `MAX_PARAMS (16)` is reached, then enters `ElrsConfigState::Ready`.
+  - If already in `ElrsConfigState::Ready`: updates the cached parameter and **remains in `Ready`**, preserving active UI display.
 
 ---
 

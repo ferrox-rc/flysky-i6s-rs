@@ -29,6 +29,16 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
   - Changed `build_param_ext_frame()` to dynamically assign wire byte 0 (`out_frame[0] = target;`), properly routing frames to transmitter modules (`0xEE`), receivers (`0xEC`), or flight controllers (`0xC8`).
 
 ### Fixed
+- **CRSF Parameter Handshake Pacing and Wire Collisions ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Eliminated synchronous outbound transmissions from inside receive callbacks (`handle_param_entry_frame`, `handle_device_info_frame`), preventing ~70 µs rapid request collisions that overrun receiver input queues.
+  - Implemented 40 ms inter-frame pacing delay (`next_req_ms`) for all outbound parameter chunk requests, scheduled and emitted exclusively via `elrs_tick()`.
+  - Paced discovery pings to 1000 ms (1 Hz) to prevent bus congestion.
+- **Over-The-Air Chunk Sequencing and Duplicate Filtering ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Added `expect_chunks_remain` sequence checking in `handle_param_entry_frame()`, safely discarding duplicate or out-of-order chunks from RF re-transmissions without corrupting the chunk accumulator buffer.
+- **Parameter Read Timeout and Retry Recovery ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Implemented timeout tracking (500 ms for local TX `0xEE`, 1000 ms for remote receivers `0xEC`) with up to 4 retries before automatically advancing to the next parameter, preventing the handset from locking up indefinitely on `"loading parameter 01 of 11"`.
+- **UI Menu Button Debounce on Configuration Launch ([`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Set `ctrl.waiting_release = true` when triggering `[Configure Module]` and retry clicks to prevent 700 µs loop repeat invocations while the physical `[OK]` button is held down.
 - **CRSF Receiver Wire Filter Acceptance ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Added `CRSF_ADDRESS_CRSF_RECEIVER` (`0xEC`) to the frame start address filter in `poll_telemetry()`.
 - **Parser Inter-Byte Framing Timeout ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:

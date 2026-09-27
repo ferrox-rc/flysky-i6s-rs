@@ -50,6 +50,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
     match engine.state {
         ElrsConfigState::Idle | ElrsConfigState::Discovering => {
             if keys.ok {
+                ctrl.waiting_release = true;
                 crsf::start_config();
                 buzzer.click();
             }
@@ -94,6 +95,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             let count = engine.params_len;
             if count == 0 {
                 if keys.ok {
+                    ctrl.waiting_release = true;
                     crsf::start_config();
                     buzzer.click();
                 }

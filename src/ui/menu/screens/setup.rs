@@ -266,6 +266,7 @@ pub fn update_rx_setup(
                     ctrl.return_state = MenuState::RxSetup;
                     ctrl.selected_item = 0;
                     ctrl.scroll_offset = 0;
+                    ctrl.waiting_release = true;
                     crate::crsf::start_config();
                     buzzer.click();
                     return;
