@@ -148,6 +148,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - **[USB Subsystem & Simulator Manual](docs/USB_SUBSYSTEM.md)**: Hardware Full-Speed USB driver, 100 Hz HID Gamepad descriptor (8 axes, 16 buttons), CDC-ACM telemetry/CLI, and silent RF standby.
 - **[CRSF / ExpressLRS Subsystem Guide](docs/CRSF_ELRS_GUIDE.md)**: Native CRSF/ELRS driver, USART2 setup (`PD5`/`PA15`), `PC13` module power control, on-radio parameter configurator, and live link diagnostics.
 - **[CRSF Protocol Specification & Verification](docs/CRSF_PROTOCOL_SPEC.md)**: Byte-level wire format, CRC8-DVB calculation, parameter discovery handshake, state machine lifecycle, and manual verification guide.
+- **[Testing Methodology & Verification Guide](docs/TESTING.md)**: Dual-target host test harness, non-invasive peripheral decoupling, deterministic mock timing, adversarial state machine verification, and test execution guide.
 - **[Ecosystem Context & Background](docs/FIRMWARE_COMPARISON.md)**: Background on open-source FS-i6X firmware development, OpenI6X foundations, and the Rust architectural philosophy.
 - **[Hardware Reference & Pinout](docs/HARDWARE_REFERENCE.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, buzzer PWM, and dual-MCU (STM32 / APM32) profiles.
 
@@ -261,12 +262,13 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Linker script memory layout update (`FLASH (rx)` length = 120 KB, Pages 0–59).
 - [x] USB Composite mode (Joystick + CDC Serial) and clean silent interactive CLI on connection.
 
-### Phase 16: CRSF Protocol Compliance & Range Normalization (IN PROGRESS / BRANCH: `fix/crsf-elrs-spec-compliance`)
+### Phase 16: CRSF Protocol Compliance & Automated Testing (COMPLETED)
 - [x] TBS Crossfire Rev 08 11-bit channel scaling formula adherence across all 16 channels.
 - [x] Standardize radio pulse width range to FlySky standard 988..2012 µs (center 1500 µs, span 1024 µs).
 - [x] Multi-frame chunk reassembly for ExpressLRS configuration parameters.
 - [x] Expand parameter slots to 16 items and string buffers to 48 bytes.
 - [x] CRSF protocol specification and manual bench verification guide (`docs/CRSF_PROTOCOL_SPEC.md`).
+- [x] Dual-target host unit test harness (`cargo test-host`) with 36 automated unit tests across curves, trims, mixer, and protocol state machines (`docs/TESTING.md`).
 
 ### Phase 17: Modern UI Glyphs & Visual Experience (IN PROGRESS / BRANCH: `feature/modern-ui-glyphs`)
 - [x] MDI 12px vector icon integration (`embedded-icon`) across Settings Menu items.
@@ -374,11 +376,19 @@ dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
 
 ---
 
-## 10. Development Methodology & Note on AI Assistance
+## 10. Development Methodology, Automated Testing, & AI Assistance
 
-This project was built through a **human-directed, AI-assisted development workflow** ("vibe-coding" with rigorous physical hardware bench testing). Having previously contributed to OpenI6X, domain knowledge of the FS-i6X hardware, pinouts, and protocol timings was used to direct LLM pair-programming tools to rapidly implement the `no_std` Rust architecture.
+This project was built through a **human-directed, AI-assisted development workflow** ("vibe-coding" with rigorous physical hardware bench testing and automated test harnesses). Having previously contributed to OpenI6X, domain knowledge of the FS-i6X hardware, pinouts, and protocol timings was used to direct LLM pair-programming tools to rapidly implement the `no_std` Rust architecture.
 
-Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been deployed and verified on real FlySky FS-i6X hardware. We welcome community code review, contributions, and PRs to continue refining and hardening the codebase!
+### Automated Testing & Dual-Target Harness
+To guarantee mathematical correctness and protocol compliance without requiring a physical radio or slow hardware emulators, `flysky-i6x-rs` features a **zero-file-move dual-target test harness**:
+- **Host Unit Test Execution**: Running `cargo test-host` compiles the codebase against the host target (`x86_64`) with standard library support, executing 36 unit and adversarial regression tests across flight curves, digital trims, matrix mixers, and CRSF/ELRS state machines in **sub-millisecond time**.
+- **Peripheral & Timing Decoupling**: Peripheral drivers (`uart.rs`, `time.rs`) use `#[cfg(test)]` mocks to simulate serial UART FIFO queues and advance virtual time deterministically.
+- **Physical Hardware Validation**: Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been deployed and verified on real FlySky FS-i6X hardware.
+
+For detailed test architecture, adversarial verification scenarios, and developer commands, refer to the **[Testing Methodology & Verification Guide](docs/TESTING.md)**.
+
+We welcome community code review, contributions, and PRs to continue refining and hardening the codebase!
 
 ---
 

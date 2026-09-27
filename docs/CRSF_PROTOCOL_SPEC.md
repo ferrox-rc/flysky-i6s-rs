@@ -97,7 +97,7 @@ When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()
    Byte 2: 0x28  (Type: CRSF_FRAMETYPE_DEVICE_PING)
    Byte 3: 0x00  (Payload[0]: Target = Broadcast)
    Byte 4: 0xEA  (Payload[1]: Origin = Radio Transmitter)
-   Byte 5: CRC   (crc8 over [0x28, 0x00, 0xEA] -> 0x8C)
+   Byte 5: CRC   (crc8 over [0x28, 0x00, 0xEA] -> 0x54)
    ```
    **Total Size**: 6 bytes.
 3. **Transmission & Retry**: Transmitted over USART2. If no response arrives, `elrs_tick()` re-transmits every **300 ms**.
@@ -288,4 +288,7 @@ cargo test-host
    - Verifies incoming frames addressed to `0xEC` (`CRSF_ADDRESS_CRSF_RECEIVER`) are ingested into `RX_BUF` rather than rejected.
 4. **Inter-Byte Timeout Resynchronization (`test_inter_byte_timeout_resync`)**:
    - Verifies truncated partial frames hold during short pauses (<3 ms) and reset cleanly after $\ge 3\text{ ms}$ of bus silence, allowing the next valid frame to parse with 100% fidelity.
+
+For full architectural details on dual-target execution, mock serial FIFOs, and deterministic timeout simulation, see the **[Testing Methodology & Verification Guide](TESTING.md)**.
+
 

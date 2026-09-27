@@ -54,3 +54,25 @@ We adhere to [Conventional Commits](https://www.conventionalcommits.org/):
 - **`no_std` Bare-Metal:** No heap allocations, no dynamic sizing at runtime.
 - **Deterministic Latency:** RF packet transmission (`TIM16`) and critical interrupts must not be blocked by non-essential tasks.
 - **Resource Footprint:** Maintain awareness of Flash (<128 KB) and SRAM (<16 KB) utilization.
+
+---
+
+## 4. Testing & Verification Standards
+
+To guarantee mathematical precision and prevent regressions across protocol state machines, all pull requests and contributions must satisfy the **Dual Verification Requirement**:
+
+### 1. Run Host Unit Tests
+Execute the automated test suite locally on your host development environment:
+```bash
+cargo test-host
+```
+All unit tests must pass with 0 failures before opening a pull request. When introducing new mathematical formulas, mixing modes, or communication protocols, include corresponding unit tests in the appropriate module.
+
+### 2. Verify Bare-Metal Build
+Verify that the firmware compiles cleanly for the physical Cortex-M0 target without errors or compiler warnings:
+```bash
+cargo build --release --target thumbv6m-none-eabi
+```
+
+For comprehensive details on our dual-target harness architecture, peripheral mocking, and adversarial verification methodology, refer to the **[Testing Methodology & Verification Guide](docs/TESTING.md)**.
+
