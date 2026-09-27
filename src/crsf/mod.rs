@@ -253,11 +253,15 @@ pub fn poll_telemetry(now_ms: u32) {
         while let Some(b) = uart::read_byte() {
             LAST_RX_BYTE_MS = now_ms;
             if RX_LEN == 0 {
-                // Look for frame start: valid destination addresses (0xEE, 0xEA, 0xEC, 0xC8, etc.)
-                if b == protocol::CRSF_ADDRESS_RADIO_TRANSMITTER
+                // Look for frame start: CRSF Sync Byte (0xC8) or valid destination addresses (0xEE, 0xEA, 0xEC)
+                // Note: CRSF_SYNC_BYTE and CRSF_ADDRESS_FLIGHT_CONTROLLER both equal 0xC8.
+                // At byte index 0 of an incoming frame, 0xC8 is the wire sync byte delimiter.
+                // Within extended frames (0x28, 0x29, 0x2B, 0x2C, 0x2D), device addresses (such as
+                // CRSF_ADDRESS_FLIGHT_CONTROLLER 0xC8) are indexed at frame[3] (dest) and frame[4] (orig).
+                if b == protocol::CRSF_SYNC_BYTE
+                    || b == protocol::CRSF_ADDRESS_RADIO_TRANSMITTER
                     || b == protocol::CRSF_ADDRESS_CRSF_TRANSMITTER
                     || b == protocol::CRSF_ADDRESS_CRSF_RECEIVER
-                    || b == protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER
                 {
                     RX_BUF[0] = b;
                     RX_LEN = 1;

@@ -26,15 +26,23 @@ All serial communication over USART2 (`PD5` TX / `PA15` RX) adheres strictly to 
 | **`Payload`**   | Variable | Payload data specific to the frame type (`Frame Len - 2` bytes). |
 | **`CRC8`**      | 1 byte | CRC-8 DVB-S2 checksum over `[Frame Type]` and `[Payload]`. |
 
-### Device Addresses
+### Device Addresses & Frame Sync
 
 | Identifier | Value | Description |
 | :--- | :---: | :--- |
+| `CRSF_SYNC_BYTE` | `0xC8` | Serial frame sync byte for telemetry and response frames from module to handset (at `frame[0]`) |
 | `CRSF_ADDRESS_BROADCAST` | `0x00` | Universal broadcast target address |
 | `CRSF_ADDRESS_RADIO_TRANSMITTER` | `0xEA` | Handset / Radio Transmitter (FS-i6X) |
 | `CRSF_ADDRESS_CRSF_TRANSMITTER` | `0xEE` | External RF transmitter module (ExpressLRS / TBS Crossfire) |
 | `CRSF_ADDRESS_CRSF_RECEIVER` | `0xEC` | Over-the-air RC receiver |
 | `CRSF_ADDRESS_FLIGHT_CONTROLLER` | `0xC8` | Flight controller (Betaflight / INAV) |
+
+> [!NOTE]
+> **Distinguishing `CRSF_SYNC_BYTE` vs `CRSF_ADDRESS_FLIGHT_CONTROLLER` (`0xC8`)**:
+> Although both share the value `0xC8`, they are indexed and interpreted differently within a packet:
+> - **Wire Byte 0 (`frame[0]`)**: Operates as the physical frame delimiter / sync header (`CRSF_SYNC_BYTE`) for all telemetry and extended response frames arriving from the external module over USART2 RX.
+> - **Extended Frame Headers (`frame[3]` / `payload[0]` and `frame[4]` / `payload[1]`)**: In extended frames (`0x28`, `0x29`, `0x2B`, `0x2C`, `0x2D`), `frame[3]` is the Destination Address and `frame[4]` is the Origin Address. A packet from or to a flight controller contains `0xC8` (`CRSF_ADDRESS_FLIGHT_CONTROLLER`) at `frame[4]` or `frame[3]`, whereas local module frames arrive with `frame[4] = 0xEE` and receiver frames with `frame[4] = 0xEC`, all starting with `frame[0] = 0xC8`.
+> - **Standard Telemetry Frames (`0x14`, `0x08`, `0x02`, `0x0B`)**: Start with `frame[0] = 0xC8` (`CRSF_SYNC_BYTE`), followed by length (`frame[1]`), type (`frame[2]`), and sensor payload directly at `frame[3..]` without destination or origin addresses.
 
 ### Checksum Calculation (`CRC8-DVB`)
 - **Polynomial**: `0xD5` ($x^8 + x^7 + x^6 + x^4 + x^2 + 1$)
@@ -109,7 +117,7 @@ When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()
 The external module responds with frame type `0x29` addressed to `0xEA`:
 
 ```text
-[0xEA] [Len] [0x29] [0xEA] [0xEE] [Device Name\0] [Serial: 4B] [HW ID: 4B] [FW ID: 4B] [Param Count: 1B] [Param Ver: 1B] [CRC]
+[0xC8 (Sync)] [Len] [0x29] [0xEA] [0xEE] [Device Name\0] [Serial: 4B] [HW ID: 4B] [FW ID: 4B] [Param Count: 1B] [Param Ver: 1B] [CRC]
 ```
 
 #### Parsing Breakdown in `handle_device_info_frame`:
@@ -144,7 +152,7 @@ Byte 7: CRC          (crc8 over bytes 2..6)
 
 #### B. Response Frame (`0x2B` Parameter Settings Entry)
 ```text
-[0xEA] [Len] [0x2B] [0xEA] [0xEE] [Param ID] [Chunks Remain] [Chunk Payload...] [CRC]
+[0xC8 (Sync)] [Len] [0x2B] [0xEA] [0xEE] [Param ID] [Chunks Remain] [Chunk Payload...] [CRC]
 ```
 
 #### C. Chunk Reassembly, Sequencing & Payload Structure:
