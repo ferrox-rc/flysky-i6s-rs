@@ -70,9 +70,9 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
     }
 }
 
-pub const MAX_PARAMS: usize = 16;
+pub const MAX_PARAMS: usize = 24;
 
-static mut CHUNK_BUF: [u8; 96] = [0; 96];
+static mut CHUNK_BUF: [u8; 320] = [0; 320];
 static mut CHUNK_LEN: usize = 0;
 static mut CHUNK_PARAM_ID: u8 = 0;
 
@@ -137,7 +137,7 @@ pub struct Parameter {
     pub name_len: u8,
     pub value: u8,
     pub max_value: u8,
-    pub options: [u8; 48],
+    pub options: [u8; 160],
     pub options_len: u8,
     pub status: u8,
 }
@@ -152,7 +152,7 @@ impl Parameter {
             name_len: 0,
             value: 0,
             max_value: 0,
-            options: [0; 48],
+            options: [0; 160],
             options_len: 0,
             status: 0,
         }
@@ -330,7 +330,17 @@ unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
         return;
     }
     let orig = payload[1];
-    CONFIG_ENGINE.device_id = orig;
+
+    // Only accept device info from the transmitter module (0xEE) being configured.
+    // Discard broadcasts from remote receivers (0xEC) or flight controllers (0xC8).
+    if orig != CONFIG_ENGINE.device_id {
+        return;
+    }
+
+    // Only process device info if we are actively in Discovering state
+    if CONFIG_ENGINE.state != ElrsConfigState::Discovering {
+        return;
+    }
 
     let (next_offset, name_len) = extract_null_string(payload, 2, &mut CONFIG_ENGINE.device_name);
     CONFIG_ENGINE.device_name_len = name_len;
@@ -343,21 +353,19 @@ unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
         CONFIG_ENGINE.param_count = 10;
     }
 
-    if CONFIG_ENGINE.state == ElrsConfigState::Discovering {
-        if CONFIG_ENGINE.param_count > 0 {
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
-            CONFIG_ENGINE.params_len = 0;
-            CONFIG_ENGINE.current_chunk = 0;
-            CONFIG_ENGINE.expect_chunks_remain = 0xFF;
-            CONFIG_ENGINE.retry_count = 0;
-            CHUNK_LEN = 0;
-            CHUNK_PARAM_ID = 0;
-            CONFIG_ENGINE.last_req_ms = now_ms;
-            CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(40);
-        } else {
-            CONFIG_ENGINE.state = ElrsConfigState::Ready;
-            CONFIG_ENGINE.params_len = 0;
-        }
+    if CONFIG_ENGINE.param_count > 0 {
+        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+        CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.current_chunk = 0;
+        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CONFIG_ENGINE.retry_count = 0;
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = 0;
+        CONFIG_ENGINE.last_req_ms = now_ms;
+        CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(40);
+    } else {
+        CONFIG_ENGINE.state = ElrsConfigState::Ready;
+        CONFIG_ENGINE.params_len = 0;
     }
 }
 
@@ -371,7 +379,7 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
     let mut name_buf = [0u8; 16];
     let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
 
-    let mut opt_buf = [0u8; 48];
+    let mut opt_buf = [0u8; 160];
     let mut opt_len = 0u8;
     let mut val = 0u8;
     let mut max_val = 0u8;
@@ -387,7 +395,7 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                 }
                 opt_end += 1;
             }
-            let copy_len = (opt_end - rest_start).min(48);
+            let copy_len = (opt_end - rest_start).min(160);
             opt_buf[..copy_len].copy_from_slice(&chunk[rest_start..rest_start + copy_len]);
             opt_len = copy_len as u8;
             max_val = opt_count.saturating_sub(1);
@@ -462,6 +470,11 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     if payload.len() < 5 {
         return;
     }
+    let orig = payload[1];
+    if orig != CONFIG_ENGINE.device_id {
+        return;
+    }
+
     let param_id = payload[2];
     let chunks_remain = payload[3];
     let chunk_slice = &payload[4..];
@@ -702,7 +715,7 @@ mod tests {
             RX_BUF = [0; 64];
             RX_LEN = 0;
             LAST_RX_BYTE_MS = 0;
-            CHUNK_BUF = [0; 96];
+            CHUNK_BUF = [0; 320];
             CHUNK_LEN = 0;
             CHUNK_PARAM_ID = 0;
             CONFIG_ENGINE = ElrsConfigEngine::new();
@@ -1006,7 +1019,7 @@ mod tests {
                 name_len: 4,
                 value: STATUS_READY,
                 max_value: 0,
-                options: [0; 48],
+                options: [0; 160],
                 options_len: 0,
                 status: STATUS_READY,
             };
@@ -1385,6 +1398,81 @@ mod tests {
         poll_telemetry(2000);
         let tx2 = uart::mock::take_tx();
         assert_eq!(tx2.len(), 1, "Second ping sent at t = 2000");
+    }
+
+    #[test]
+    fn test_remote_receiver_device_info_ignored_and_param_chunk_progression() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+        uart::mock::clear();
+
+        // 1. Module (RM RP2, 0xEE, 21 params) replies to ping with Device Info
+        let rp2_info: [u8; 27] = [
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
+            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+            0x15, 0x00, 0x0D,
+        ];
+        uart::mock::push_rx_bytes(&rp2_info);
+        poll_telemetry(1000);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xEE);
+        assert_eq!(&engine.device_name[..6], b"RM RP2");
+        assert_eq!(engine.param_count, 21);
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+
+        // 2. Remote receiver (RM RP4TD-M, 0xEC, 11 params) broadcasts Device Info over the air
+        let rp4td_info: [u8; 36] = [
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
+            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
+            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+        ];
+        uart::mock::push_rx_bytes(&rp4td_info);
+        poll_telemetry(1020);
+
+        // Handset must NOT be hijacked by remote receiver 0xEC:
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xEE, "device_id must remain 0xEE");
+        assert_eq!(&engine.device_name[..6], b"RM RP2", "device_name must remain RM RP2");
+        assert_eq!(engine.param_count, 21, "param_count must remain 21, not overwritten to 11");
+
+        // 3. At t = 1040 (40ms pacing delay), request Param 1 Chunk 0 is sent to 0xEE
+        poll_telemetry(1040);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][0], 0xEE, "Dest wire byte must be 0xEE");
+        assert_eq!(tx[0][3], 0xEE, "Dest payload byte must be 0xEE");
+        assert_eq!(tx[0][5], 1, "Param 1");
+        assert_eq!(tx[0][6], 0, "Chunk 0");
+
+        // 4. Feed real capture Chunk 0 of Param 1 ("Packet Rate") from 0xEE (chunks_remain = 3)
+        let rp2_param1_chunk0: [u8; 64] = [
+            0xC8, 0x3E, 0x2B, 0xEA, 0xEE, 0x01, 0x03, 0x00, 0x09, 0x50, 0x61, 0x63,
+            0x6B, 0x65, 0x74, 0x20, 0x52, 0x61, 0x74, 0x65, 0x00, 0x35, 0x30, 0x48,
+            0x7A, 0x28, 0x2D, 0x31, 0x31, 0x35, 0x64, 0x42, 0x6D, 0x29, 0x3B, 0x31,
+            0x30, 0x30, 0x48, 0x7A, 0x20, 0x46, 0x75, 0x6C, 0x6C, 0x28, 0x2D, 0x31,
+            0x31, 0x32, 0x64, 0x42, 0x6D, 0x29, 0x3B, 0x31, 0x35, 0x30, 0x48, 0x7A,
+            0x28, 0x2D, 0x31, 0x8A,
+        ];
+        uart::mock::push_rx_bytes(&rp2_param1_chunk0);
+        poll_telemetry(1050);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.current_chunk, 1, "Must advance to Chunk 1");
+        assert_eq!(engine.expect_chunks_remain, 2, "Must expect chunks_remain = 2 next");
+        unsafe {
+            assert_eq!(CHUNK_LEN, 56, "56 bytes accumulated from Chunk 0");
+        }
+
+        // 5. At t = 1090 (1050 + 40ms pacing delay), request Chunk 1 addressed to 0xEE!
+        poll_telemetry(1090);
+        let tx2 = uart::mock::take_tx();
+        assert_eq!(tx2.len(), 1);
+        assert_eq!(tx2[0][0], 0xEE, "Dest wire byte must be 0xEE");
+        assert_eq!(tx2[0][3], 0xEE, "Dest payload byte must be 0xEE");
+        assert_eq!(tx2[0][5], 1, "Param 1");
+        assert_eq!(tx2[0][6], 1, "Chunk 1");
     }
 }
 

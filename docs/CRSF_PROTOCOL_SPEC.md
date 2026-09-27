@@ -114,7 +114,7 @@ The external module responds with frame type `0x29` addressed to `0xEA`:
 
 #### Parsing Breakdown in `handle_device_info_frame`:
 1. `payload[0]` (`0xEA`): Destination match confirmation.
-2. `payload[1]` (`0xEE`): Module physical address &rarr; cached as `CONFIG_ENGINE.device_id`.
+2. `payload[1]` (`0xEE`): Module physical address &rarr; must match `CONFIG_ENGINE.device_id` (`0xEE`). Broadcasts from remote receivers (`0xEC`) or flight controllers (`0xC8`) are discarded to avoid hijacking the parameter configuration session.
 3. `payload[2..]`: Reads null-terminated ASCII string &rarr; copied to `CONFIG_ENGINE.device_name` (e.g. `"ExpressLRS 2.4G"`).
 4. **Parameter Count Offset Math**:
    ```text
@@ -127,7 +127,7 @@ The external module responds with frame type `0x29` addressed to `0xEA`:
 
 ### Step 3: Parameter Tree Loading (`0x2C` Read & `0x2B` Entry)
 
-Parameters are loaded sequentially from ID `1` up to `param_count` (cached up to `MAX_PARAMS = 16` to respect Cortex-M0 SRAM):
+Parameters are loaded sequentially from ID `1` up to `param_count` (cached up to `MAX_PARAMS = 24` to respect Cortex-M0 SRAM):
 
 #### A. Request Frame (`0x2C` Parameter Read)
 ```text
@@ -148,7 +148,7 @@ Byte 7: CRC          (crc8 over bytes 2..6)
 ```
 
 #### C. Chunk Reassembly, Sequencing & Payload Structure:
-Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. The handset validates chunk sequence order using `expect_chunks_remain` and accumulates chunk payloads into a 96-byte contiguous buffer (`CHUNK_BUF`) until `Chunks Remain == 0`:
+Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. The handset validates chunk sequence order using `expect_chunks_remain` and accumulates chunk payloads into a 320-byte contiguous buffer (`CHUNK_BUF`) until `Chunks Remain == 0`:
 
 1. `Parent ID` (1 byte, `0x00` = root)
 2. `Type` (1 byte):
@@ -157,7 +157,7 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
 3. `Name` (Null-terminated ASCII string, e.g. `"Packet Rate\0"`)
 4. Data field (dependent on `Type`):
    - **For `SELECT` (0x09)**:
-     - Semicolon-delimited options string (e.g. `"50Hz;100Hz;250Hz;500Hz\0"`).
+     - Semicolon-delimited options string (stored up to 160 bytes, e.g. `"50Hz(-115dBm);100Hz Full(-112dBm);150Hz(-112dBm);250Hz(-108dBm);..."`).
      - Followed by 1 byte: Current selection value index (0-indexed).
    - **For `COMMAND` (0x0D)**:
      - Followed by 1 byte: Command Status (`0` = Ready, `1` = Start, `2` = In Progress, `3` = Confirmation Needed, etc.).
@@ -168,7 +168,7 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
 - **Timeout and Retries**: If no response arrives within **500 ms** (for local TX `0xEE`) or **1000 ms** (for remote receiver `0xEC`), `elrs_tick()` retries the request up to **4 times**. If retries are exhausted, the engine safely advances to `id + 1` to prevent UI lockup.
 - **Completion**: When `Chunks Remain == 0`:
   - Parses and stores the reassembled parameter.
-  - If in `ElrsConfigState::LoadingParam(id)`: advances to `next_id = param_id + 1` (scheduled after 40 ms) until `param_count` or `MAX_PARAMS (16)` is reached, then enters `ElrsConfigState::Ready`.
+  - If in `ElrsConfigState::LoadingParam(id)`: advances to `next_id = param_id + 1` (scheduled after 40 ms) until `param_count` or `MAX_PARAMS (24)` is reached, then enters `ElrsConfigState::Ready`.
   - If already in `ElrsConfigState::Ready`: updates the cached parameter and **remains in `Ready`**, preserving active UI display.
 
 ---

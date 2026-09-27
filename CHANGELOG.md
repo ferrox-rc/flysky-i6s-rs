@@ -29,6 +29,12 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
   - Changed `build_param_ext_frame()` to dynamically assign wire byte 0 (`out_frame[0] = target;`), properly routing frames to transmitter modules (`0xEE`), receivers (`0xEC`), or flight controllers (`0xC8`).
 
 ### Fixed
+- **CRSF Target Device ID Isolation & Remote Receiver Hijack Prevention ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Filtered `handle_device_info_frame()` and `handle_param_entry_frame()` to strictly match `CONFIG_ENGINE.device_id` (`0xEE`). Previously, when a bound remote receiver (`0xEC`, e.g. `RM RP4TD-M 2400`) broadcast `DEVICE_INFO` over the air, `CONFIG_ENGINE.device_id` was overwritten mid-handshake from `0xEE` to `0xEC` and `param_count` was overwritten from 21 to 11. This caused subsequent chunk requests to be sent over the air to `0xEC` instead of the local TX module, causing parameter 1 to stall and fail with `"No parameters found"`.
+- **Multi-Frame Parameter Accumulator & Option Buffer Expansion ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Expanded `CHUNK_BUF` from 96 bytes to 320 bytes to safely reassemble full 4-chunk parameter streams (e.g. ExpressLRS `"Packet Rate"` with 10 options).
+  - Expanded `Parameter.options` and parsing buffers from 48 bytes to 160 bytes so long option lists are not truncated.
+  - Increased `MAX_PARAMS` from 16 to 24 to fully accommodate modules with 21 parameters (such as RadioMaster RP2).
 - **CRSF Parameter Handshake Pacing and Wire Collisions ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Eliminated synchronous outbound transmissions from inside receive callbacks (`handle_param_entry_frame`, `handle_device_info_frame`), preventing ~70 µs rapid request collisions that overrun receiver input queues.
   - Implemented 40 ms inter-frame pacing delay (`next_req_ms`) for all outbound parameter chunk requests, scheduled and emitted exclusively via `elrs_tick()`.
