@@ -77,27 +77,29 @@ To eliminate data loss and guarantee high-speed stability:
 
 ## 2. Configuration State Machine Lifecycle
 
-The bare-metal configurator engine transitions through five states without dynamic heap allocation:
+The bare-metal configurator engine transitions through states without dynamic heap allocation, supporting TBS-Agent style multi-device auto-discovery, subfolder navigation, and modal option editing:
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
     Idle --> Discovering : start_config() / Enter Menu
-    Discovering --> LoadingParam : Recv 0x29 (Device Info)
+    Discovering --> Discovering : Broadcast Ping (1Hz) / Recv 0x29 (Register Device)
+    Discovering --> LoadingParam : select_device(idx) [OK]
     LoadingParam --> LoadingParam : Recv 0x2B (Next param_id or chunk)
     LoadingParam --> Ready : All parameters loaded
-    Ready --> Ready : cycle_param() / trigger_command()
+    Ready --> Ready : Drill folder / Modal Edit / [ESC] Up
+    Ready --> Discovering : return_to_device_list() ([ESC] at root)
 ```
 
 ---
 
 ## 3. Step-by-Step Handshake Walkthrough
 
-### Step 1: Module Discovery (`0x28` Device Ping)
+### Step 1: Bus Discovery (`0x28` Broadcast Ping)
 
 When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()` is called:
 
-1. **Engine State**: Transitions to `ElrsConfigState::Discovering`.
+1. **Engine State**: Transitions to `ElrsConfigState::Discovering`, resetting `devices_len = 0`.
 2. **Packet Built on Wire (`build_ping_frame`)**:
    ```text
    Byte 0: 0xEE  (Dest: External TX Module)
@@ -108,28 +110,22 @@ When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()
    Byte 5: CRC   (crc8 over [0x28, 0x00, 0xEA] -> 0x54)
    ```
    **Total Size**: 6 bytes.
-3. **Transmission & Retry**: Transmitted over USART2. If no response arrives, `elrs_tick()` re-transmits every **1000 ms** (1 Hz), avoiding bus congestion and RX buffer overrun.
+3. **Multi-Device Registration**: All online devices responding with `0x29 Device Info` (local transmitter module `0xEE`, remote receiver `0xEC`, flight controller `0xC8`) are deduplicated and registered into `CONFIG_ENGINE.devices` (up to 4 devices).
+4. **Pacing**: `elrs_tick()` re-broadcasts the discovery ping every **1000 ms** (1 Hz), ensuring newly bound receivers or powered devices are discovered dynamically.
 
 ---
 
-### Step 2: Module Response (`0x29` Device Info)
+### Step 2: Device Selection (TBS-Agent Style Picker)
 
-The external module responds with frame type `0x29` addressed to `0xEA`:
-
-```text
-[0xC8 (Sync)] [Len] [0x29] [0xEA] [0xEE] [Device Name\0] [Serial: 4B] [HW ID: 4B] [FW ID: 4B] [Param Count: 1B] [Param Ver: 1B] [CRC]
-```
-
-#### Parsing Breakdown in `handle_device_info_frame`:
-1. `payload[0]` (`0xEA`): Destination match confirmation.
-2. `payload[1]` (`0xEE`): Module physical address &rarr; must match `CONFIG_ENGINE.device_id` (`0xEE`). Broadcasts from remote receivers (`0xEC`) or flight controllers (`0xC8`) are discarded to avoid hijacking the parameter configuration session.
-3. `payload[2..]`: Reads null-terminated ASCII string &rarr; copied to `CONFIG_ENGINE.device_name` (e.g. `"ExpressLRS 2.4G"`).
-4. **Parameter Count Offset Math**:
-   ```text
-   param_count_offset = offset_after_null + 4 (Serial) + 4 (Hardware ID) + 4 (Firmware ID);
-   param_count = payload[param_count_offset];
-   ```
-5. **State Transition**: Sets `CONFIG_ENGINE.param_count`. If in `Discovering`, transitions to `ElrsConfigState::LoadingParam(1)` and schedules the first parameter read after a **40 ms pacing delay** (no synchronous transmission inside the RX packet handler).
+Instead of hardcoding or locking onto the local TX module, the handset renders a **Device Selection Screen** (`CRSF DEVICES`):
+- Lists all discovered devices with their physical role tags: `[TX]`, `[RX]`, `[FC]`.
+- Pilot navigates with `[UP]` / `[DOWN]`.
+- Pressing `[OK]` calls `crsf::select_device(idx)`:
+  - Sets `CONFIG_ENGINE.device_id` to the target address (`0xEE` or `0xEC`).
+  - Sets `CONFIG_ENGINE.param_count` from the device's announcement.
+  - Transitions to `ElrsConfigState::LoadingParam(1)`.
+- While configuring, broadcasts from other bus devices are safely ignored.
+- Pressing `[ESC]` from root parameter view calls `crsf::return_to_device_list()`, returning smoothly to the device picker.
 
 ---
 
@@ -139,10 +135,10 @@ Parameters are loaded sequentially from ID `1` up to `param_count` (cached up to
 
 #### A. Request Frame (`0x2C` Parameter Read)
 ```text
-Byte 0: 0xEE         (Dest: Module)
+Byte 0: [Target]     (Dest: 0xEE for TX, 0xEC for RX)
 Byte 1: 0x06         (Len: 6)
 Byte 2: 0x2C         (Type: CRSF_FRAMETYPE_PARAMETER_READ)
-Byte 3: 0xEE         (Dest)
+Byte 3: [Target]     (Dest)
 Byte 4: 0xEA         (Orig: Handset)
 Byte 5: [Param ID]   (Parameter index: 1..N)
 Byte 6: [Chunk]      (Chunk index: 0 for start of param)
@@ -152,7 +148,7 @@ Byte 7: CRC          (crc8 over bytes 2..6)
 
 #### B. Response Frame (`0x2B` Parameter Settings Entry)
 ```text
-[0xC8 (Sync)] [Len] [0x2B] [0xEA] [0xEE] [Param ID] [Chunks Remain] [Chunk Payload...] [CRC]
+[0xC8 (Sync)] [Len] [0x2B] [0xEA] [Orig] [Param ID] [Chunks Remain] [Chunk Payload...] [CRC]
 ```
 
 #### C. Chunk Reassembly, Sequencing & Payload Structure:
@@ -161,12 +157,15 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
 1. `Parent ID` (1 byte, `0x00` = root)
 2. `Type` (1 byte):
    - `0x09`: **`CRSF_TYPE_SELECT`** (Selection list, e.g. Packet Rate, Power)
+   - `0x0B`: **`CRSF_TYPE_FOLDER`** (Subfolder grouping, e.g. `VTX Admin >`, `Wi-Fi Options >`)
    - `0x0D`: **`CRSF_TYPE_COMMAND`** (Action command, e.g. `[Bind]`, `[Wi-Fi Mode]`)
 3. `Name` (Null-terminated ASCII string, e.g. `"Packet Rate\0"`)
 4. Data field (dependent on `Type`):
    - **For `SELECT` (0x09)**:
      - Semicolon-delimited options string (stored up to 160 bytes, e.g. `"50Hz(-115dBm);100Hz Full(-112dBm);150Hz(-112dBm);250Hz(-108dBm);..."`).
      - Followed by 1 byte: Current selection value index (0-indexed).
+   - **For `FOLDER` (0x0B)**:
+     - Defines a submenu node. Children specify `parent = folder_id`.
    - **For `COMMAND` (0x0D)**:
      - Followed by 1 byte: Command Status (`0` = Ready, `1` = Start, `2` = In Progress, `3` = Confirmation Needed, etc.).
 
@@ -178,6 +177,23 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
   - Parses and stores the reassembled parameter.
   - If in `ElrsConfigState::LoadingParam(id)`: advances to `next_id = param_id + 1` (scheduled after 40 ms) until `param_count` or `MAX_PARAMS (24)` is reached, then enters `ElrsConfigState::Ready`.
   - If already in `ElrsConfigState::Ready`: updates the cached parameter and **remains in `Ready`**, preserving active UI display.
+
+---
+
+### Step 4: Hierarchical Folder Navigation & In-Place Modal Editing
+
+#### A. Folder Navigation
+- The UI filters parameters by `current_folder` (default `0` = root).
+- Folder items render with a trailing chevron (`>`).
+- Pressing `[OK]` on a `FOLDER` item sets `current_folder = folder.id`, immediately presenting child parameters.
+- Pressing `[ESC]` ascends to the parent folder via `crsf::get_parent_folder(current_folder)`. Pressing `[ESC]` at root returns to the Device Picker.
+
+#### B. Modal In-Place Parameter Editing
+- Pressing `[OK]` on a `SELECT` parameter enters **Edit Mode** (`ctrl.editing = true`).
+- The option displays with interactive brackets (`< 250Hz >`).
+- `[UP]` / `[DOWN]` cycles the tentative value locally without sending serial traffic.
+- Pressing `[OK]` commits the selection: transmits a `0x2D Param Write` frame to the module and exits edit mode.
+- Pressing `[ESC]` cancels the edit without sending changes.
 
 ---
 

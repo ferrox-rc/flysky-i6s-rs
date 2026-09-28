@@ -18,6 +18,17 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
 - **Dual-Target Host Unit Test Harness ([`.cargo/config.toml`](.cargo/config.toml), [`Cargo.toml`](Cargo.toml))**:
   - Established `cargo test-host` alias targeting `x86_64-unknown-linux-gnu` with `#![cfg_attr(not(test), no_std)]` in `src/lib.rs`.
   - Added 36 host unit tests across `crsf`, `mixer`, `trim`, and `curve` modules with zero hardware dependencies.
+- **TBS-Agent Style Multi-Device Discovery & Device Picker ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Broadcasts 1 Hz discovery pings and registers all responding bus devices (transmitters `0xEE`, receivers `0xEC`, flight controllers `0xC8`) into a deduplicated table (`DiscoveredDevice`).
+  - Presents an interactive `CRSF DEVICES` screen with role tags (`[TX]`, `[RX]`, `[FC]`), allowing pilots to configure either the transmitter module or over-the-air receiver directly.
+- **Hierarchical Subfolder Tree Navigation ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Filters parameters by `parent` ID, rendering folder items (`CRSF_TYPE_FOLDER`) with trailing chevron (`>`).
+  - Pressing `[OK]` drills down into subfolders; pressing `[ESC]` ascends to the parent folder or returns to the Device Picker at root level.
+- **Modal In-Place Parameter Option Editing ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Pressing `[OK]` on a `SELECT` parameter enters Edit Mode, displaying the tentative value with `< Option >` brackets.
+  - `[UP]` / `[DOWN]` cycles options locally without transmitting premature serial packets; pressing `[OK]` commits and transmits `0x2D Param Write` frame; `[ESC]` cancels without changes.
+- **Dual-Target Unit Test Expansion ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Added 9 new unit tests (expanding total from 36 to 45 passing tests) covering multi-device discovery, role string formatting, folder filtering, and in-place editing.
 - **Comprehensive CRSF Protocol Documentation ([`docs/CRSF_PROTOCOL_SPEC.md`](docs/CRSF_PROTOCOL_SPEC.md))**:
   - Detailed byte-level framing breakdown, wire timing diagrams, CRC-8 DVB-S2 poly formulas, parameter state machine transitions, command action lifecycle, and manual verification walkthrough.
 

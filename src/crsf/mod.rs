@@ -158,8 +158,8 @@ impl Parameter {
         }
     }
 
-    /// Extract option string for current `value` index into buffer.
-    pub fn current_option_str<'a>(&'a self, buf: &'a mut [u8; 16]) -> &'a str {
+    /// Extract option string for any `val` index into buffer.
+    pub fn option_str_for_val<'a>(&'a self, val: u8, buf: &'a mut [u8; 16]) -> &'a str {
         if self.options_len == 0 {
             return "";
         }
@@ -169,7 +169,7 @@ impl Parameter {
 
         for (i, &b) in opts.iter().enumerate() {
             if b == b';' || b == 0 {
-                if idx == self.value {
+                if idx == val {
                     let chunk = &opts[start..i];
                     let copy_len = chunk.len().min(15);
                     buf[..copy_len].copy_from_slice(&chunk[..copy_len]);
@@ -179,7 +179,7 @@ impl Parameter {
                 start = i + 1;
             }
         }
-        if idx == self.value && start < opts.len() {
+        if idx == val && start < opts.len() {
             let chunk = &opts[start..];
             let copy_len = chunk.len().min(15);
             buf[..copy_len].copy_from_slice(&chunk[..copy_len]);
@@ -187,14 +187,40 @@ impl Parameter {
         }
         ""
     }
+
+    /// Extract option string for current `value` index into buffer.
+    pub fn current_option_str<'a>(&'a self, buf: &'a mut [u8; 16]) -> &'a str {
+        self.option_str_for_val(self.value, buf)
+    }
+}
+
+pub const MAX_DISCOVERED_DEVICES: usize = 4;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct DiscoveredDevice {
+    pub address: u8,
+    pub name: [u8; 16],
+    pub name_len: u8,
+    pub param_count: u8,
+}
+
+impl DiscoveredDevice {
+    pub const fn empty() -> Self {
+        Self {
+            address: 0,
+            name: [0; 16],
+            name_len: 0,
+            param_count: 0,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ElrsConfigState {
     Idle,
-    Discovering,      // Sending ping 0x28
+    Discovering,      // Sending broadcast ping 0x28, collecting devices
     Connected,        // Received device info 0x29
-    LoadingParam(u8), // Requesting param 1..param_count
+    LoadingParam(u8), // Requesting param 1..param_count for chosen device
     Ready,            // All parameters cached and interactive
 }
 
@@ -205,6 +231,9 @@ pub struct ElrsConfigEngine {
     pub device_name: [u8; 20],
     pub device_name_len: u8,
     pub param_count: u8,
+    pub devices: [DiscoveredDevice; MAX_DISCOVERED_DEVICES],
+    pub devices_len: usize,
+    pub selected_device_idx: usize,
     pub params: [Parameter; MAX_PARAMS],
     pub params_len: usize,
     pub last_req_ms: u32,
@@ -223,6 +252,9 @@ impl ElrsConfigEngine {
             device_name: [0; 20],
             device_name_len: 0,
             param_count: 0,
+            devices: [DiscoveredDevice::empty(); MAX_DISCOVERED_DEVICES],
+            devices_len: 0,
+            selected_device_idx: 0,
             params: [Parameter::empty(); MAX_PARAMS],
             params_len: 0,
             last_req_ms: 0,
@@ -329,48 +361,58 @@ pub fn poll_telemetry(now_ms: u32) {
     }
 }
 
-unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
+unsafe fn handle_device_info_frame(payload: &[u8], _now_ms: u32) {
     if payload.len() < 3 {
         return;
     }
     let orig = payload[1];
 
-    // Only accept device info from the transmitter module (0xEE) being configured.
-    // Discard broadcasts from remote receivers (0xEC) or flight controllers (0xC8).
+    let mut name_buf = [0u8; 16];
+    let (next_offset, name_len) = extract_null_string(payload, 2, &mut name_buf);
+
+    // Skip past serial (4B), hw (4B), fw (4B) to read param_count
+    let param_count_offset = next_offset + 4 + 4 + 4;
+    let param_count = if param_count_offset < payload.len() {
+        payload[param_count_offset]
+    } else {
+        10
+    };
+
+    // If in Discovering state, collect responding devices into device list
+    if CONFIG_ENGINE.state == ElrsConfigState::Discovering {
+        let mut found = false;
+        for d in &mut CONFIG_ENGINE.devices[..CONFIG_ENGINE.devices_len] {
+            if d.address == orig {
+                d.name = name_buf;
+                d.name_len = name_len;
+                d.param_count = param_count;
+                found = true;
+                break;
+            }
+        }
+        if !found && CONFIG_ENGINE.devices_len < MAX_DISCOVERED_DEVICES {
+            CONFIG_ENGINE.devices[CONFIG_ENGINE.devices_len] = DiscoveredDevice {
+                address: orig,
+                name: name_buf,
+                name_len,
+                param_count,
+            };
+            CONFIG_ENGINE.devices_len += 1;
+        }
+        return;
+    }
+
+    // Only accept device info updates from the active device being configured.
+    // Discard broadcasts from other devices while loading/ready.
     if orig != CONFIG_ENGINE.device_id {
         return;
     }
 
-    // Only process device info if we are actively in Discovering state
-    if CONFIG_ENGINE.state != ElrsConfigState::Discovering {
-        return;
-    }
-
-    let (next_offset, name_len) = extract_null_string(payload, 2, &mut CONFIG_ENGINE.device_name);
-    CONFIG_ENGINE.device_name_len = name_len;
-
-    // Skip past serial (4B), hw (4B), fw (4B) to read param_count
-    let param_count_offset = next_offset + 4 + 4 + 4;
-    if param_count_offset < payload.len() {
-        CONFIG_ENGINE.param_count = payload[param_count_offset];
-    } else {
-        CONFIG_ENGINE.param_count = 10;
-    }
-
-    if CONFIG_ENGINE.param_count > 0 {
-        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
-        CONFIG_ENGINE.params_len = 0;
-        CONFIG_ENGINE.current_chunk = 0;
-        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
-        CONFIG_ENGINE.retry_count = 0;
-        CHUNK_LEN = 0;
-        CHUNK_PARAM_ID = 0;
-        CONFIG_ENGINE.last_req_ms = now_ms;
-        CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(40);
-    } else {
-        CONFIG_ENGINE.state = ElrsConfigState::Ready;
-        CONFIG_ENGINE.params_len = 0;
-    }
+    let dev_name_len = name_len.min(20);
+    CONFIG_ENGINE.device_name[..dev_name_len as usize]
+        .copy_from_slice(&name_buf[..dev_name_len as usize]);
+    CONFIG_ENGINE.device_name_len = dev_name_len;
+    CONFIG_ENGINE.param_count = param_count;
 }
 
 unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
@@ -618,12 +660,14 @@ unsafe fn elrs_tick(now_ms: u32) {
     }
 }
 
-/// Start or refresh the native ELRS module configuration handshake.
+/// Start or refresh the native CRSF multi-device discovery handshake (TBS-Agent style).
 pub fn start_config() {
     unsafe {
         let now = crate::time::millis();
-        CONFIG_ENGINE.device_id = protocol::CRSF_ADDRESS_CRSF_TRANSMITTER;
         CONFIG_ENGINE.state = ElrsConfigState::Discovering;
+        CONFIG_ENGINE.device_id = 0;
+        CONFIG_ENGINE.devices_len = 0;
+        CONFIG_ENGINE.selected_device_idx = 0;
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.last_req_ms = now;
         CONFIG_ENGINE.next_req_ms = now.wrapping_add(1000);
@@ -634,6 +678,122 @@ pub fn start_config() {
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
         send_ping();
+    }
+}
+
+/// Select a discovered device by index (0..devices_len) to load and configure its parameters.
+pub fn select_device(idx: usize) -> bool {
+    unsafe {
+        if idx >= CONFIG_ENGINE.devices_len {
+            return false;
+        }
+        let dev = CONFIG_ENGINE.devices[idx];
+        let now = crate::time::millis();
+        CONFIG_ENGINE.selected_device_idx = idx;
+        CONFIG_ENGINE.device_id = dev.address;
+        CONFIG_ENGINE.device_name = [0; 20];
+        let n_len = (dev.name_len as usize).min(20);
+        CONFIG_ENGINE.device_name[..n_len].copy_from_slice(&dev.name[..n_len]);
+        CONFIG_ENGINE.device_name_len = n_len as u8;
+        CONFIG_ENGINE.param_count = dev.param_count;
+        CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.current_chunk = 0;
+        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CONFIG_ENGINE.retry_count = 0;
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = 0;
+        CONFIG_ENGINE.last_req_ms = now;
+
+        if dev.param_count > 0 {
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.next_req_ms = now.wrapping_add(40);
+        } else {
+            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+        }
+        true
+    }
+}
+
+/// Select a discovered device by its physical address (e.g. 0xEE for TX, 0xEC for RX).
+pub fn select_device_by_addr(addr: u8) -> bool {
+    unsafe {
+        for i in 0..CONFIG_ENGINE.devices_len {
+            if CONFIG_ENGINE.devices[i].address == addr {
+                return select_device(i);
+            }
+        }
+        false
+    }
+}
+
+/// Return from parameter view back to the Device Selection screen.
+pub fn return_to_device_list() {
+    unsafe {
+        let now = crate::time::millis();
+        CONFIG_ENGINE.state = ElrsConfigState::Discovering;
+        CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.current_chunk = 0;
+        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = 0;
+        CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+        CONFIG_ENGINE.last_req_ms = now;
+        CONFIG_ENGINE.next_req_ms = now.wrapping_add(1000);
+        send_ping();
+    }
+}
+
+/// Set a specific value for a select parameter index and transmit write frame to module.
+pub fn set_param_value(param_idx: usize, value: u8) {
+    unsafe {
+        if param_idx < CONFIG_ENGINE.params_len {
+            let p = &mut CONFIG_ENGINE.params[param_idx];
+            if p.param_type == protocol::CRSF_TYPE_SELECT {
+                p.value = value.min(p.max_value);
+                send_param_write(CONFIG_ENGINE.device_id, p.id, p.value);
+            }
+        }
+    }
+}
+
+/// Query parameter indices belonging to a given folder ID (0 = root).
+/// Returns count of matching parameters.
+pub fn get_folder_params(folder_id: u8, out_indices: &mut [usize; MAX_PARAMS]) -> usize {
+    unsafe {
+        let mut count = 0;
+        for (idx, p) in CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len].iter().enumerate() {
+            if p.parent == folder_id {
+                out_indices[count] = idx;
+                count += 1;
+            }
+        }
+        count
+    }
+}
+
+/// Find parent folder ID of a given folder ID. Returns 0 if root or not found.
+pub fn get_parent_folder(folder_id: u8) -> u8 {
+    unsafe {
+        for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+            if p.id == folder_id {
+                return p.parent;
+            }
+        }
+        0
+    }
+}
+
+/// Find display name of a folder by ID.
+pub fn get_folder_name<'a>(folder_id: u8, buf: &'a mut [u8; 16]) -> &'a str {
+    unsafe {
+        for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+            if p.id == folder_id {
+                let len = (p.name_len as usize).min(16);
+                buf[..len].copy_from_slice(&p.name[..len]);
+                return core::str::from_utf8(&buf[..len]).unwrap_or("Folder");
+            }
+        }
+        "Folder"
     }
 }
 
@@ -825,6 +985,15 @@ mod tests {
         poll_telemetry(1100);
 
         let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 1);
+        assert_eq!(engine.devices[0].address, CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(&engine.devices[0].name[..9], b"ELRS 2.4G");
+        assert_eq!(engine.devices[0].param_count, 3);
+
+        // Pilot selects device 0 from TBS-Agent device list
+        assert!(select_device(0));
+
+        let engine = get_config_engine();
         assert_eq!(engine.device_id, CRSF_ADDRESS_CRSF_TRANSMITTER);
         assert_eq!(&engine.device_name[..9], b"ELRS 2.4G");
         assert_eq!(engine.param_count, 3);
@@ -864,6 +1033,10 @@ mod tests {
 
         uart::mock::push_rx_bytes(&frame);
         poll_telemetry(1200);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 1);
+        assert!(select_device(0));
 
         let engine = get_config_engine();
         assert_eq!(engine.state, ElrsConfigState::Ready, "0 parameters must transition directly to Ready");
@@ -1191,6 +1364,13 @@ mod tests {
         poll_telemetry(1000);
 
         let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 1);
+        assert_eq!(engine.devices[0].address, 0xEE);
+        assert_eq!(&engine.devices[0].name[..6], b"RM RP2");
+        assert_eq!(engine.devices[0].param_count, 21);
+
+        assert!(select_device(0));
+        let engine = get_config_engine();
         assert_eq!(engine.device_id, 0xEE);
         assert_eq!(&engine.device_name[..6], b"RM RP2");
         assert_eq!(engine.param_count, 21);
@@ -1234,6 +1414,7 @@ mod tests {
 
         uart::mock::push_rx_bytes(&frame[..total]);
         poll_telemetry(1000);
+        assert!(select_device(0));
 
         // Guard time: verify NO packet sent during first 39 ms
         assert_eq!(uart::mock::take_tx().len(), 0);
@@ -1419,6 +1600,7 @@ mod tests {
         ];
         uart::mock::push_rx_bytes(&rp2_info);
         poll_telemetry(1000);
+        assert!(select_device(0));
 
         let engine = get_config_engine();
         assert_eq!(engine.device_id, 0xEE);
@@ -1477,6 +1659,209 @@ mod tests {
         assert_eq!(tx2[0][3], 0xEE, "Dest payload byte must be 0xEE");
         assert_eq!(tx2[0][5], 1, "Param 1");
         assert_eq!(tx2[0][6], 1, "Chunk 1");
+    }
+
+    #[test]
+    fn test_multi_device_discovery_and_selection() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+        uart::mock::clear();
+
+        // 1. Device 1 responds: TX module (RM RP2, 0xEE, 21 params)
+        let rp2_info: [u8; 27] = [
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
+            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+            0x15, 0x00, 0x0D,
+        ];
+        uart::mock::push_rx_bytes(&rp2_info);
+        poll_telemetry(1010);
+
+        // 2. Device 2 responds: RX module (RM RP4TD-M 2400, 0xEC, 11 params)
+        let rp4td_info: [u8; 36] = [
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
+            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
+            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+        ];
+        uart::mock::push_rx_bytes(&rp4td_info);
+        poll_telemetry(1020);
+
+        // 3. Repeat ping response from TX (deduplication check)
+        uart::mock::push_rx_bytes(&rp2_info);
+        poll_telemetry(1030);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.devices_len, 2, "Must deduplicate and register exactly 2 devices");
+        assert_eq!(engine.devices[0].address, 0xEE);
+        assert_eq!(&engine.devices[0].name[..6], b"RM RP2");
+        assert_eq!(engine.devices[0].param_count, 21);
+        assert_eq!(engine.devices[1].address, 0xEC);
+        assert_eq!(&engine.devices[1].name[..10], b"RM RP4TD-M");
+        assert_eq!(engine.devices[1].param_count, 11);
+
+        // 4. Select the over-the-air Receiver (Device 1)
+        assert!(select_device(1));
+
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xEC, "Device ID must switch to 0xEC for receiver");
+        assert_eq!(engine.param_count, 11);
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+
+        // Pacing delay: verify request for receiver param 1 chunk 0 sent after 40ms
+        poll_telemetry(1070);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][0], 0xEC, "Outbound wire byte must be targeted to 0xEC");
+        assert_eq!(tx[0][3], 0xEC, "Outbound payload dest must be 0xEC");
+        assert_eq!(tx[0][5], 1); // Param 1
+        assert_eq!(tx[0][6], 0); // Chunk 0
+
+        // 5. Test return to device list
+        return_to_device_list();
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.devices_len, 2, "Discovered devices must persist when returning to list");
+    }
+
+    #[test]
+    fn test_folder_hierarchy_and_filtering() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.params_len = 4;
+            // Param 1: Packet Rate (root)
+            CONFIG_ENGINE.params[0] = Parameter {
+                id: 1,
+                parent: 0,
+                param_type: protocol::CRSF_TYPE_SELECT,
+                name: *b"Packet Rate\0\0\0\0\0",
+                name_len: 11,
+                value: 0,
+                max_value: 3,
+                options: [0; 160],
+                options_len: 0,
+                status: 0,
+            };
+            // Param 2: VTX Admin folder (id 2, parent 0)
+            CONFIG_ENGINE.params[1] = Parameter {
+                id: 2,
+                parent: 0,
+                param_type: protocol::CRSF_TYPE_FOLDER,
+                name: *b"VTX Admin\0\0\0\0\0\0\0",
+                name_len: 9,
+                value: 0,
+                max_value: 0,
+                options: [0; 160],
+                options_len: 0,
+                status: 0,
+            };
+            // Param 3: Band (parent 2)
+            CONFIG_ENGINE.params[2] = Parameter {
+                id: 3,
+                parent: 2,
+                param_type: protocol::CRSF_TYPE_SELECT,
+                name: *b"Band\0\0\0\0\0\0\0\0\0\0\0\0",
+                name_len: 4,
+                value: 1,
+                max_value: 4,
+                options: [0; 160],
+                options_len: 0,
+                status: 0,
+            };
+            // Param 4: Channel (parent 2)
+            CONFIG_ENGINE.params[3] = Parameter {
+                id: 4,
+                parent: 2,
+                param_type: protocol::CRSF_TYPE_SELECT,
+                name: *b"Channel\0\0\0\0\0\0\0\0\0",
+                name_len: 7,
+                value: 2,
+                max_value: 7,
+                options: [0; 160],
+                options_len: 0,
+                status: 0,
+            };
+        }
+
+        let mut indices = [0usize; MAX_PARAMS];
+
+        // Root folder (0): must contain Param 1 and Param 2 (count = 2)
+        let root_count = get_folder_params(0, &mut indices);
+        assert_eq!(root_count, 2);
+        assert_eq!(indices[0], 0); // Param 1 index
+        assert_eq!(indices[1], 1); // Param 2 index
+
+        // VTX Admin folder (2): must contain Param 3 and Param 4 (count = 2)
+        let vtx_count = get_folder_params(2, &mut indices);
+        assert_eq!(vtx_count, 2);
+        assert_eq!(indices[0], 2); // Param 3 index
+        assert_eq!(indices[1], 3); // Param 4 index
+
+        // Parent lookup: parent of VTX Admin (2) must be 0
+        assert_eq!(get_parent_folder(2), 0);
+        // Parent of Band (3) must be 2
+        assert_eq!(get_parent_folder(3), 2);
+
+        // Name lookup
+        let mut name_buf = [0u8; 16];
+        let fname = get_folder_name(2, &mut name_buf);
+        assert_eq!(fname, "VTX Admin");
+    }
+
+    #[test]
+    fn test_in_place_editing_and_set_param_value() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.params_len = 1;
+            let mut opts = [0u8; 160];
+            let opt_str = b"10mW;25mW;100mW;250mW";
+            opts[..opt_str.len()].copy_from_slice(opt_str);
+            CONFIG_ENGINE.params[0] = Parameter {
+                id: 1,
+                parent: 0,
+                param_type: protocol::CRSF_TYPE_SELECT,
+                name: *b"Power\0\0\0\0\0\0\0\0\0\0\0",
+                name_len: 5,
+                value: 0, // initially 10mW
+                max_value: 3,
+                options: opts,
+                options_len: opt_str.len() as u8,
+                status: 0,
+            };
+        }
+
+        let p = &get_config_engine().params[0];
+        let mut buf = [0u8; 16];
+        assert_eq!(p.current_option_str(&mut buf), "10mW");
+        assert_eq!(p.option_str_for_val(1, &mut buf), "25mW");
+        assert_eq!(p.option_str_for_val(2, &mut buf), "100mW");
+        assert_eq!(p.option_str_for_val(3, &mut buf), "250mW");
+
+        // Simulate committing tentative edit value = 2 (100mW)
+        uart::mock::clear();
+        set_param_value(0, 2);
+
+        // Param value updated locally
+        let p_updated = &get_config_engine().params[0];
+        assert_eq!(p_updated.value, 2);
+        assert_eq!(p_updated.current_option_str(&mut buf), "100mW");
+
+        // Param Write frame (0x2D) transmitted
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Must transmit 0x2D Param Write");
+        assert_eq!(tx[0][0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_WRITE);
+        assert_eq!(tx[0][5], 1, "Param ID 1");
+        assert_eq!(tx[0][6], 2, "New value = 2");
+    }
+
+    #[test]
+    fn test_device_role_strings() {
+        assert_eq!(protocol::device_role_str(CRSF_ADDRESS_CRSF_TRANSMITTER), "TX");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_CRSF_RECEIVER), "RX");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER), "FC");
+        assert_eq!(protocol::device_role_str(0x55), "DEV");
     }
 }
 

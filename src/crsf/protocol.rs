@@ -273,6 +273,16 @@ pub fn rf_mode_to_str(rf_mode: u8) -> &'static str {
     }
 }
 
+/// Convert CRSF device physical address to 2-letter role tag.
+pub fn device_role_str(addr: u8) -> &'static str {
+    match addr {
+        CRSF_ADDRESS_CRSF_TRANSMITTER => "TX",
+        CRSF_ADDRESS_CRSF_RECEIVER => "RX",
+        CRSF_ADDRESS_FLIGHT_CONTROLLER => "FC",
+        _ => "DEV",
+    }
+}
+
 /// Build a Device Ping frame (0x28) to discover connected CRSF/ELRS modules.
 /// Wire frame format: [Device (0xEE)] [Len (4)] [Type (0x28)] [Dest (0x00)] [Orig (0xEA)] [CRC]
 pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
