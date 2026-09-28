@@ -144,7 +144,7 @@ pub fn build_channels_frame(
     out_frame: &mut [u8; CRSF_RC_FRAME_SIZE],
 ) -> usize {
     // Header
-    out_frame[0] = CRSF_ADDRESS_CRSF_TRANSMITTER; // 0xEE
+    out_frame[0] = CRSF_SYNC_BYTE; // 0xC8 per TBS CRSF spec
     out_frame[1] = 24; // Length: Type (1) + Payload (22) + CRC (1) = 24
     out_frame[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED; // 0x16
 
@@ -284,9 +284,9 @@ pub fn device_role_str(addr: u8) -> &'static str {
 }
 
 /// Build a Device Ping frame (0x28) to discover connected CRSF/ELRS modules.
-/// Wire frame format: [Device (0xEE)] [Len (4)] [Type (0x28)] [Dest (0x00)] [Orig (0xEA)] [CRC]
+/// Wire frame format per TBS spec: [Sync (0xC8)] [Len (4)] [Type (0x28)] [Dest (0x00)] [Orig (0xEA)] [CRC]
 pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
-    out_frame[0] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+    out_frame[0] = CRSF_SYNC_BYTE;
     out_frame[1] = 4; // Type (1) + Payload (2) + CRC (1)
     out_frame[2] = CRSF_FRAMETYPE_DEVICE_PING;
     out_frame[3] = CRSF_ADDRESS_BROADCAST;
@@ -296,7 +296,7 @@ pub fn build_ping_frame(out_frame: &mut [u8]) -> usize {
 }
 
 /// Build an Extended Parameter frame (Read 0x2C or Write 0x2D).
-/// Wire frame format: [Target] [Len (6)] [Type] [Dest (Target)] [Orig (0xEA)] [Param] [Payload] [CRC]
+/// Wire frame format per TBS spec: [Sync (0xC8)] [Len (6)] [Type] [Dest (Target)] [Orig (0xEA)] [Param] [Payload] [CRC]
 pub fn build_param_ext_frame(
     target: u8,
     frame_type: u8,
@@ -304,7 +304,7 @@ pub fn build_param_ext_frame(
     val_or_chunk: u8,
     out_frame: &mut [u8],
 ) -> usize {
-    out_frame[0] = target;
+    out_frame[0] = CRSF_SYNC_BYTE;
     out_frame[1] = 6; // Type (1) + Dest (1) + Orig (1) + Param (1) + Value/Chunk (1) + CRC (1) = 6
     out_frame[2] = frame_type;
     out_frame[3] = target;
@@ -390,7 +390,7 @@ mod tests {
         assert_eq!(len, CRSF_RC_FRAME_SIZE);
 
         // Header check
-        assert_eq!(frame[0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(frame[0], CRSF_SYNC_BYTE);
         assert_eq!(frame[1], 24);
         assert_eq!(frame[2], CRSF_FRAMETYPE_RC_CHANNELS_PACKED);
 
@@ -492,7 +492,7 @@ mod tests {
         let mut buf = [0u8; 8];
         let len = build_ping_frame(&mut buf);
         assert_eq!(len, 6);
-        assert_eq!(buf[0], CRSF_ADDRESS_CRSF_TRANSMITTER); // 0xEE
+        assert_eq!(buf[0], CRSF_SYNC_BYTE); // 0xC8 per TBS CRSF spec
         assert_eq!(buf[1], 4);
         assert_eq!(buf[2], CRSF_FRAMETYPE_DEVICE_PING); // 0x28
         assert_eq!(buf[3], CRSF_ADDRESS_BROADCAST); // 0x00
@@ -505,7 +505,7 @@ mod tests {
         let mut read_buf = [0u8; 8];
         let read_len = build_param_read_frame(CRSF_ADDRESS_CRSF_TRANSMITTER, 3, 1, &mut read_buf);
         assert_eq!(read_len, 8);
-        assert_eq!(read_buf[0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(read_buf[0], CRSF_SYNC_BYTE);
         assert_eq!(read_buf[1], 6);
         assert_eq!(read_buf[2], CRSF_FRAMETYPE_PARAMETER_READ);
         assert_eq!(read_buf[3], CRSF_ADDRESS_CRSF_TRANSMITTER);
@@ -517,6 +517,7 @@ mod tests {
         let mut write_buf = [0u8; 8];
         let write_len = build_param_write_frame(CRSF_ADDRESS_CRSF_TRANSMITTER, 3, 42, &mut write_buf);
         assert_eq!(write_len, 8);
+        assert_eq!(write_buf[0], CRSF_SYNC_BYTE);
         assert_eq!(write_buf[2], CRSF_FRAMETYPE_PARAMETER_WRITE);
         assert_eq!(write_buf[5], 3);
         assert_eq!(write_buf[6], 42); // value
@@ -539,12 +540,12 @@ mod tests {
         let mut buf = [0u8; 8];
         // Target 1: ELRS Receiver (0xEC)
         build_param_read_frame(CRSF_ADDRESS_CRSF_RECEIVER, 1, 0, &mut buf);
-        assert_eq!(buf[0], CRSF_ADDRESS_CRSF_RECEIVER, "Wire destination must match dynamic target (0xEC)");
-        assert_eq!(buf[3], CRSF_ADDRESS_CRSF_RECEIVER);
+        assert_eq!(buf[0], CRSF_SYNC_BYTE, "Wire sync byte must always be 0xC8 per TBS CRSF spec");
+        assert_eq!(buf[3], CRSF_ADDRESS_CRSF_RECEIVER, "Payload destination must match target (0xEC)");
 
         // Target 2: Flight Controller (0xC8)
         build_param_write_frame(CRSF_ADDRESS_FLIGHT_CONTROLLER, 2, 99, &mut buf);
-        assert_eq!(buf[0], CRSF_ADDRESS_FLIGHT_CONTROLLER, "Wire destination must match dynamic target (0xC8)");
-        assert_eq!(buf[3], CRSF_ADDRESS_FLIGHT_CONTROLLER);
+        assert_eq!(buf[0], CRSF_SYNC_BYTE, "Wire sync byte must always be 0xC8 per TBS CRSF spec");
+        assert_eq!(buf[3], CRSF_ADDRESS_FLIGHT_CONTROLLER, "Payload destination must match target (0xC8)");
     }
 }

@@ -71,7 +71,7 @@ To eliminate data loss and guarantee high-speed stability:
 3. **High NVIC Priority (`0x40`)**: IRQ 28 is unmasked with priority `0x40` (higher than TIM16/EXTI at `0x80` and USB at `0xC0`), guaranteeing preemption of any blocking loop tasks.
 4. **Hardware ORE Auto-Recovery**: The ISR inspects and clears `USART_ISR_ORE` on every entry.
 5. **Inter-Byte Silence Resynchronization**: If an electrical glitch or wire disconnect interrupts a packet mid-frame, `poll_telemetry()` tracks `LAST_RX_BYTE_MS`. If $\ge 3\text{ ms}$ elapses with an incomplete frame, `RX_LEN` automatically resets to 0 to resynchronize for the next frame.
-6. **Dynamic Wire Routing**: Extended parameter frames dynamically route byte 0 (`out_frame[0] = target;`) to match the target device (`0xEE` transmitter, `0xEC` receiver, or `0xC8` flight controller), and the handset accepts incoming frames starting with `CRSF_ADDRESS_CRSF_RECEIVER` (`0xEC`).
+6. **TBS-Compliant Wire Framing**: All serial frames emitted by the handset start with `CRSF_SYNC_BYTE` (`0xC8`) on the wire per the TBS CRSF specification. In extended frames (`0x28`, `0x2C`, `0x2D`), byte 3 contains the target device address (`0xEE` transmitter, `0xEC` receiver, or `0xC8` flight controller), and byte 4 contains the handset origin address (`0xEA`).
 
 ---
 
@@ -102,7 +102,7 @@ When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()
 1. **Engine State**: Transitions to `ElrsConfigState::Discovering`, resetting `devices_len = 0`.
 2. **Packet Built on Wire (`build_ping_frame`)**:
    ```text
-   Byte 0: 0xEE  (Dest: External TX Module)
+   Byte 0: 0xC8  (Sync: CRSF_SYNC_BYTE per TBS spec)
    Byte 1: 0x04  (Len: 4 bytes follow)
    Byte 2: 0x28  (Type: CRSF_FRAMETYPE_DEVICE_PING)
    Byte 3: 0x00  (Payload[0]: Target = Broadcast)
@@ -135,10 +135,10 @@ Parameters are loaded sequentially from ID `1` up to `param_count` (cached up to
 
 #### A. Request Frame (`0x2C` Parameter Read)
 ```text
-Byte 0: [Target]     (Dest: 0xEE for TX, 0xEC for RX)
+Byte 0: 0xC8         (Sync: CRSF_SYNC_BYTE per TBS spec)
 Byte 1: 0x06         (Len: 6)
 Byte 2: 0x2C         (Type: CRSF_FRAMETYPE_PARAMETER_READ)
-Byte 3: [Target]     (Dest)
+Byte 3: [Target]     (Dest: 0xEE for TX, 0xEC for RX, 0xC8 for FC)
 Byte 4: 0xEA         (Orig: Handset)
 Byte 5: [Param ID]   (Parameter index: 1..N)
 Byte 6: [Chunk]      (Chunk index: 0 for start of param)
@@ -205,10 +205,10 @@ When the user selects an option parameter and presses **`[OK]`**:
    $$\text{new\_value} = (\text{current\_value} + 1) \pmod{\text{max\_value} + 1}$$
 2. **Wire Frame (`build_param_write_frame`)**:
    ```text
-   Byte 0: 0xEE         (Dest: Module)
+   Byte 0: 0xC8         (Sync: CRSF_SYNC_BYTE per TBS spec)
    Byte 1: 0x06         (Len: 6)
    Byte 2: 0x2D         (Type: CRSF_FRAMETYPE_PARAMETER_WRITE)
-   Byte 3: 0xEE         (Dest)
+   Byte 3: [Target]     (Dest: 0xEE for TX, 0xEC for RX, 0xC8 for FC)
    Byte 4: 0xEA         (Orig: Handset)
    Byte 5: [Param ID]   (Target parameter ID)
    Byte 6: [New Value]  (New selection index)
@@ -308,9 +308,9 @@ cargo test-host
    - Injects the exact 27-byte capture from an ExpressLRS receiver:
      `0xC8 0x19 0x29 0xEA 0xEE 0x52 0x4D 0x20 0x52 0x50 0x32 0x00 0x45 0x4C 0x52 0x53 0x00 0x00 0x00 0x00 0x00 0x04 0x00 0x00 0x15 0x00 0x0D`
    - Validates device name `"RM RP2"`, serial `"ELRS"`, firmware ID `4`, parameter count `21`, and transition to `LoadingParam(1)`.
-   - Validates outbound response matches specification: `[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]`.
+   - Validates outbound response matches specification: `[0xC8, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]`.
 2. **Dynamic Target Addressing (`test_dynamic_target_addressing`)**:
-   - Verifies wire destination byte 0 dynamically matches `target` for `0xEE`, `0xEC`, and `0xC8`.
+   - Verifies wire destination byte 0 is always `CRSF_SYNC_BYTE` (`0xC8`) and payload byte 3 dynamically matches `target` for `0xEE`, `0xEC`, and `0xC8`.
 3. **Receiver Address Filter Acceptance (`test_rx_accepts_receiver_address_0xec`)**:
    - Verifies incoming frames addressed to `0xEC` (`CRSF_ADDRESS_CRSF_RECEIVER`) are ingested into `RX_BUF` rather than rejected.
 4. **Inter-Byte Timeout Resynchronization (`test_inter_byte_timeout_resync`)**:

@@ -866,8 +866,8 @@ mod tests {
         crc8, CRSF_ADDRESS_CRSF_TRANSMITTER,
         CRSF_ADDRESS_RADIO_TRANSMITTER, CRSF_FRAMETYPE_DEVICE_INFO,
         CRSF_FRAMETYPE_LINK_STATISTICS, CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY,
-        CRSF_TYPE_COMMAND, CRSF_TYPE_SELECT, STATUS_CONFIRMATION_NEEDED, STATUS_PROGRESS,
-        STATUS_READY, STATUS_START,
+        CRSF_SYNC_BYTE, CRSF_TYPE_COMMAND, CRSF_TYPE_SELECT, STATUS_CONFIRMATION_NEEDED,
+        STATUS_PROGRESS, STATUS_READY, STATUS_START,
     };
     use crate::time::set_millis;
 
@@ -957,7 +957,7 @@ mod tests {
         // Verify Ping packet transmitted
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1, "start_config must transmit ping packet");
-        assert_eq!(tx[0][0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(tx[0][0], CRSF_SYNC_BYTE);
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_DEVICE_PING);
 
         // 2. Feed Device Info response frame (0x29)
@@ -1383,10 +1383,10 @@ mod tests {
         poll_telemetry(1040);
 
         // Handset must reply with Parameter Read for Param 1 Chunk 0 addressed to 0xEE:
-        // [0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]
+        // [0xC8, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1, "Must emit outbound parameter read for Param 1");
-        assert_eq!(tx[0], &[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]);
+        assert_eq!(tx[0], &[0xC8, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]);
     }
 
     #[test]
@@ -1627,7 +1627,7 @@ mod tests {
         poll_telemetry(1040);
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
-        assert_eq!(tx[0][0], 0xEE, "Dest wire byte must be 0xEE");
+        assert_eq!(tx[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8");
         assert_eq!(tx[0][3], 0xEE, "Dest payload byte must be 0xEE");
         assert_eq!(tx[0][5], 1, "Param 1");
         assert_eq!(tx[0][6], 0, "Chunk 0");
@@ -1655,7 +1655,7 @@ mod tests {
         poll_telemetry(1090);
         let tx2 = uart::mock::take_tx();
         assert_eq!(tx2.len(), 1);
-        assert_eq!(tx2[0][0], 0xEE, "Dest wire byte must be 0xEE");
+        assert_eq!(tx2[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8");
         assert_eq!(tx2[0][3], 0xEE, "Dest payload byte must be 0xEE");
         assert_eq!(tx2[0][5], 1, "Param 1");
         assert_eq!(tx2[0][6], 1, "Chunk 1");
@@ -1712,7 +1712,7 @@ mod tests {
         poll_telemetry(1070);
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
-        assert_eq!(tx[0][0], 0xEC, "Outbound wire byte must be targeted to 0xEC");
+        assert_eq!(tx[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8 per TBS CRSF spec");
         assert_eq!(tx[0][3], 0xEC, "Outbound payload dest must be 0xEC");
         assert_eq!(tx[0][5], 1); // Param 1
         assert_eq!(tx[0][6], 0); // Chunk 0
@@ -1850,7 +1850,7 @@ mod tests {
         // Param Write frame (0x2D) transmitted
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1, "Must transmit 0x2D Param Write");
-        assert_eq!(tx[0][0], CRSF_ADDRESS_CRSF_TRANSMITTER);
+        assert_eq!(tx[0][0], CRSF_SYNC_BYTE);
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_WRITE);
         assert_eq!(tx[0][5], 1, "Param ID 1");
         assert_eq!(tx[0][6], 2, "New value = 2");

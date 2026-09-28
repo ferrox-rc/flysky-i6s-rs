@@ -206,7 +206,7 @@ Serial lines in noisy RC RF environments experience voltage transients, partial 
 ### 4.3 Multi-Device Wire Routing
 
 CRSF allows communicating with modules (`0xEE`), receivers (`0xEC`), and flight controllers (`0xC8`):
-- `test_dynamic_target_addressing` validates that outbound parameter read/write frames set wire destination byte 0 to match the target device dynamically.
+- `test_dynamic_target_addressing` validates that outbound parameter read/write frames start with `CRSF_SYNC_BYTE` (`0xC8`) on the wire and route destination address to payload byte 3 dynamically.
 - `test_rx_accepts_receiver_address_0xec` ensures that frames originating from receivers (`0xEC`) are accepted into the receive pipeline rather than dropped.
 
 ### 4.4 Parameter Chunk Reassembly & Interactive Command Lifecycle
