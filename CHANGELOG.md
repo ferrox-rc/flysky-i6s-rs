@@ -8,9 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.17.0] - 2026-09-28
 
 ### Summary
-Major protocol and architecture release delivering full TBS Crossfire Protocol Rev 08 and ExpressLRS parameter synchronization specification adherence, FlySky standard channel conversion (988–2012 µs), dynamic physical wire routing with `0xC8` wire sync framing, full TBS-Agent style multi-device discovery with dynamic disconnect pruning, subfolder hierarchy navigation, modal in-place parameter editing, immediate high-speed query dispatch, hardware interrupt-driven USART2 RX with a 128-byte lock-free ring buffer, framing inter-byte resynchronization timeouts, and a dual-target host test harness (`cargo test-host`) with 46 automated unit tests.
+Major protocol and architecture release delivering full TBS Crossfire Protocol Rev 08 and ExpressLRS parameter synchronization specification adherence, FlySky standard channel conversion (988–2012 µs), dynamic physical wire routing with `0xC8` wire sync framing, full TBS-Agent style multi-device discovery with dynamic disconnect pruning, Unified 255-Parameter Pool with 3.5 KB static string pool, hidden parameter suppression, LCD text overlap and clipping fixes, subfolder hierarchy navigation, modal in-place parameter editing, immediate high-speed query dispatch, hardware interrupt-driven USART2 RX with a 128-byte lock-free ring buffer, framing inter-byte resynchronization timeouts, and a dual-target host test harness (`cargo test-host`) with 48 automated unit tests.
 
 ### Added
+- **Unified 255-Parameter Pool ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Expanded parameter capacity from 24 to the full protocol ceiling of **255 parameters** using an ultra-compact 12-byte descriptor table and a centralized 3.5 KB static string pool (`STRING_POOL`). Fully accommodates complex flight controllers (80+ parameters) and multi-channel PWM receivers (35+ parameters) while leaving $> 6.5\text{ KB}$ of free SRAM stack headroom.
+- **CRSF / ExpressLRS Hidden Parameter Flag Support ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Obeyed bit 7 (`0x80`) of the parameter type byte (`is_hidden()`) to filter out internal/unintended receiver configuration fields (such as internal UIDs) from folder navigation views.
+- **128×64 LCD Parameter Layout & Overlap Bugfix ([`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Dynamically calculated maximum name widths based on value length, right-aligned values ending cleanly at $x = 124$, eliminated the off-screen clipping bug, and cleanly stripped parenthetical sensitivity suffixes (e.g. `250Hz(-108dBm)` $\to$ `250Hz`) when line space is constrained.
 - **Immediate High-Speed Query Dispatch ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Outbound sequential parameter queries and multi-chunk requests are dispatched immediately upon receipt and validation of preceding chunks/parameters, eliminating artificial pacing delays and matching native TBS-Agent and ELRS Lua wire performance.
 - **Dynamic Device List Auto-Pruning ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
@@ -21,7 +27,7 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
   - **Hardware ORE Auto-Clearing**: ISR detects and clears `USART_ISR_ORE` to prevent receiver lockups.
 - **Dual-Target Host Unit Test Harness ([`.cargo/config.toml`](.cargo/config.toml), [`Cargo.toml`](Cargo.toml))**:
   - Established `cargo test-host` alias targeting `x86_64-unknown-linux-gnu` with `#![cfg_attr(not(test), no_std)]` in `src/lib.rs`.
-  - Added 46 comprehensive host unit tests across `crsf`, `mixer`, `trim`, and `curve` modules with zero hardware dependencies.
+  - Expanded host unit test suite to 48 passing tests covering 255-parameter pooling, hidden flag filtering, device pruning, and framing validation with zero hardware dependencies.
 - **TBS-Agent Style Multi-Device Discovery & Device Picker ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
   - Broadcasts 1 Hz discovery pings and registers all responding bus devices (transmitters `0xEE`, receivers `0xEC`, flight controllers `0xC8`) into a deduplicated table (`DiscoveredDevice`).
   - Presents an interactive `CRSF DEVICES` screen with role tags (`[TX]`, `[RX]`, `[FC]`), allowing pilots to configure either the transmitter module or over-the-air receiver directly.

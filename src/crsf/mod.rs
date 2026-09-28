@@ -70,7 +70,9 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
     }
 }
 
-pub const MAX_PARAMS: usize = 24;
+pub const MAX_PARAMS: usize = 255;
+pub const MAX_FOLDER_ITEMS: usize = 64;
+pub const STRING_POOL_SIZE: usize = 3584;
 
 static mut CHUNK_BUF: [u8; 320] = [0; 320];
 static mut CHUNK_LEN: usize = 0;
@@ -132,14 +134,14 @@ pub enum ActiveCommandState {
 pub struct Parameter {
     pub id: u8,
     pub parent: u8,
-    pub param_type: u8,
-    pub name: [u8; 16],
-    pub name_len: u8,
+    pub param_type: u8, // lower 7 bits = type, bit 7 = hidden flag
     pub value: u8,
     pub max_value: u8,
-    pub options: [u8; 160],
-    pub options_len: u8,
     pub status: u8,
+    pub name_offset: u16,
+    pub name_len: u8,
+    pub options_offset: u16,
+    pub options_len: u8,
 }
 
 impl Parameter {
@@ -148,40 +150,68 @@ impl Parameter {
             id: 0,
             parent: 0,
             param_type: 0,
-            name: [0; 16],
-            name_len: 0,
             value: 0,
             max_value: 0,
-            options: [0; 160],
-            options_len: 0,
             status: 0,
+            name_offset: 0,
+            name_len: 0,
+            options_offset: 0,
+            options_len: 0,
+        }
+    }
+
+    #[inline]
+    pub fn is_hidden(&self) -> bool {
+        (self.param_type & 0x80) != 0
+    }
+
+    #[inline]
+    pub fn clean_type(&self) -> u8 {
+        self.param_type & 0x7F
+    }
+
+    pub fn name<'a>(&'a self, pool: &'a [u8]) -> &'a str {
+        if self.name_len == 0 {
+            return "";
+        }
+        let start = self.name_offset as usize;
+        let end = (start + self.name_len as usize).min(pool.len());
+        if start < end {
+            core::str::from_utf8(&pool[start..end]).unwrap_or("")
+        } else {
+            ""
         }
     }
 
     /// Extract option string for any `val` index into buffer.
-    pub fn option_str_for_val<'a>(&'a self, val: u8, buf: &'a mut [u8; 16]) -> &'a str {
+    pub fn option_str_for_val<'a>(&'a self, pool: &'a [u8], val: u8, buf: &'a mut [u8; 24]) -> &'a str {
         if self.options_len == 0 {
             return "";
         }
-        let opts = &self.options[..self.options_len as usize];
+        let start = self.options_offset as usize;
+        let end = (start + self.options_len as usize).min(pool.len());
+        if start >= end {
+            return "";
+        }
+        let opts = &pool[start..end];
         let mut idx = 0u8;
-        let mut start = 0usize;
+        let mut chunk_start = 0usize;
 
         for (i, &b) in opts.iter().enumerate() {
             if b == b';' || b == 0 {
                 if idx == val {
-                    let chunk = &opts[start..i];
-                    let copy_len = chunk.len().min(15);
+                    let chunk = &opts[chunk_start..i];
+                    let copy_len = chunk.len().min(buf.len() - 1);
                     buf[..copy_len].copy_from_slice(&chunk[..copy_len]);
                     return core::str::from_utf8(&buf[..copy_len]).unwrap_or("");
                 }
                 idx += 1;
-                start = i + 1;
+                chunk_start = i + 1;
             }
         }
-        if idx == val && start < opts.len() {
-            let chunk = &opts[start..];
-            let copy_len = chunk.len().min(15);
+        if idx == val && chunk_start < opts.len() {
+            let chunk = &opts[chunk_start..];
+            let copy_len = chunk.len().min(buf.len() - 1);
             buf[..copy_len].copy_from_slice(&chunk[..copy_len]);
             return core::str::from_utf8(&buf[..copy_len]).unwrap_or("");
         }
@@ -189,8 +219,8 @@ impl Parameter {
     }
 
     /// Extract option string for current `value` index into buffer.
-    pub fn current_option_str<'a>(&'a self, buf: &'a mut [u8; 16]) -> &'a str {
-        self.option_str_for_val(self.value, buf)
+    pub fn current_option_str<'a>(&'a self, pool: &'a [u8], buf: &'a mut [u8; 24]) -> &'a str {
+        self.option_str_for_val(pool, self.value, buf)
     }
 }
 
@@ -238,6 +268,8 @@ pub struct ElrsConfigEngine {
     pub selected_device_idx: usize,
     pub params: [Parameter; MAX_PARAMS],
     pub params_len: usize,
+    pub string_pool: [u8; STRING_POOL_SIZE],
+    pub string_pool_len: usize,
     pub last_req_ms: u32,
     pub next_req_ms: u32,
     pub current_chunk: u8,
@@ -259,6 +291,8 @@ impl ElrsConfigEngine {
             selected_device_idx: 0,
             params: [Parameter::empty(); MAX_PARAMS],
             params_len: 0,
+            string_pool: [0; STRING_POOL_SIZE],
+            string_pool_len: 0,
             last_req_ms: 0,
             next_req_ms: 0,
             current_chunk: 0,
@@ -424,13 +458,13 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
         return;
     }
     let parent = chunk[0];
-    let p_type = chunk[1] & 0x7F;
+    let raw_type = chunk[1];
+    let p_type = raw_type & 0x7F;
 
     let mut name_buf = [0u8; 16];
     let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
 
-    let mut opt_buf = [0u8; 160];
-    let mut opt_len = 0u8;
+    let mut opt_slice_len = 0usize;
     let mut val = 0u8;
     let mut max_val = 0u8;
     let mut status = 0u8;
@@ -445,9 +479,7 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                 }
                 opt_end += 1;
             }
-            let copy_len = (opt_end - rest_start).min(160);
-            opt_buf[..copy_len].copy_from_slice(&chunk[rest_start..rest_start + copy_len]);
-            opt_len = copy_len as u8;
+            opt_slice_len = opt_end.saturating_sub(rest_start);
             max_val = opt_count.saturating_sub(1);
 
             let val_pos = opt_end + 1;
@@ -492,25 +524,43 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
         if p.id == param_id {
             p.value = val;
             p.status = status;
-            p.options = opt_buf;
-            p.options_len = opt_len;
             p.max_value = max_val;
             found = true;
             break;
         }
     }
     if !found && CONFIG_ENGINE.params_len < MAX_PARAMS {
+        // Append name to string_pool
+        let name_offset = CONFIG_ENGINE.string_pool_len as u16;
+        let pool_avail_name = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
+        let actual_name_len = (name_len as usize).min(pool_avail_name);
+        if actual_name_len > 0 {
+            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_name_len]
+                .copy_from_slice(&chunk[2..2 + actual_name_len]);
+            CONFIG_ENGINE.string_pool_len += actual_name_len;
+        }
+
+        // Append options to string_pool
+        let opt_offset = CONFIG_ENGINE.string_pool_len as u16;
+        let pool_avail_opt = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
+        let actual_opt_len = opt_slice_len.min(pool_avail_opt);
+        if actual_opt_len > 0 {
+            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_opt_len]
+                .copy_from_slice(&chunk[rest_start..rest_start + actual_opt_len]);
+            CONFIG_ENGINE.string_pool_len += actual_opt_len;
+        }
+
         CONFIG_ENGINE.params[CONFIG_ENGINE.params_len] = Parameter {
             id: param_id,
             parent,
-            param_type: p_type,
-            name: name_buf,
-            name_len,
+            param_type: raw_type,
             value: val,
             max_value: max_val,
-            options: opt_buf,
-            options_len: opt_len,
             status,
+            name_offset,
+            name_len: actual_name_len as u8,
+            options_offset: opt_offset,
+            options_len: actual_opt_len as u8,
         };
         CONFIG_ENGINE.params_len += 1;
     }
@@ -710,6 +760,7 @@ pub fn start_config() {
         CONFIG_ENGINE.devices_len = 0;
         CONFIG_ENGINE.selected_device_idx = 0;
         CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.string_pool_len = 0;
         CONFIG_ENGINE.last_req_ms = now;
         CONFIG_ENGINE.next_req_ms = now.wrapping_add(1000);
         CONFIG_ENGINE.current_chunk = 0;
@@ -738,6 +789,7 @@ pub fn select_device(idx: usize) -> bool {
         CONFIG_ENGINE.device_name_len = n_len as u8;
         CONFIG_ENGINE.param_count = dev.param_count;
         CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.string_pool_len = 0;
         CONFIG_ENGINE.current_chunk = 0;
         CONFIG_ENGINE.expect_chunks_remain = 0xFF;
         CONFIG_ENGINE.retry_count = 0;
@@ -780,6 +832,7 @@ pub fn return_to_device_list() {
         let now = crate::time::millis();
         CONFIG_ENGINE.state = ElrsConfigState::Discovering;
         CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.string_pool_len = 0;
         CONFIG_ENGINE.current_chunk = 0;
         CONFIG_ENGINE.expect_chunks_remain = 0xFF;
         CHUNK_LEN = 0;
@@ -796,7 +849,7 @@ pub fn set_param_value(param_idx: usize, value: u8) {
     unsafe {
         if param_idx < CONFIG_ENGINE.params_len {
             let p = &mut CONFIG_ENGINE.params[param_idx];
-            if p.param_type == protocol::CRSF_TYPE_SELECT {
+            if p.clean_type() == protocol::CRSF_TYPE_SELECT {
                 p.value = value.min(p.max_value);
                 send_param_write(CONFIG_ENGINE.device_id, p.id, p.value);
             }
@@ -806,13 +859,15 @@ pub fn set_param_value(param_idx: usize, value: u8) {
 
 /// Query parameter indices belonging to a given folder ID (0 = root).
 /// Returns count of matching parameters.
-pub fn get_folder_params(folder_id: u8, out_indices: &mut [usize; MAX_PARAMS]) -> usize {
+pub fn get_folder_params(folder_id: u8, out_indices: &mut [u8; MAX_FOLDER_ITEMS]) -> usize {
     unsafe {
         let mut count = 0;
         for (idx, p) in CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len].iter().enumerate() {
-            if p.parent == folder_id {
-                out_indices[count] = idx;
-                count += 1;
+            if p.parent == folder_id && !p.is_hidden() {
+                if count < MAX_FOLDER_ITEMS {
+                    out_indices[count] = idx as u8;
+                    count += 1;
+                }
             }
         }
         count
@@ -832,13 +887,11 @@ pub fn get_parent_folder(folder_id: u8) -> u8 {
 }
 
 /// Find display name of a folder by ID.
-pub fn get_folder_name<'a>(folder_id: u8, buf: &'a mut [u8; 16]) -> &'a str {
+pub fn get_folder_name<'a>(folder_id: u8, _buf: &'a mut [u8; 16]) -> &'a str {
     unsafe {
         for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
             if p.id == folder_id {
-                let len = (p.name_len as usize).min(16);
-                buf[..len].copy_from_slice(&p.name[..len]);
-                return core::str::from_utf8(&buf[..len]).unwrap_or("Folder");
+                return p.name(&CONFIG_ENGINE.string_pool);
             }
         }
         "Folder"
@@ -934,6 +987,46 @@ mod tests {
             TELEMETRY = CrsfTelemetry::new();
             uart::mock::clear();
         }
+    }
+
+    unsafe fn add_test_param(
+        id: u8,
+        parent: u8,
+        param_type: u8,
+        name: &str,
+        value: u8,
+        max_val: u8,
+        options: &str,
+    ) -> usize {
+        let name_offset = CONFIG_ENGINE.string_pool_len as u16;
+        let n_bytes = name.as_bytes();
+        CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + n_bytes.len()]
+            .copy_from_slice(n_bytes);
+        CONFIG_ENGINE.string_pool_len += n_bytes.len();
+
+        let opt_offset = CONFIG_ENGINE.string_pool_len as u16;
+        let o_bytes = options.as_bytes();
+        if !o_bytes.is_empty() {
+            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + o_bytes.len()]
+                .copy_from_slice(o_bytes);
+            CONFIG_ENGINE.string_pool_len += o_bytes.len();
+        }
+
+        let idx = CONFIG_ENGINE.params_len;
+        CONFIG_ENGINE.params[idx] = Parameter {
+            id,
+            parent,
+            param_type,
+            value,
+            max_value: max_val,
+            status: value,
+            name_offset,
+            name_len: n_bytes.len() as u8,
+            options_offset: opt_offset,
+            options_len: o_bytes.len() as u8,
+        };
+        CONFIG_ENGINE.params_len += 1;
+        idx
     }
 
     #[test]
@@ -1129,12 +1222,12 @@ mod tests {
         assert_eq!(engine.params_len, 1);
         let p = &engine.params[0];
         assert_eq!(p.id, 1);
-        assert_eq!(p.param_type, CRSF_TYPE_SELECT);
-        assert_eq!(&p.name[..8], b"Pkt Rate");
+        assert_eq!(p.clean_type(), CRSF_TYPE_SELECT);
+        assert_eq!(p.name(&engine.string_pool), "Pkt Rate");
         assert_eq!(p.value, 2);
         assert_eq!(p.max_value, 3); // 4 options -> max_value = 3
-        let mut buf = [0u8; 16];
-        assert_eq!(p.current_option_str(&mut buf), "250Hz");
+        let mut buf = [0u8; 24];
+        assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "250Hz");
 
         // Advanced to loading Param 2
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(2));
@@ -1203,11 +1296,11 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.params_len, 1, "Reassembled parameter must be stored");
         let p = &engine.params[0];
-        assert_eq!(&p.name[..3], b"Pwr");
+        assert_eq!(p.name(&engine.string_pool), "Pwr");
         assert_eq!(p.value, 3);
         assert_eq!(p.max_value, 3); // 4 options total: 10mW, 25mW, 100mW, 250mW
-        let mut buf = [0u8; 16];
-        assert_eq!(p.current_option_str(&mut buf), "250mW");
+        let mut buf = [0u8; 24];
+        assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "250mW");
 
         // Since param_count was 1, state must transition to Ready
         assert_eq!(engine.state, ElrsConfigState::Ready);
@@ -1222,21 +1315,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
             CONFIG_ENGINE.state = ElrsConfigState::Ready;
-            let mut name = [0u8; 16];
-            name[..4].copy_from_slice(b"Bind");
-            CONFIG_ENGINE.params[0] = Parameter {
-                id: 1,
-                parent: 0,
-                param_type: CRSF_TYPE_COMMAND,
-                name,
-                name_len: 4,
-                value: STATUS_READY,
-                max_value: 0,
-                options: [0; 160],
-                options_len: 0,
-                status: STATUS_READY,
-            };
-            CONFIG_ENGINE.params_len = 1;
+            add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY, 0, "");
         }
 
         // 1. Trigger command
@@ -1738,62 +1817,13 @@ mod tests {
     fn test_folder_hierarchy_and_filtering() {
         reset_state();
         unsafe {
-            CONFIG_ENGINE.params_len = 4;
-            // Param 1: Packet Rate (root)
-            CONFIG_ENGINE.params[0] = Parameter {
-                id: 1,
-                parent: 0,
-                param_type: protocol::CRSF_TYPE_SELECT,
-                name: *b"Packet Rate\0\0\0\0\0",
-                name_len: 11,
-                value: 0,
-                max_value: 3,
-                options: [0; 160],
-                options_len: 0,
-                status: 0,
-            };
-            // Param 2: VTX Admin folder (id 2, parent 0)
-            CONFIG_ENGINE.params[1] = Parameter {
-                id: 2,
-                parent: 0,
-                param_type: protocol::CRSF_TYPE_FOLDER,
-                name: *b"VTX Admin\0\0\0\0\0\0\0",
-                name_len: 9,
-                value: 0,
-                max_value: 0,
-                options: [0; 160],
-                options_len: 0,
-                status: 0,
-            };
-            // Param 3: Band (parent 2)
-            CONFIG_ENGINE.params[2] = Parameter {
-                id: 3,
-                parent: 2,
-                param_type: protocol::CRSF_TYPE_SELECT,
-                name: *b"Band\0\0\0\0\0\0\0\0\0\0\0\0",
-                name_len: 4,
-                value: 1,
-                max_value: 4,
-                options: [0; 160],
-                options_len: 0,
-                status: 0,
-            };
-            // Param 4: Channel (parent 2)
-            CONFIG_ENGINE.params[3] = Parameter {
-                id: 4,
-                parent: 2,
-                param_type: protocol::CRSF_TYPE_SELECT,
-                name: *b"Channel\0\0\0\0\0\0\0\0\0",
-                name_len: 7,
-                value: 2,
-                max_value: 7,
-                options: [0; 160],
-                options_len: 0,
-                status: 0,
-            };
+            add_test_param(1, 0, protocol::CRSF_TYPE_SELECT, "Packet Rate", 0, 3, "");
+            add_test_param(2, 0, protocol::CRSF_TYPE_FOLDER, "VTX Admin", 0, 0, "");
+            add_test_param(3, 2, protocol::CRSF_TYPE_SELECT, "Band", 1, 4, "");
+            add_test_param(4, 2, protocol::CRSF_TYPE_SELECT, "Channel", 2, 7, "");
         }
 
-        let mut indices = [0usize; MAX_PARAMS];
+        let mut indices = [0u8; MAX_FOLDER_ITEMS];
 
         // Root folder (0): must contain Param 1 and Param 2 (count = 2)
         let root_count = get_folder_params(0, &mut indices);
@@ -1823,30 +1853,16 @@ mod tests {
         reset_state();
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
-            CONFIG_ENGINE.params_len = 1;
-            let mut opts = [0u8; 160];
-            let opt_str = b"10mW;25mW;100mW;250mW";
-            opts[..opt_str.len()].copy_from_slice(opt_str);
-            CONFIG_ENGINE.params[0] = Parameter {
-                id: 1,
-                parent: 0,
-                param_type: protocol::CRSF_TYPE_SELECT,
-                name: *b"Power\0\0\0\0\0\0\0\0\0\0\0",
-                name_len: 5,
-                value: 0, // initially 10mW
-                max_value: 3,
-                options: opts,
-                options_len: opt_str.len() as u8,
-                status: 0,
-            };
+            add_test_param(1, 0, protocol::CRSF_TYPE_SELECT, "Power", 0, 3, "10mW;25mW;100mW;250mW");
         }
 
-        let p = &get_config_engine().params[0];
-        let mut buf = [0u8; 16];
-        assert_eq!(p.current_option_str(&mut buf), "10mW");
-        assert_eq!(p.option_str_for_val(1, &mut buf), "25mW");
-        assert_eq!(p.option_str_for_val(2, &mut buf), "100mW");
-        assert_eq!(p.option_str_for_val(3, &mut buf), "250mW");
+        let engine = get_config_engine();
+        let p = &engine.params[0];
+        let mut buf = [0u8; 24];
+        assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "10mW");
+        assert_eq!(p.option_str_for_val(&engine.string_pool, 1, &mut buf), "25mW");
+        assert_eq!(p.option_str_for_val(&engine.string_pool, 2, &mut buf), "100mW");
+        assert_eq!(p.option_str_for_val(&engine.string_pool, 3, &mut buf), "250mW");
 
         // Simulate committing tentative edit value = 2 (100mW)
         uart::mock::clear();
@@ -1855,7 +1871,7 @@ mod tests {
         // Param value updated locally
         let p_updated = &get_config_engine().params[0];
         assert_eq!(p_updated.value, 2);
-        assert_eq!(p_updated.current_option_str(&mut buf), "100mW");
+        assert_eq!(p_updated.current_option_str(&get_config_engine().string_pool, &mut buf), "100mW");
 
         // Param Write frame (0x2D) transmitted
         let tx = uart::mock::take_tx();
@@ -1864,6 +1880,56 @@ mod tests {
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_WRITE);
         assert_eq!(tx[0][5], 1, "Param ID 1");
         assert_eq!(tx[0][6], 2, "New value = 2");
+    }
+
+    #[test]
+    fn test_parameter_hidden_flag_filtering() {
+        reset_state();
+        unsafe {
+            // Visible parameter: Model Match (id 1, parent 0, type 0x09)
+            add_test_param(1, 0, protocol::CRSF_TYPE_SELECT, "Model Match", 0, 1, "Off;On");
+            // Hidden parameter: Internal UID (id 2, parent 0, type 0x89 -> 0x09 with bit 7 set)
+            add_test_param(2, 0, protocol::CRSF_TYPE_SELECT | 0x80, "UID", 0, 0, "");
+            // Visible parameter: Output Map (id 3, parent 0, type 0x0B)
+            add_test_param(3, 0, protocol::CRSF_TYPE_FOLDER, "Output Map", 0, 0, "");
+        }
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 3);
+        assert!(!engine.params[0].is_hidden());
+        assert!(engine.params[1].is_hidden(), "Param 2 must have is_hidden() == true");
+        assert_eq!(engine.params[1].clean_type(), protocol::CRSF_TYPE_SELECT);
+        assert!(!engine.params[2].is_hidden());
+
+        // Querying root folder (0) must filter out the hidden parameter (UID)
+        let mut indices = [0u8; MAX_FOLDER_ITEMS];
+        let count = get_folder_params(0, &mut indices);
+        assert_eq!(count, 2, "Hidden parameter must be excluded from folder items");
+        assert_eq!(indices[0], 0); // Model Match
+        assert_eq!(indices[1], 2); // Output Map (skipped index 1 UID)
+    }
+
+    #[test]
+    fn test_unified_255_parameter_pool_and_capacity() {
+        reset_state();
+        unsafe {
+            for i in 1..=255 {
+                let id = i as u8;
+                let opt = if id % 2 == 0 { "Low;Med;High" } else { "" };
+                add_test_param(id, 0, protocol::CRSF_TYPE_SELECT, "Param", 1, 2, opt);
+            }
+        }
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 255, "Must successfully allocate all 255 parameters");
+        assert_eq!(engine.params[0].id, 1);
+        assert_eq!(engine.params[254].id, 255);
+
+        let mut buf = [0u8; 24];
+        assert_eq!(engine.params[0].name(&engine.string_pool), "Param");
+        // Param 2 (even) has options
+        assert_eq!(engine.params[1].current_option_str(&engine.string_pool, &mut buf), "Med");
+        assert_eq!(engine.params[1].option_str_for_val(&engine.string_pool, 2, &mut buf), "High");
     }
 
     #[test]
