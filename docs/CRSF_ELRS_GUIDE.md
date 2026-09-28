@@ -85,18 +85,47 @@ Radio (FS-i6X)                               External ELRS TX Module
       | -------- 0x2D (PARAM_WRITE: ID, Value) -------> |
 ```
 
-### Navigating the Configurator:
-1. Open Menu with long-press `[OK]`.
-2. Scroll to `9. Protocol Setup` and press `[OK]`.
-3. Highlight `[Configure Module]` and press `[OK]`.
-4. The radio sends `0x28 Ping` and dynamically populates parameters (Packet Rate, Power, TLM Ratio, Wi-Fi Mode, Bind).
-5. Press `[UP]` / `[DOWN]` to navigate between parameters.
-6. Press `[OK]` on a selection option (e.g., `Rate`) to cycle through available frequencies immediately.
-7. Press `[OK]` on a command action (e.g., `[Wi-Fi Mode]` or `[Bind]`) to trigger module functions.
-8. Press `[ESC]` at any time to return to the Protocol Setup menu.
+### Navigating the Configurator (TBS-Agent Style):
+
+#### Step 1: Open the Configurator & Device Picker
+1. Long-press **`[OK]`** on the flight screen to open the Main Menu.
+2. Scroll to `9. Protocol Setup` and press **`[OK]`**.
+3. Highlight `[Configure Module]` and press **`[OK]`**.
+4. The radio broadcasts discovery pings (`0x28 Ping`) and opens the **`CRSF DEVICES`** selection screen:
+   ```text
+   +-----------------------------------+
+   | CRSF DEVICES                      |
+   | > RM RP2                     [TX] |
+   |   RM RP4TD-M 2400            [RX] |
+   |   Betaflight                 [FC] |
+   |                                   |
+   | [OK] Select            [ESC] Back |
+   +-----------------------------------+
+   ```
+5. Use **`[UP]`** / **`[DOWN]`** to highlight the device you wish to configure (e.g. external transmitter `[TX]` or over-the-air receiver `[RX]`).
+6. Press **`[OK]`** to select that device and load its parameters.
+
+#### Step 2: Hierarchical Folder Navigation
+- Parameters are grouped logically in folders per the module's firmware (e.g. `VTX Admin >`, `Wi-Fi Options >`).
+- Folders display with a trailing chevron indicator (`>`).
+- Press **`[OK]`** on a folder to drill down into its sub-parameters. The header updates to show the active folder name.
+- Press **`[ESC]`** inside any subfolder to ascend back up one level.
+- Press **`[ESC]`** at the root parameter level to return to the **`CRSF DEVICES`** picker to switch devices.
+
+#### Step 3: In-Place Modal Parameter Editing
+- Highlight any selection setting (such as `Packet Rate` or `Power`) and press **`[OK]`**.
+- The field enters **Edit Mode**, displayed with selection brackets: `< 250Hz >`.
+- Press **`[UP]`** or **`[DOWN]`** to preview and cycle through options locally on screen without emitting premature serial commands.
+- Press **`[OK]`** to commit your choice: the radio transmits the `0x2D Param Write` frame over USART2 to the module and exits Edit Mode.
+- Press **`[ESC]`** to cancel editing without saving.
+
+#### Step 4: Triggering Command Actions
+- Highlight an action command (such as `[Bind]` or `[Wi-Fi Mode]`) and press **`[OK]`**.
+- If confirmation is required, an overlay prompt appears (`Run: [Bind]? [OK] Yes [ESC] No`).
+- Press **`[OK]`** to execute or **`[ESC]`** to cancel. The status updates in real-time (`[Executing...]` -> `[Cmd]`).
 
 > [!TIP]
-> For the complete byte-level framing breakdown, wire timing diagrams, CRC-8 formulas, and manual verification walkthrough, refer to the [CRSF Protocol Specification & Verification Guide](CRSF_PROTOCOL_SPEC.md).
+> For the complete byte-level framing breakdown, wire timing diagrams, CRC-8 formulas, and state machine transitions, refer to the [CRSF Protocol Specification & Verification Guide](CRSF_PROTOCOL_SPEC.md).
 
 ---
 

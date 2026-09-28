@@ -284,7 +284,8 @@ Replaces the redundant bind menu with universal RF protocol management:
   - `Baud: 416.6k (TBS)`: Standard TBS Crossfire module rate.
   - `Baud: 115.2k (Low)`: Low-speed compatibility / diagnostic rate.
   - `Baud: 921.6k (Fast)`: High-throughput ExpressLRS rate.
-  - `[Configure Module]`: Opens the native ExpressLRS configurator screen to adjust Packet Rate, Power, Wi-Fi Mode, and trigger binding.
+  - `[Configure Module]`: Opens the native TBS-Agent style configurator screen to discover devices, navigate subfolders, and configure settings.
+  - *For complete wiring pinouts, power polarity settings, live telemetry dashboard metrics, and the configurator guide, see the dedicated [CRSF & ExpressLRS Subsystem Guide](CRSF_ELRS_GUIDE.md).*
 
 ### Submenu 10: Channel Monitor (`CHANNEL MONITOR`)
 - Displays live pulse widths (1000..2000 µs) across all 14 channels with 40-pixel horizontal graphic bar indicators and exact microsecond numbers.
