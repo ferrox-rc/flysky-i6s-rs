@@ -110,8 +110,8 @@ When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()
    Byte 5: CRC   (crc8 over [0x28, 0x00, 0xEA] -> 0x54)
    ```
    **Total Size**: 6 bytes.
-3. **Multi-Device Registration**: All online devices responding with `0x29 Device Info` (local transmitter module `0xEE`, remote receiver `0xEC`, flight controller `0xC8`) are deduplicated and registered into `CONFIG_ENGINE.devices` (up to 4 devices).
-4. **Pacing**: `elrs_tick()` re-broadcasts the discovery ping every **1000 ms** (1 Hz), ensuring newly bound receivers or powered devices are discovered dynamically.
+3. **Multi-Device Registration & Dynamic Pruning**: All online devices responding with `0x29 Device Info` (local transmitter module `0xEE`, remote receiver `0xEC`, flight controller `0xC8`) are deduplicated and registered into `CONFIG_ENGINE.devices` (up to 4 devices). Devices that stop responding to 1 Hz pings for > 3000 ms (3 missed pings) are automatically pruned from the active list.
+4. **Pacing**: `elrs_tick()` re-broadcasts the discovery ping every **1000 ms** (1 Hz), ensuring newly bound receivers or powered devices are discovered or pruned dynamically.
 
 ---
 
@@ -124,6 +124,7 @@ Instead of hardcoding or locking onto the local TX module, the handset renders a
   - Sets `CONFIG_ENGINE.device_id` to the target address (`0xEE` or `0xEC`).
   - Sets `CONFIG_ENGINE.param_count` from the device's announcement.
   - Transitions to `ElrsConfigState::LoadingParam(1)`.
+  - Dispatches `0x2C Parameter Read` for Param 1 Chunk 0 immediately.
 - While configuring, broadcasts from other bus devices are safely ignored.
 - Pressing `[ESC]` from root parameter view calls `crsf::return_to_device_list()`, returning smoothly to the device picker.
 
@@ -169,13 +170,13 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
    - **For `COMMAND` (0x0D)**:
      - Followed by 1 byte: Command Status (`0` = Ready, `1` = Start, `2` = In Progress, `3` = Confirmation Needed, etc.).
 
-#### D. Pacing, Timeout Recovery & State Machine Progression:
-- **Pacing Guard Time**: To prevent receiver input queue overrun and wire collisions, no requests are sent synchronously in RX packet callbacks. All requests are scheduled with a **40 ms guard time** and transmitted exclusively via `elrs_tick()`.
+#### D. Immediate Query Dispatch, Timeout Recovery & State Machine Progression:
+- **Immediate Query Dispatch**: To achieve maximum wire loading performance matching native TBS-Agent and ELRS Lua implementations, sequential requests and multi-chunk queries are transmitted immediately upon ingestion of the preceding chunk or parameter frame without artificial delays.
 - **Chunk Sequencing**: Incoming chunks must match `expect_chunks_remain`. Stale or duplicate chunks from re-transmissions are safely discarded.
-- **Timeout and Retries**: If no response arrives within **500 ms** (for local TX `0xEE`) or **1000 ms** (for remote receiver `0xEC`), `elrs_tick()` retries the request up to **4 times**. If retries are exhausted, the engine safely advances to `id + 1` to prevent UI lockup.
+- **Timeout and Retries**: If no response arrives within **500 ms** (for local TX `0xEE`) or **1000 ms** (for remote receiver `0xEC`), `elrs_tick()` retries the request up to **4 times**. If retries are exhausted, the engine safely advances to `id + 1` immediately to prevent UI lockup.
 - **Completion**: When `Chunks Remain == 0`:
   - Parses and stores the reassembled parameter.
-  - If in `ElrsConfigState::LoadingParam(id)`: advances to `next_id = param_id + 1` (scheduled after 40 ms) until `param_count` or `MAX_PARAMS (24)` is reached, then enters `ElrsConfigState::Ready`.
+  - If in `ElrsConfigState::LoadingParam(id)`: immediately requests `next_id = param_id + 1` until `param_count` or `MAX_PARAMS (24)` is reached, then enters `ElrsConfigState::Ready`.
   - If already in `ElrsConfigState::Ready`: updates the cached parameter and **remains in `Ready`**, preserving active UI display.
 
 ---

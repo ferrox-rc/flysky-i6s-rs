@@ -102,8 +102,8 @@ Radio (FS-i6X)                               External ELRS TX Module
    | [OK] Select            [ESC] Back |
    +-----------------------------------+
    ```
-5. Use **`[UP]`** / **`[DOWN]`** to highlight the device you wish to configure (e.g. external transmitter `[TX]` or over-the-air receiver `[RX]`).
-6. Press **`[OK]`** to select that device and load its parameters.
+5. Use **`[UP]`** / **`[DOWN]`** to highlight the device you wish to configure (e.g. external transmitter `[TX]` or over-the-air receiver `[RX]`). Devices are discovered dynamically via 1 Hz broadcast pings; if a device disconnects or is powered off, it is automatically pruned after 3 seconds.
+6. Press **`[OK]`** to select that device and load its parameters immediately at full wire speed.
 
 #### Step 2: Hierarchical Folder Navigation
 - Parameters are grouped logically in folders per the module's firmware (e.g. `VTX Admin >`, `Wi-Fi Options >`).

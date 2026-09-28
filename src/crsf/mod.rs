@@ -202,6 +202,7 @@ pub struct DiscoveredDevice {
     pub name: [u8; 16],
     pub name_len: u8,
     pub param_count: u8,
+    pub last_seen_ms: u32,
 }
 
 impl DiscoveredDevice {
@@ -211,6 +212,7 @@ impl DiscoveredDevice {
             name: [0; 16],
             name_len: 0,
             param_count: 0,
+            last_seen_ms: 0,
         }
     }
 }
@@ -361,7 +363,7 @@ pub fn poll_telemetry(now_ms: u32) {
     }
 }
 
-unsafe fn handle_device_info_frame(payload: &[u8], _now_ms: u32) {
+unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
     if payload.len() < 3 {
         return;
     }
@@ -386,6 +388,7 @@ unsafe fn handle_device_info_frame(payload: &[u8], _now_ms: u32) {
                 d.name = name_buf;
                 d.name_len = name_len;
                 d.param_count = param_count;
+                d.last_seen_ms = now_ms;
                 found = true;
                 break;
             }
@@ -396,6 +399,7 @@ unsafe fn handle_device_info_frame(payload: &[u8], _now_ms: u32) {
                 name: name_buf,
                 name_len,
                 param_count,
+                last_seen_ms: now_ms,
             };
             CONFIG_ENGINE.devices_len += 1;
         }
@@ -552,12 +556,23 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     CHUNK_BUF[CHUNK_LEN..CHUNK_LEN + to_copy].copy_from_slice(&chunk_slice[..to_copy]);
     CHUNK_LEN += to_copy;
 
-    // Multi-frame parameter: schedule request for next chunk after 40ms pacing delay
+    // Multi-frame parameter: immediately request next chunk without artificial pacing delay
     if chunks_remain > 0 {
         CONFIG_ENGINE.current_chunk += 1;
         CONFIG_ENGINE.expect_chunks_remain = chunks_remain - 1;
         CONFIG_ENGINE.retry_count = 0;
-        CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(40);
+        let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+            1000
+        } else {
+            500
+        };
+        CONFIG_ENGINE.last_req_ms = now_ms;
+        CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+        send_param_read(
+            CONFIG_ENGINE.device_id,
+            param_id,
+            CONFIG_ENGINE.current_chunk,
+        );
         return;
     }
 
@@ -580,7 +595,14 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                 CONFIG_ENGINE.retry_count = 0;
                 CHUNK_LEN = 0;
                 CHUNK_PARAM_ID = 0;
-                CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(40);
+                let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                    1000
+                } else {
+                    500
+                };
+                CONFIG_ENGINE.last_req_ms = now_ms;
+                CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+                send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
             } else {
                 CONFIG_ENGINE.state = ElrsConfigState::Ready;
             }
@@ -594,6 +616,22 @@ unsafe fn elrs_tick(now_ms: u32) {
             if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 1000 {
                 CONFIG_ENGINE.last_req_ms = now_ms;
                 send_ping();
+
+                // Auto-prune disconnected devices not seen for > 3000ms (3 missed 1Hz pings)
+                let mut i = 0;
+                while i < CONFIG_ENGINE.devices_len {
+                    if now_ms.wrapping_sub(CONFIG_ENGINE.devices[i].last_seen_ms) > 3000 {
+                        for j in i..(CONFIG_ENGINE.devices_len - 1) {
+                            CONFIG_ENGINE.devices[j] = CONFIG_ENGINE.devices[j + 1];
+                        }
+                        CONFIG_ENGINE.devices_len -= 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+                if CONFIG_ENGINE.selected_device_idx >= CONFIG_ENGINE.devices_len && CONFIG_ENGINE.devices_len > 0 {
+                    CONFIG_ENGINE.selected_device_idx = CONFIG_ENGINE.devices_len - 1;
+                }
             }
         }
         ElrsConfigState::LoadingParam(id) => {
@@ -615,15 +653,18 @@ unsafe fn elrs_tick(now_ms: u32) {
                     );
                 } else {
                     // Retries exhausted for this parameter (packet lost over the air).
-                    // Advance to next parameter to avoid freezing UI permanently.
+                    // Advance to next parameter immediately to avoid freezing UI permanently.
                     CONFIG_ENGINE.retry_count = 0;
                     CONFIG_ENGINE.current_chunk = 0;
                     CONFIG_ENGINE.expect_chunks_remain = 0xFF;
                     CHUNK_LEN = 0;
                     CHUNK_PARAM_ID = 0;
                     if id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
-                        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(id + 1);
-                        CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(40);
+                        let next_id = id + 1;
+                        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
+                        CONFIG_ENGINE.last_req_ms = now_ms;
+                        CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+                        send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
                     } else {
                         CONFIG_ENGINE.state = ElrsConfigState::Ready;
                     }
@@ -706,7 +747,14 @@ pub fn select_device(idx: usize) -> bool {
 
         if dev.param_count > 0 {
             CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
-            CONFIG_ENGINE.next_req_ms = now.wrapping_add(40);
+            let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                1000
+            } else {
+                500
+            };
+            CONFIG_ENGINE.last_req_ms = now;
+            CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
+            send_param_read(CONFIG_ENGINE.device_id, 1, 0);
         } else {
             CONFIG_ENGINE.state = ElrsConfigState::Ready;
         }
@@ -999,15 +1047,9 @@ mod tests {
         assert_eq!(engine.param_count, 3);
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
 
-        // Pacing guard time: no outbound transmission immediately (< 40ms)
-        assert_eq!(uart::mock::take_tx().len(), 0, "No request before 40ms pacing interval");
-
-        // Advance to 1140ms (40ms pacing delay satisfied)
-        poll_telemetry(1140);
-
-        // Handset must have transmitted Parameter Read for Param 1, Chunk 0
+        // Immediate query dispatch: Parameter Read for Param 1, Chunk 0 is sent immediately
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must request Param 1 Chunk 0 after Device Info");
+        assert_eq!(tx.len(), 1, "Must immediately request Param 1 Chunk 0 upon selection");
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
         assert_eq!(tx[0][5], 1, "Requested param_id must be 1");
         assert_eq!(tx[0][6], 0, "Requested chunk must be 0");
@@ -1096,12 +1138,10 @@ mod tests {
 
         // Advanced to loading Param 2
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(2));
-        assert_eq!(uart::mock::take_tx().len(), 0, "No request immediately inside RX callback");
 
-        // Advance by 40ms pacing interval
-        poll_telemetry(2040);
+        // Immediate query dispatch: request for Param 2 Chunk 0 sent immediately
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must request Param 2 Chunk 0");
+        assert_eq!(tx.len(), 1, "Must immediately request Param 2 Chunk 0");
         assert_eq!(tx[0][5], 2);
     }
 
@@ -1136,14 +1176,10 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.current_chunk, 1, "Must advance to chunk 1");
         assert_eq!(engine.params_len, 0, "Parameter not parsed until final chunk");
-        assert_eq!(uart::mock::take_tx().len(), 0, "No request immediately inside RX callback");
 
-        // Advance 40ms to trigger paced request
-        poll_telemetry(3040);
-
-        // Verify request for Chunk 1 sent
+        // Immediate query dispatch: request for Chunk 1 sent immediately upon receiving Chunk 0
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1);
+        assert_eq!(tx.len(), 1, "Must immediately request Chunk 1");
         assert_eq!(tx[0][5], 1); // param_id 1
         assert_eq!(tx[0][6], 1); // chunk 1
 
@@ -1376,21 +1412,14 @@ mod tests {
         assert_eq!(engine.param_count, 21);
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
 
-        // Pacing guard: 0 outbound packets at t = 1000
-        assert_eq!(uart::mock::take_tx().len(), 0, "No packet sent before 40ms pacing guard");
-
-        // Advance to t = 1040:
-        poll_telemetry(1040);
-
-        // Handset must reply with Parameter Read for Param 1 Chunk 0 addressed to 0xEE:
-        // [0xC8, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]
+        // Immediate query dispatch: Parameter Read for Param 1 Chunk 0 is sent immediately upon selection
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must emit outbound parameter read for Param 1");
+        assert_eq!(tx.len(), 1, "Must immediately emit outbound parameter read for Param 1");
         assert_eq!(tx[0], &[0xC8, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]);
     }
 
     #[test]
-    fn test_param_request_pacing_delay() {
+    fn test_param_immediate_query_dispatch() {
         reset_state();
         set_millis(1000);
         start_config();
@@ -1414,19 +1443,11 @@ mod tests {
 
         uart::mock::push_rx_bytes(&frame[..total]);
         poll_telemetry(1000);
+
+        // Selecting device immediately dispatches request for Param 1 Chunk 0
         assert!(select_device(0));
-
-        // Guard time: verify NO packet sent during first 39 ms
-        assert_eq!(uart::mock::take_tx().len(), 0);
-        poll_telemetry(1010);
-        assert_eq!(uart::mock::take_tx().len(), 0);
-        poll_telemetry(1039);
-        assert_eq!(uart::mock::take_tx().len(), 0);
-
-        // At t = 1040 (40ms elapsed), request for Param 1 Chunk 0 is sent
-        poll_telemetry(1040);
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1);
+        assert_eq!(tx.len(), 1, "Must immediately dispatch Param 1 Chunk 0 on select_device");
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
         assert_eq!(tx[0][5], 1); // param 1
         assert_eq!(tx[0][6], 0); // chunk 0
@@ -1448,17 +1469,9 @@ mod tests {
         uart::mock::push_rx_bytes(&chunk0);
         poll_telemetry(1060);
 
-        // Guard time again: verify 0 packets sent between 1060 and 1099
-        assert_eq!(uart::mock::take_tx().len(), 0);
-        poll_telemetry(1080);
-        assert_eq!(uart::mock::take_tx().len(), 0);
-        poll_telemetry(1099);
-        assert_eq!(uart::mock::take_tx().len(), 0);
-
-        // At t = 1100 (1060 + 40ms), request for Chunk 1 sent
-        poll_telemetry(1100);
+        // Immediate query dispatch: Chunk 1 request sent immediately upon receiving Chunk 0!
         let tx2 = uart::mock::take_tx();
-        assert_eq!(tx2.len(), 1);
+        assert_eq!(tx2.len(), 1, "Must immediately request Chunk 1 without pacing delay");
         assert_eq!(tx2[0][5], 1);
         assert_eq!(tx2[0][6], 1);
     }
@@ -1549,18 +1562,15 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.retry_count, 4);
 
-        // t = 3000: Retries exhausted! Must safely advance to Param 2
+        // t = 3000: Retries exhausted! Must safely advance to Param 2 immediately
         poll_telemetry(3000);
-        assert_eq!(uart::mock::take_tx().len(), 0, "No request sent immediately when skipping");
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "Immediate request for Param 2 Chunk 0 sent upon skipping");
+        assert_eq!(tx[0][5], 2, "Requested Param 2");
+        assert_eq!(tx[0][6], 0, "Chunk 0");
         let engine = get_config_engine();
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(2), "Advanced to Param 2");
         assert_eq!(engine.retry_count, 0, "Retry count reset for next param");
-
-        // t = 3040: Request for Param 2 Chunk 0 sent!
-        poll_telemetry(3040);
-        let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1);
-        assert_eq!(tx[0][5], 2, "Requested Param 2");
     }
 
     #[test]
@@ -1862,6 +1872,61 @@ mod tests {
         assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_CRSF_RECEIVER), "RX");
         assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER), "FC");
         assert_eq!(protocol::device_role_str(0x55), "DEV");
+    }
+
+    #[test]
+    fn test_device_disconnect_auto_pruning() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+
+        let tx_info: [u8; 27] = [
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
+            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+            0x15, 0x00, 0x0D,
+        ];
+        let rx_info: [u8; 36] = [
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
+            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
+            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+        ];
+
+        // Discover both devices at t = 1000
+        uart::mock::push_rx_bytes(&tx_info);
+        uart::mock::push_rx_bytes(&rx_info);
+        poll_telemetry(1000);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 2);
+        assert_eq!(engine.devices[0].address, 0xEE);
+        assert_eq!(engine.devices[1].address, 0xEC);
+
+        // At t = 2000, TX responds, RX is silent
+        uart::mock::push_rx_bytes(&tx_info);
+        poll_telemetry(2000);
+        assert_eq!(get_config_engine().devices_len, 2);
+
+        // At t = 3000, TX responds, RX is silent
+        uart::mock::push_rx_bytes(&tx_info);
+        poll_telemetry(3000);
+        assert_eq!(get_config_engine().devices_len, 2);
+
+        // At t = 4000, TX responds, RX is silent (RX not seen for 3000ms: 4000 - 1000 = 3000)
+        uart::mock::push_rx_bytes(&tx_info);
+        poll_telemetry(4000);
+        assert_eq!(get_config_engine().devices_len, 2);
+
+        // At t = 5000 (> 3000ms since last seen at t = 1000), ping check prunes RX (0xEC)
+        poll_telemetry(5000);
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 1, "RX must be auto-pruned after >3000ms without response");
+        assert_eq!(engine.devices[0].address, 0xEE, "Remaining device must be TX module");
+
+        // Reconnect RX at t = 6000
+        uart::mock::push_rx_bytes(&rx_info);
+        poll_telemetry(6000);
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 2, "RX re-added seamlessly upon reconnection");
     }
 }
 

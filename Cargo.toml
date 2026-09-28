@@ -1,6 +1,6 @@
 [package]
 name = "flysky-i6x-rs"
-version = "0.17.0-rc.1"
+version = "0.17.0"
 edition = "2021"
 
 [lib]

@@ -83,6 +83,9 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                 widgets::draw_footer(lcd, "[OK] Scan   [ESC] Back");
             } else {
                 // One or more devices discovered! Present TBS-Agent device picker
+                if ctrl.selected_item >= engine.devices_len && engine.devices_len > 0 {
+                    ctrl.selected_item = engine.devices_len - 1;
+                }
                 widgets::navigate_4slot_list(
                     &mut ctrl.selected_item,
                     &mut ctrl.scroll_offset,

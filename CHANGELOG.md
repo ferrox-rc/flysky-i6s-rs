@@ -5,19 +5,23 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.17.0-rc.1] - 2026-09-26
+## [0.17.0] - 2026-09-28
 
 ### Summary
-Major protocol and architecture release delivering full TBS Crossfire Protocol Rev 08 and ExpressLRS parameter synchronization specification adherence, FlySky standard channel conversion (988–2012 µs), dynamic physical wire routing, hardware interrupt-driven USART2 RX with a 128-byte lock-free ring buffer to eliminate high-speed baud overruns, framing inter-byte resynchronization timeouts, and a dual-target host test harness (`cargo test-host`) with 36 automated unit tests.
+Major protocol and architecture release delivering full TBS Crossfire Protocol Rev 08 and ExpressLRS parameter synchronization specification adherence, FlySky standard channel conversion (988–2012 µs), dynamic physical wire routing with `0xC8` wire sync framing, full TBS-Agent style multi-device discovery with dynamic disconnect pruning, subfolder hierarchy navigation, modal in-place parameter editing, immediate high-speed query dispatch, hardware interrupt-driven USART2 RX with a 128-byte lock-free ring buffer, framing inter-byte resynchronization timeouts, and a dual-target host test harness (`cargo test-host`) with 46 automated unit tests.
 
 ### Added
+- **Immediate High-Speed Query Dispatch ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Outbound sequential parameter queries and multi-chunk requests are dispatched immediately upon receipt and validation of preceding chunks/parameters, eliminating artificial pacing delays and matching native TBS-Agent and ELRS Lua wire performance.
+- **Dynamic Device List Auto-Pruning ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Implemented automatic heartbeat tracking for all discovered devices. Devices not responding to 1 Hz pings for > 3000 ms (3 missed pings) are pruned from the `CRSF DEVICES` list, with list bounds and UI cursor selection safely clamped.
 - **Hardware Interrupt-Driven USART2 RX Subsystem ([`src/crsf/uart.rs`](src/crsf/uart.rs))**:
   - **Atomic Lock-Free Ring Buffer**: Implemented 128-byte `RX_RING` with volatile pointer synchronization, safely decoupling high-speed 420,000 baud byte ingestion from the main loop and eliminating `USART_ISR_ORE` hardware overruns during long operations (e.g. LCD flushing).
   - **NVIC Priority Configuration**: Unmasks IRQ 28 in the NVIC with high priority (`0x40`) when CRSF mode is enabled, and masks it when disabled.
   - **Hardware ORE Auto-Clearing**: ISR detects and clears `USART_ISR_ORE` to prevent receiver lockups.
 - **Dual-Target Host Unit Test Harness ([`.cargo/config.toml`](.cargo/config.toml), [`Cargo.toml`](Cargo.toml))**:
   - Established `cargo test-host` alias targeting `x86_64-unknown-linux-gnu` with `#![cfg_attr(not(test), no_std)]` in `src/lib.rs`.
-  - Added 36 host unit tests across `crsf`, `mixer`, `trim`, and `curve` modules with zero hardware dependencies.
+  - Added 46 comprehensive host unit tests across `crsf`, `mixer`, `trim`, and `curve` modules with zero hardware dependencies.
 - **TBS-Agent Style Multi-Device Discovery & Device Picker ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
   - Broadcasts 1 Hz discovery pings and registers all responding bus devices (transmitters `0xEE`, receivers `0xEC`, flight controllers `0xC8`) into a deduplicated table (`DiscoveredDevice`).
   - Presents an interactive `CRSF DEVICES` screen with role tags (`[TX]`, `[RX]`, `[FC]`), allowing pilots to configure either the transmitter module or over-the-air receiver directly.
@@ -27,17 +31,17 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
 - **Modal In-Place Parameter Option Editing ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
   - Pressing `[OK]` on a `SELECT` parameter enters Edit Mode, displaying the tentative value with `< Option >` brackets.
   - `[UP]` / `[DOWN]` cycles options locally without transmitting premature serial packets; pressing `[OK]` commits and transmits `0x2D Param Write` frame; `[ESC]` cancels without changes.
-- **Dual-Target Unit Test Expansion ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
-  - Added 9 new unit tests (expanding total from 36 to 45 passing tests) covering multi-device discovery, role string formatting, folder filtering, and in-place editing.
-- **Comprehensive CRSF Protocol Documentation ([`docs/CRSF_PROTOCOL_SPEC.md`](docs/CRSF_PROTOCOL_SPEC.md))**:
+- **Comprehensive CRSF Protocol Documentation ([`docs/CRSF_PROTOCOL_SPEC.md`](docs/CRSF_PROTOCOL_SPEC.md), [`docs/CRSF_ELRS_GUIDE.md`](docs/CRSF_ELRS_GUIDE.md))**:
   - Detailed byte-level framing breakdown, wire timing diagrams, CRC-8 DVB-S2 poly formulas, parameter state machine transitions, command action lifecycle, and manual verification walkthrough.
 
 ### Changed
 - **FlySky Standard Microsecond Channel Conversion ([`src/crsf/protocol.rs`](src/crsf/protocol.rs))**:
   - Replaced magic numbers and aligned CRSF 11-bit scaling to standard FlySky microsecond boundaries: `988 µs` (172 counts), `1500 µs` (992 counts), and `2012 µs` (1811 counts).
   - Applied global constants across mixer, trim, and protocol modules.
+- **TBS CRSF Wire Framing Specification Adherence ([`src/crsf/protocol.rs`](src/crsf/protocol.rs))**:
+  - Aligned all outbound parameter read, parameter write, and command frames to begin with wire sync byte `0xC8` (`CRSF_SYNC_BYTE`) per TBS CRSF specification rather than the target address, resolving over-the-air receiver parameter loading.
 - **Dynamic Wire Destination Addressing ([`src/crsf/protocol.rs`](src/crsf/protocol.rs))**:
-  - Changed `build_param_ext_frame()` to dynamically assign wire byte 0 (`out_frame[0] = target;`), properly routing frames to transmitter modules (`0xEE`), receivers (`0xEC`), or flight controllers (`0xC8`).
+  - Changed `build_param_ext_frame()` to dynamically assign payload destination byte (`out_frame[3] = target;`), properly routing frames to transmitter modules (`0xEE`), receivers (`0xEC`), or flight controllers (`0xC8`).
 
 ### Fixed
 - **CRSF Target Device ID Isolation & Remote Receiver Hijack Prevention ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
@@ -46,10 +50,6 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
   - Expanded `CHUNK_BUF` from 96 bytes to 320 bytes to safely reassemble full 4-chunk parameter streams (e.g. ExpressLRS `"Packet Rate"` with 10 options).
   - Expanded `Parameter.options` and parsing buffers from 48 bytes to 160 bytes so long option lists are not truncated.
   - Increased `MAX_PARAMS` from 16 to 24 to fully accommodate modules with 21 parameters (such as RadioMaster RP2).
-- **CRSF Parameter Handshake Pacing and Wire Collisions ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
-  - Eliminated synchronous outbound transmissions from inside receive callbacks (`handle_param_entry_frame`, `handle_device_info_frame`), preventing ~70 µs rapid request collisions that overrun receiver input queues.
-  - Implemented 40 ms inter-frame pacing delay (`next_req_ms`) for all outbound parameter chunk requests, scheduled and emitted exclusively via `elrs_tick()`.
-  - Paced discovery pings to 1000 ms (1 Hz) to prevent bus congestion.
 - **Over-The-Air Chunk Sequencing and Duplicate Filtering ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Added `expect_chunks_remain` sequence checking in `handle_param_entry_frame()`, safely discarding duplicate or out-of-order chunks from RF re-transmissions without corrupting the chunk accumulator buffer.
 - **Parameter Read Timeout and Retry Recovery ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
@@ -61,7 +61,7 @@ Major protocol and architecture release delivering full TBS Crossfire Protocol R
 - **Parser Inter-Byte Framing Timeout ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
   - Added `LAST_RX_BYTE_MS` tracking. If $\ge 3\text{ ms}$ of bus silence elapses with an incomplete frame in `RX_BUF`, `RX_LEN` automatically resets to 0 to prevent parser desynchronization.
 - **RadioMaster RP2 Receiver Device Info Ingestion ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
-  - Verified and regression-tested real-world 27-byte capture from RadioMaster RP2 ExpressLRS receiver (`0xC8 0x19 0x29 0xEA 0xEE 52 4D 20 52 50 32 ... 15 00 0D`), ensuring proper parsing of `"RM RP2"`, 21 parameters, and generation of the outbound parameter read response `[0xEE, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]`.
+  - Verified and regression-tested real-world 27-byte capture from RadioMaster RP2 ExpressLRS receiver (`0xC8 0x19 0x29 0xEA 0xEE 52 4D 20 52 50 32 ... 15 00 0D`), ensuring proper parsing of `"RM RP2"`, 21 parameters, and generation of the outbound parameter read response.
 
 ---
 
