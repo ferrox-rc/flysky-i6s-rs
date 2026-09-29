@@ -5,6 +5,29 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics
+
+### Summary
+Feature release implementing EdgeTX/OpenTX-parity flight countdown and stopwatch timers, unipolar throttle compensation mixing, wing/tail differential mixing, physical switch auto-detection across menus, on-screen HUD hold-to-reset progress modal, model copying, and potentiometer center haptic detents.
+
+### Added
+- **EdgeTX-Parity Flight Timer Subsystem ([`src/main.rs`](src/main.rs), [`src/mixer.rs`](src/mixer.rs), [`src/storage.rs`](src/storage.rs))**:
+  - **Multi-Trigger Engine (`is_timer_active`)**: Supports `OFF`, `THs (RUN)` (active while throttle $> 5\%$), `THt (LTCH)` (latched running once throttle $> 5\%$), `ALWAYS ON` (continuous stopwatch), and switch conditions `SA^` through `SDv`.
+  - **Arm Switch Integration**: Disarming unlatches and pauses the timer (freezing final flight time for post-landing review). Re-arming automatically resets the timer back to its configured duration and clears elapsed seconds for the next flight pack.
+  - **Visual Hold-to-Reset HUD Progress Modal**: Holding `[CANCEL]` for $\ge 1.0\text{ s}$ on any flight dashboard displays a centered modal with a 0..100% animated progress bar, confirmation tone, and `"TIMER RESET!"` toast.
+  - **Acoustic Countdown & Alarms**: 1-minute warning chimes, 10s..1s countdown tick beeps, zero-second elapsed alarm, and inverted/blinking negative overdue time display.
+  - **Dashboard Navigation**: Added `[UP]` / `[DOWN]` keys to step between flight dashboard pages 1–4.
+- **Unipolar Throttle Mixer Source (`Thr+`) ([`src/mixer.rs`](src/mixer.rs))**:
+  - Implemented `MixSource::ThrUnipolar` (ID 26) scaling linearly from 0 at idle to +1000 at full throttle, preventing negative pitch-down compensation at idle throttle on aircraft mixes.
+- **Physical Switch Auto-Detection ([`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs), [`src/ui/menu/screens/mixer.rs`](src/ui/menu/screens/mixer.rs))**:
+  - Automatically selects the flipped physical switch and its active position condition when editing `Arm Sw`, `T-Trig`, or mixer line activation switches.
+- **Model Copy / Duplicate Utility ([`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:
+  - Added Field 5 (`Copy -> Mxx`) to `MODEL SETUP` allowing instant cloning of model configurations to other slots.
+- **Potentiometer Center Acoustic Detent ([`src/input.rs`](src/input.rs), [`src/buzzer.rs`](src/buzzer.rs))**:
+  - Emits a crisp non-blocking click tone (`2200 Hz`, 10 ms) whenever `VRA` or `VRB` crosses through neutral center ($0$).
+- **Wing/Tail Differential Mixing ([`src/mixer.rs`](src/mixer.rs))**:
+  - Enabled active differential throw scaling using the `template_diff` parameter.
+
 ## [0.17.0] - 2026-09-28
 
 ### Summary

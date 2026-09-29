@@ -9,7 +9,7 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Line, PrimitiveStyle},
+    primitives::{Line, PrimitiveStyle, Rectangle},
     text::Text,
 };
 
@@ -45,6 +45,9 @@ struct FlightSnapshot {
     rf_chs: [u16; mixer::NUM_CHANNELS],
     telem: rf::afhds2a::TelemetryData,
     is_binding: bool,
+    is_armed: bool,
+    just_armed: bool,
+    just_disarmed: bool,
 }
 
 /// Flight pipeline context: manages stick sampling, mixing, and RF/USB publication.
@@ -94,19 +97,28 @@ impl FlightPipeline {
         }
 
         // 3. Check configured Arm Switch condition and play Armed/Disarmed chimes
-        if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
-            let is_armed = mixer::is_switch_active(active_model.arm_switch, &state.switches);
-            if is_armed != self.prev_armed {
-                self.prev_armed = is_armed;
-                if !menu_active {
-                    if is_armed {
+        let mut just_armed = false;
+        let mut just_disarmed = false;
+        let is_armed = if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
+            let armed = mixer::is_switch_active(active_model.arm_switch, &state.switches);
+            if armed != self.prev_armed {
+                if armed {
+                    just_armed = true;
+                    if !menu_active {
                         buzzer.chime_armed();
-                    } else {
+                    }
+                } else {
+                    just_disarmed = true;
+                    if !menu_active {
                         buzzer.chime_disarmed();
                     }
                 }
+                self.prev_armed = armed;
             }
-        }
+            armed
+        } else {
+            false
+        };
 
         // 4. Evaluate active model throttle curve (normalized 0..MIXER_MAX)
         let thr_input = ((state.sticks.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
@@ -173,6 +185,9 @@ impl FlightPipeline {
             rf_chs,
             telem,
             is_binding,
+            is_armed,
+            just_armed,
+            just_disarmed,
         }
     }
 }
@@ -180,11 +195,23 @@ impl FlightPipeline {
 /// Background idle and UI context: tracks inactivity, backlight timers, user input, and screen rendering.
 struct BackgroundIdleManager {
     prev_stick_samples: [u16; 6],
+    prev_pots: [i16; 2],
     prev_switches: input::Switches,
     prev_bind_key: bool,
     bind_hold_ms: u32,
     bind_was_held: bool,
     ok_hold_ms: u16,
+    cancel_hold_ms: u16,
+    timer_remaining_secs: u16,
+    timer_elapsed_secs: u16,
+    timer_ms_acc: u16,
+    timer_latched: bool,
+    timer_reset_toast_ms: u16,
+    timer_reset_cooldown_ms: u16,
+    cancel_waiting_release: bool,
+    prev_timer_model: u8,
+    prev_up_key: bool,
+    prev_down_key: bool,
     bl_timer_ms: u32,
     inactivity_timer_ms: u32,
     inactivity_beep_timer: u32,
@@ -203,11 +230,23 @@ impl BackgroundIdleManager {
                 init_state.raw[6],
                 init_state.raw[7],
             ],
+            prev_pots: [init_state.pots.vr1, init_state.pots.vr2],
             prev_switches: init_state.switches,
             prev_bind_key: bind_on_boot,
             bind_hold_ms: 0,
             bind_was_held: false,
             ok_hold_ms: 0,
+            cancel_hold_ms: 0,
+            timer_remaining_secs: 0,
+            timer_elapsed_secs: 0,
+            timer_ms_acc: 0,
+            timer_latched: false,
+            timer_reset_toast_ms: 0,
+            timer_reset_cooldown_ms: 0,
+            cancel_waiting_release: false,
+            prev_timer_model: 0xFF,
+            prev_up_key: false,
+            prev_down_key: false,
             bl_timer_ms: 30_000,
             inactivity_timer_ms: 0,
             inactivity_beep_timer: 0,
@@ -245,6 +284,20 @@ impl BackgroundIdleManager {
             };
         }
         self.menu_was_active = menu_active;
+
+        // Pot Center Crossing Haptic/Audio Feedback (VR1 & VR2)
+        // Detect transitions across deadband ±25 from outside (|prev| >= 25 && |curr| < 25)
+        for (i, (&curr, prev)) in [flight.state.pots.vr1, flight.state.pots.vr2]
+            .iter()
+            .zip(self.prev_pots.iter_mut())
+            .enumerate()
+        {
+            let _ = i;
+            if prev.abs() >= 25 && curr.abs() < 25 {
+                buzzer.pot_center_click();
+            }
+            *prev = curr;
+        }
 
         // 2. Physical activity & inactivity tracking
         let stick_moved = (flight.state.raw[0] as i32 - self.prev_stick_samples[0] as i32).abs()
@@ -301,10 +354,18 @@ impl BackgroundIdleManager {
             }
         }
 
-        // 5. Bind Key (PF2) and Cancel key handling
+        // 5. Keys handling (Bind, Cancel, Up, Down)
         let bind_key_raw = (keys & (1 << 12)) != 0;
         let bind_pressed = bind_key_raw && !self.prev_bind_key;
         self.prev_bind_key = bind_key_raw;
+
+        let up_key_raw = (keys & (1 << 9)) != 0;
+        let up_pressed = up_key_raw && !self.prev_up_key;
+        self.prev_up_key = up_key_raw;
+
+        let down_key_raw = (keys & (1 << 8)) != 0;
+        let down_pressed = down_key_raw && !self.prev_down_key;
+        self.prev_down_key = down_key_raw;
 
         let cancel_key = (keys & (1 << 11)) != 0;
 
@@ -317,6 +378,13 @@ impl BackgroundIdleManager {
             self.bind_hold_ms = 0;
             self.bind_was_held = false;
         } else {
+            // Dashboard page cycling via UP/DOWN keys
+            if up_pressed {
+                dashboard.prev_page(buzzer);
+            } else if down_pressed {
+                dashboard.next_page(buzzer);
+            }
+
             if bind_key_raw {
                 self.bind_hold_ms = self.bind_hold_ms.saturating_add(dt_ms as u32);
                 if self.bind_hold_ms >= 1000 && !self.bind_was_held {
@@ -360,7 +428,92 @@ impl BackgroundIdleManager {
             }
         }
 
-        // 8. Display Frame Rendering (~30 Hz)
+        // 8. Flight Timer Engine
+        let active_idx = storage.radio.active_model;
+        let model = storage.active_model();
+        if self.prev_timer_model != active_idx {
+            self.prev_timer_model = active_idx;
+            self.timer_remaining_secs = model.timer_secs;
+            self.timer_elapsed_secs = 0;
+            self.timer_ms_acc = 0;
+            self.timer_latched = false;
+        }
+
+        // Arm Switch transitions: auto-reset upon Arming, unlatch upon Disarming
+        if model.arm_switch > 0 && model.arm_switch <= 10 {
+            if flight.just_armed {
+                self.timer_remaining_secs = model.timer_secs;
+                self.timer_elapsed_secs = 0;
+                self.timer_ms_acc = 0;
+                self.timer_latched = false;
+            } else if flight.just_disarmed {
+                self.timer_latched = false;
+            }
+        }
+
+        // Cooldown timer, toast duration, and key release guard for timer reset
+        if self.timer_reset_toast_ms > 0 {
+            self.timer_reset_toast_ms = self.timer_reset_toast_ms.saturating_sub(dt_ms);
+        }
+        if self.timer_reset_cooldown_ms > 0 {
+            self.timer_reset_cooldown_ms = self.timer_reset_cooldown_ms.saturating_sub(dt_ms);
+        }
+        if !cancel_key {
+            self.cancel_waiting_release = false;
+        }
+
+        // Check for manual reset via [CANCEL] held for >= 1.0s on flight dashboard
+        if !menu_active && cancel_key && !self.cancel_waiting_release && self.timer_reset_cooldown_ms == 0 {
+            self.cancel_hold_ms = self.cancel_hold_ms.saturating_add(dt_ms);
+            if self.cancel_hold_ms >= 1000 {
+                self.timer_remaining_secs = model.timer_secs;
+                self.timer_elapsed_secs = 0;
+                self.timer_ms_acc = 0;
+                self.timer_latched = false;
+                self.cancel_hold_ms = 0;
+                self.cancel_waiting_release = true;
+                self.timer_reset_toast_ms = 800;
+                self.timer_reset_cooldown_ms = 1500;
+                buzzer.play_tone(2400, 100);
+            }
+        } else {
+            self.cancel_hold_ms = 0;
+        }
+
+        // Evaluate timer trigger condition
+        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 10 {
+            flight.is_armed
+        } else {
+            true
+        };
+        let timer_running = mixer::is_timer_active(
+            model.timer_source,
+            flight.state.sticks.throttle,
+            &mut self.timer_latched,
+            &flight.state.switches,
+            is_armed_or_unassigned,
+        );
+
+        if timer_running && dt_ms > 0 {
+            self.timer_ms_acc = self.timer_ms_acc.saturating_add(dt_ms);
+            while self.timer_ms_acc >= 1000 {
+                self.timer_ms_acc -= 1000;
+                if self.timer_remaining_secs > 0 {
+                    self.timer_remaining_secs -= 1;
+                    if self.timer_remaining_secs == 0 {
+                        buzzer.timer_elapsed_alarm();
+                    } else if self.timer_remaining_secs <= 10 {
+                        buzzer.timer_countdown_beep();
+                    } else if self.timer_remaining_secs % 60 == 0 {
+                        buzzer.timer_minute_beep();
+                    }
+                } else {
+                    self.timer_elapsed_secs = self.timer_elapsed_secs.saturating_add(1);
+                }
+            }
+        }
+
+        // 9. Display Frame Rendering (~30 Hz)
         let run_display = now.wrapping_sub(self.last_display_ms) >= 33;
         if !run_display {
             return;
@@ -371,6 +524,7 @@ impl BackgroundIdleManager {
             menu_controller.update(
                 lcd,
                 keys,
+                &flight.state.switches,
                 storage,
                 trims,
                 &flight.state.raw,
@@ -394,6 +548,28 @@ impl BackgroundIdleManager {
             calib_wizard.update(lcd, storage, &flight.state.raw, keys, dt_ms.max(20), buzzer);
             lcd.flush();
         } else {
+            let mut timer_buf = [0u8; 8];
+            let timer_display = if model.timer_source != 0 {
+                let (disp_secs, expired) = if model.timer_secs > 0 {
+                    if self.timer_remaining_secs > 0 {
+                        (self.timer_remaining_secs, false)
+                    } else {
+                        (self.timer_elapsed_secs, true)
+                    }
+                } else {
+                    (self.timer_elapsed_secs, false)
+                };
+                let formatted = ui::format::format_timer(disp_secs, expired, &mut timer_buf);
+                Some((formatted, expired))
+            } else {
+                None
+            };
+
+            let (timer_str, timer_expired) = match timer_display {
+                Some((s, exp)) => (Some(s), exp),
+                None => (None, false),
+            };
+
             dashboard.render(
                 lcd,
                 &flight.state,
@@ -403,9 +579,59 @@ impl BackgroundIdleManager {
                 rf_ok,
                 flight.is_binding,
                 &flight.telem,
+                timer_str,
+                timer_expired,
                 buzzer,
             );
+
+            if self.timer_reset_toast_ms > 0 {
+                draw_timer_reset_modal(lcd, 100, true);
+            } else if self.cancel_hold_ms > 80 {
+                let pct = ((self.cancel_hold_ms as u32 * 100) / 1000).min(100) as u8;
+                draw_timer_reset_modal(lcd, pct, false);
+            }
+
             lcd.flush();
+        }
+    }
+}
+
+/// Draw centered modal overlay for timer reset hold progress or completion confirmation.
+fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
+    let bg_rect = Rectangle::new(Point::new(18, 19), Size::new(92, 26));
+    bg_rect
+        .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
+        .draw(lcd)
+        .ok();
+    bg_rect
+        .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+        .draw(lcd)
+        .ok();
+
+    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+
+    if completed {
+        Text::new("TIMER RESET!", Point::new(28, 35), text_style)
+            .draw(lcd)
+            .ok();
+    } else {
+        Text::new("RESET TIMER", Point::new(31, 29), text_style)
+            .draw(lcd)
+            .ok();
+
+        // Progress bar container: 74 x 6, positioned at (27, 33)
+        Rectangle::new(Point::new(27, 33), Size::new(74, 6))
+            .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+            .draw(lcd)
+            .ok();
+
+        // Progress fill: up to 70px wide
+        let fill_w = ((progress_pct as u32 * 70) / 100).min(70) as u32;
+        if fill_w > 0 {
+            Rectangle::new(Point::new(29, 35), Size::new(fill_w, 2))
+                .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                .draw(lcd)
+                .ok();
         }
     }
 }

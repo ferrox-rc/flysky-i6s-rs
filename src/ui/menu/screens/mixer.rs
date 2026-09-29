@@ -64,7 +64,10 @@ pub fn update_dual_rate(
         match ctrl.selected_item {
             0 => {
                 // Switch (0..4)
-                if keys.up {
+                if let Some(dr) = keys.dr_change {
+                    storage.models[active_idx].dr_switch = dr;
+                    buzzer.play_tone(2400, 40);
+                } else if keys.up {
                     storage.models[active_idx].dr_switch = (storage.models[active_idx].dr_switch + 1) % 5;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
@@ -409,41 +412,67 @@ pub fn update_wing_mixer(
     buzzer: &mut Buzzer,
 ) {
     let active_idx = storage.radio.active_model as usize;
-    const MIX_ITEMS: usize = 9; // 0: Template, 1..8: Mix 1..8
+    let template = storage.models[active_idx].wing_tail_mix;
+    let has_diff = template == 1 || template == 3;
+    let mix_items = if has_diff { 10 } else { 9 };
 
-    if keys.cancel {
-        storage::save_active_model(storage);
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 4;
-        ctrl.scroll_offset = 0;
-        ctrl.waiting_release = true;
-        buzzer.click();
-        return;
-    }
-
-    widgets::navigate_4slot_list(
-        &mut ctrl.selected_item,
-        &mut ctrl.scroll_offset,
-        MIX_ITEMS,
-        keys.up,
-        keys.down,
-        buzzer,
-    );
-
-    if keys.ok {
-        buzzer.click();
-        if ctrl.selected_item == 0 {
-            // Cycle Wing Template (0..3)
-            storage.models[active_idx].wing_tail_mix = (storage.models[active_idx].wing_tail_mix + 1) % 4;
-        } else {
-            // Open Mix Line Editor
-            ctrl.page_idx = ctrl.selected_item - 1; // 0..7
-            ctrl.selected_item = 0;
-            ctrl.scroll_offset = 0;
+    if ctrl.editing {
+        if keys.cancel {
             ctrl.editing = false;
-            ctrl.state = MenuState::MixerLineEdit;
-            ctrl.waiting_release = true;
+            storage::save_active_model(storage);
+            buzzer.click();
             return;
+        }
+        if keys.up && storage.models[active_idx].template_diff <= 95 {
+            storage.models[active_idx].template_diff += 5;
+            buzzer.play_tone(2200, 20);
+        } else if keys.down && storage.models[active_idx].template_diff >= -95 {
+            storage.models[active_idx].template_diff -= 5;
+            buzzer.play_tone(2200, 20);
+        }
+        if keys.ok {
+            ctrl.editing = false;
+            storage::save_active_model(storage);
+            buzzer.click();
+        }
+    } else {
+        if keys.cancel {
+            storage::save_active_model(storage);
+            ctrl.state = MenuState::MainMenu;
+            ctrl.selected_item = 4;
+            ctrl.scroll_offset = 0;
+            ctrl.waiting_release = true;
+            buzzer.click();
+            return;
+        }
+
+        widgets::navigate_4slot_list(
+            &mut ctrl.selected_item,
+            &mut ctrl.scroll_offset,
+            mix_items,
+            keys.up,
+            keys.down,
+            buzzer,
+        );
+
+        if keys.ok {
+            buzzer.click();
+            if ctrl.selected_item == 0 {
+                // Cycle Wing Template (0..3)
+                storage.models[active_idx].wing_tail_mix = (storage.models[active_idx].wing_tail_mix + 1) % 4;
+            } else if has_diff && ctrl.selected_item == 1 {
+                ctrl.editing = true;
+            } else {
+                // Open Mix Line Editor
+                let m_idx = if has_diff { ctrl.selected_item - 2 } else { ctrl.selected_item - 1 };
+                ctrl.page_idx = m_idx.min(7);
+                ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
+                ctrl.editing = false;
+                ctrl.state = MenuState::MixerLineEdit;
+                ctrl.waiting_release = true;
+                return;
+            }
         }
     }
 
@@ -451,10 +480,11 @@ pub fn update_wing_mixer(
 
     let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let mut b6 = [0u8; 6];
 
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
-        if idx >= MIX_ITEMS { break; }
+        if idx >= mix_items { break; }
         let y = 14 + (slot as i32 * 9);
         let is_sel = idx == ctrl.selected_item;
         let style = if is_sel {
@@ -468,8 +498,12 @@ pub fn update_wing_mixer(
             let t_idx = (storage.models[active_idx].wing_tail_mix as usize).min(3);
             Text::new("Wing:", Point::new(4, y + 7), style).draw(lcd).ok();
             Text::new(TEMPLATE_NAMES[t_idx], Point::new(36, y + 7), style).draw(lcd).ok();
+        } else if has_diff && idx == 1 {
+            let d_str = i8_to_dec(storage.models[active_idx].template_diff, &mut b6);
+            Text::new("Diff:", Point::new(4, y + 7), style).draw(lcd).ok();
+            Text::new(d_str, Point::new(36, y + 7), style).draw(lcd).ok();
         } else {
-            let m_idx = idx - 1;
+            let m_idx = if has_diff { idx - 2 } else { idx - 1 };
             let mix = storage.models[active_idx].mixes[m_idx];
             let mut m_buf = *b"M0: ";
             m_buf[1] = b'1' + m_idx as u8;
@@ -491,13 +525,14 @@ pub fn update_wing_mixer(
                 Text::new(ch_str, Point::new(24, y + 7), style).draw(lcd).ok();
 
                 Text::new("<-", Point::new(54, y + 7), style).draw(lcd).ok();
-                let s_idx = (mix.source as usize).min(25);
+                let s_idx = (mix.source as usize).min(26);
                 Text::new(SOURCE_NAMES[s_idx], Point::new(70, y + 7), style).draw(lcd).ok();
             }
         }
     }
 
-    widgets::draw_footer(lcd, "[OK] Select/Edit   [ESC] Back");
+    let footer = if ctrl.editing { "[OK] Done   [UP/DN] Diff" } else { "[OK] Select/Edit   [ESC] Back" };
+    widgets::draw_footer(lcd, footer);
 }
 
 pub fn update_mixer_line_edit(
@@ -552,10 +587,10 @@ pub fn update_mixer_line_edit(
             }
             1 => {
                 if keys.up {
-                    mix.source = (mix.source + 1) % 26;
+                    mix.source = (mix.source + 1) % 27;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.source = if mix.source == 0 { 25 } else { mix.source - 1 };
+                    mix.source = if mix.source == 0 { 26 } else { mix.source - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -578,7 +613,10 @@ pub fn update_mixer_line_edit(
                 }
             }
             4 => {
-                if keys.up {
+                if let Some(sw) = keys.sw_change {
+                    mix.switch = sw;
+                    buzzer.play_tone(2400, 40);
+                } else if keys.up {
                     mix.switch = (mix.switch + 1) % 11;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
@@ -634,7 +672,7 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                let s_idx = (mix.source as usize).min(25);
+                let s_idx = (mix.source as usize).min(26);
                 widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
             }
             2 => {

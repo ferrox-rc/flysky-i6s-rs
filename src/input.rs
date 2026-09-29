@@ -45,6 +45,48 @@ pub struct Switches {
     pub sd: SwitchPos, // 2-pos
 }
 
+impl Switches {
+    /// Detect if a switch moved between prev and self, returning the matching condition index 1..10.
+    pub fn detect_condition_change(&self, prev: &Switches) -> Option<u8> {
+        if self.sa != prev.sa {
+            return Some(if self.sa == SwitchPos::Up { 1 } else { 2 });
+        }
+        if self.sb != prev.sb {
+            return Some(match self.sb {
+                SwitchPos::Up => 3,
+                SwitchPos::Mid => 4,
+                SwitchPos::Down => 5,
+            });
+        }
+        if self.sc != prev.sc {
+            return Some(match self.sc {
+                SwitchPos::Up => 6,
+                SwitchPos::Mid => 7,
+                SwitchPos::Down => 8,
+            });
+        }
+        if self.sd != prev.sd {
+            return Some(if self.sd == SwitchPos::Up { 9 } else { 10 });
+        }
+        None
+    }
+
+    /// Detect if any switch toggled, returning the switch index 1..4 (1:SA, 2:SB, 3:SC, 4:SD).
+    pub fn detect_dr_switch_change(&self, prev: &Switches) -> Option<u8> {
+        if self.sa != prev.sa {
+            Some(1)
+        } else if self.sb != prev.sb {
+            Some(2)
+        } else if self.sc != prev.sc {
+            Some(3)
+        } else if self.sd != prev.sd {
+            Some(4)
+        } else {
+            None
+        }
+    }
+}
+
 /// Full processed input snapshot.
 pub struct InputState {
     pub sticks: Sticks,

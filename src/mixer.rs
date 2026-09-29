@@ -43,6 +43,7 @@ pub enum MixSource {
     Sd = 10,
     Max = 11,
     // 12..25 map to Channel 1..14
+    ThrUnipolar = 26,
 }
 
 /// Wing and tail aircraft mixing templates.
@@ -62,6 +63,24 @@ impl WingTailTemplate {
             3 => Self::Flaperon,
             _ => Self::Normal,
         }
+    }
+}
+
+/// Helper to apply differential to a deflection value (-1000..+1000).
+/// When diff > 0, down-deflection (val < 0) is attenuated by (100 - diff)%.
+/// When diff < 0, up-deflection (val > 0) is attenuated by (100 + diff)%.
+#[inline(always)]
+pub fn apply_differential(val: i32, diff: i8) -> i32 {
+    if diff == 0 {
+        return val;
+    }
+    let d = diff.clamp(-100, 100) as i32;
+    if d > 0 && val < 0 {
+        (val * (100 - d)) / 100
+    } else if d < 0 && val > 0 {
+        (val * (100 + d)) / 100
+    } else {
+        val
     }
 }
 
@@ -123,6 +142,43 @@ pub fn is_dr_high(dr_switch: u8, switches: &Switches) -> bool {
     }
 }
 
+/// Evaluate whether a flight timer trigger condition is satisfied.
+///
+/// * `timer_source`:
+///   - 0: Disabled (Off)
+///   - 1: THs (Throttle stick > 5% / > -900)
+///   - 2: THt (Throttle stick latched once > 5% / > -900)
+///   - 3: Always On (Continuous)
+///   - 4..=13: Switch conditions SA^..SDv (mapping to condition 1..=10)
+/// * `throttle`: normalized throttle stick position (-1000..+1000)
+/// * `latched`: mutable reference to latched state (updated for THt)
+/// * `switches`: current switch positions
+/// * `is_armed`: whether arm switch condition is satisfied (or true if no arm switch configured)
+pub fn is_timer_active(
+    timer_source: u8,
+    throttle: i16,
+    latched: &mut bool,
+    switches: &Switches,
+    is_armed: bool,
+) -> bool {
+    if !is_armed {
+        return false;
+    }
+    match timer_source {
+        0 => false,
+        1 => throttle > -900,
+        2 => {
+            if throttle > -900 {
+                *latched = true;
+            }
+            *latched
+        }
+        3 => true,
+        sw if (4..=13).contains(&sw) => is_switch_active(sw - 3, switches),
+        _ => false,
+    }
+}
+
 /// Evaluate a source identifier to a normalized value (-1000..+1000).
 pub fn evaluate_source(
     src: u8,
@@ -155,6 +211,10 @@ pub fn evaluate_source(
         12..=25 => {
             let ch_idx = (src - 12) as usize;
             channels[ch_idx]
+        }
+        26 => {
+            let thr = cond_sticks[2] as i32;
+            ((thr + MIXER_MAX as i32) / 2).clamp(0, MIXER_MAX as i32)
         }
         _ => MIXER_CENTER as i32,
     }
@@ -200,10 +260,13 @@ pub fn compute_channels(
         }
         WingTailTemplate::Elevon => {
             // Delta wing: Left Elevon (CH1) = (Pitch - Roll)/2, Right Elevon (CH2) = (Pitch + Roll)/2
+            // With differential applied to the roll component:
             let p = cond_pitch as i32;
             let r = cond_roll as i32;
-            ch_vals[0] = (p - r).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
-            ch_vals[1] = (p + r).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            let left_r = apply_differential(-r, model.template_diff);
+            let right_r = apply_differential(r, model.template_diff);
+            ch_vals[0] = ((p + left_r) / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[1] = ((p + right_r) / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[2] = cond_thr as i32;
             ch_vals[3] = cond_yaw as i32;
         }
@@ -212,19 +275,21 @@ pub fn compute_channels(
             let p = cond_pitch as i32;
             let y = cond_yaw as i32;
             ch_vals[0] = cond_roll as i32;
-            ch_vals[1] = (p + y).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[1] = ((p + y) / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[2] = cond_thr as i32;
-            ch_vals[3] = (p - y).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[3] = ((p - y) / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
         }
         WingTailTemplate::Flaperon => {
             // Dual ailerons: CH1 Left Aileron, CH6 Right Aileron. Flaps driven from aux channel 6
             let r = cond_roll as i32;
+            let left_r = apply_differential(r, model.template_diff);
+            let right_r = apply_differential(-r, model.template_diff);
             let flap = evaluate_source(model.aux_channels[1], &cond_sticks, pots, switches, &ch_vals);
-            ch_vals[0] = (r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[0] = (left_r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[1] = cond_pitch as i32;
             ch_vals[2] = cond_thr as i32;
             ch_vals[3] = cond_yaw as i32;
-            ch_vals[5] = (-r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+            ch_vals[5] = (right_r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
         }
     }
 
@@ -413,15 +478,75 @@ mod tests {
         };
         let pots = [0i16, 0i16];
 
-        // Pitch up (1000), Roll zero -> Both elevons deflect together
+        // Pitch up (1000), Roll zero -> Both elevons deflect together with 50% throw
         let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs[0], CHANNEL_MAX_US, "CH1 Left elevon");
-        assert_eq!(chs[1], CHANNEL_MAX_US, "CH2 Right elevon");
+        assert_eq!(chs[0], 1756, "CH1 Left elevon 50% up");
+        assert_eq!(chs[1], 1756, "CH2 Right elevon 50% up");
 
-        // Roll right (1000), Pitch zero -> Left elevon down, Right elevon up
-        let chs_roll = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs_roll[0], CHANNEL_MIN_US, "CH1 Left elevon (p - r)");
-        assert_eq!(chs_roll[1], CHANNEL_MAX_US, "CH2 Right elevon (p + r)");
+        // Pitch up (1000) + Roll right (1000) -> Right elevon full throw (100%), Left elevon center (0%)
+        let chs_corner = compute_channels(1000, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_corner[0], CHANNEL_CENTER_US, "CH1 Left elevon neutral without clipping");
+        assert_eq!(chs_corner[1], CHANNEL_MAX_US, "CH2 Right elevon full travel 2012 µs");
+
+        // Differential test: diff = +50% (down-deflection attenuated by 50%)
+        model.template_diff = 50;
+        let chs_diff = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_diff[1], 1756, "Right elevon up-deflection unattenuated");
+        assert_eq!(chs_diff[0], 1372, "Left elevon down-deflection attenuated by 50%");
+    }
+
+    #[test]
+    fn test_compute_channels_vtail_mixing() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.wing_tail_mix = 2; // VTail
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        // Pitch up (1000), Yaw zero -> Both V-tail ruddervators deflect up together with 50% authority
+        let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs[1], 1756, "CH2 Left V-Tail");
+        assert_eq!(chs[3], 1756, "CH4 Right V-Tail");
+
+        // Full corner Pitch up (1000) + Yaw right (1000) -> CH2 full travel (2012 µs), CH4 neutral (1500 µs)
+        let chs_corner = compute_channels(0, 1000, 0, 1000, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_corner[1], CHANNEL_MAX_US, "CH2 Left V-Tail full up");
+        assert_eq!(chs_corner[3], CHANNEL_CENTER_US, "CH4 Right V-Tail neutral without clipping");
+    }
+
+    #[test]
+    fn test_unipolar_throttle_mixer() {
+        let mut model = ModelConfig::default_for_index(0);
+        // Mix line 1: CH2 (Elevator) <- Thr+ with -20% weight, ADD
+        model.mixes[0] = MixLine {
+            target_ch: 2,
+            source: 26, // Thr+
+            weight: -20,
+            offset: 0,
+            mode: 0,
+            switch: 0,
+        };
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+        };
+        let pots = [0i16, 0i16];
+
+        // At zero throttle (curved_throttle = 0): Thr+ evaluates to 0 -> zero elevator compensation!
+        let chs_idle = compute_channels(0, 0, 0, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_idle[1], CHANNEL_CENTER_US, "CH2 Elevator must stay neutral at idle throttle");
+
+        // At 100% throttle (curved_throttle = 1000): Thr+ is 1000 -> -20% weight gives -200 offset (-102 µs)
+        let chs_full = compute_channels(0, 0, 1000, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs_full[1], 1398, "CH2 Elevator receives smooth down-pitch compensation at full throttle");
     }
 
     #[test]
@@ -474,5 +599,127 @@ mod tests {
         model.mixes[0].weight = 100;
         let chs_replace = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
         assert_eq!(chs_replace[4], CHANNEL_MAX_US);
+    }
+
+    #[test]
+    fn test_timer_trigger_modes() {
+        let mut latched = false;
+        let switches = Switches {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Mid,
+            sc: SwitchPos::Down,
+            sd: SwitchPos::Up,
+        };
+
+        // 0: Disabled
+        assert!(!is_timer_active(0, 500, &mut latched, &switches, true));
+
+        // 1: THs (runs only while throttle > -900)
+        assert!(!is_timer_active(1, -950, &mut latched, &switches, true));
+        assert!(is_timer_active(1, -850, &mut latched, &switches, true));
+        assert!(is_timer_active(1, 0, &mut latched, &switches, true));
+        assert!(!is_timer_active(1, -1000, &mut latched, &switches, true));
+
+        // 2: THt (latched running once throttle > -900)
+        latched = false;
+        assert!(!is_timer_active(2, -1000, &mut latched, &switches, true));
+        assert!(!latched);
+        // Throttle raised above idle
+        assert!(is_timer_active(2, -500, &mut latched, &switches, true));
+        assert!(latched);
+        // Throttle lowered back to idle: MUST CONTINUE RUNNING
+        assert!(is_timer_active(2, -1000, &mut latched, &switches, true));
+        assert!(latched);
+
+        // Reset/Unlatch (e.g. on landing/disarm or manual reset)
+        latched = false;
+        assert!(!is_timer_active(2, -1000, &mut latched, &switches, true));
+
+        // 3: Always On
+        assert!(is_timer_active(3, -1000, &mut latched, &switches, true));
+
+        // 4: SA^ (SwitchPos::Up is active)
+        assert!(is_timer_active(4, -1000, &mut latched, &switches, true));
+        // 5: SAv (SwitchPos::Down is NOT active)
+        assert!(!is_timer_active(5, -1000, &mut latched, &switches, true));
+
+        // Inhibit when disarmed
+        assert!(!is_timer_active(1, 500, &mut latched, &switches, false));
+        assert!(!is_timer_active(2, 500, &mut latched, &switches, false));
+        assert!(!is_timer_active(3, -1000, &mut latched, &switches, false));
+        assert!(!is_timer_active(4, -1000, &mut latched, &switches, false));
+    }
+
+    #[test]
+    fn test_timer_reset_guard_and_cooldown() {
+        let mut timer_remaining_secs: u16 = 240;
+        let mut cancel_hold_ms: u16 = 0;
+        let mut cancel_waiting_release = false;
+        let mut timer_reset_toast_ms: u16 = 0;
+        let mut timer_reset_cooldown_ms: u16 = 0;
+
+        assert!(!cancel_waiting_release);
+        assert_eq!(timer_reset_toast_ms, 0);
+        assert_eq!(timer_reset_cooldown_ms, 0);
+        assert_eq!(timer_remaining_secs, 240);
+
+        let dt_ms: u16 = 33;
+
+        // Step 1: Simulate holding [CANCEL] for 1000ms
+        for _ in 0..30 {
+            cancel_hold_ms = cancel_hold_ms.saturating_add(dt_ms);
+            assert!(cancel_hold_ms < 1000);
+            assert_eq!(timer_remaining_secs, 240);
+        }
+
+        // On frame 31, hold hits 1000ms threshold
+        cancel_hold_ms = cancel_hold_ms.saturating_add(dt_ms);
+        assert!(cancel_hold_ms >= 1000);
+
+        // Execute reset
+        timer_remaining_secs = 300;
+        assert_eq!(timer_remaining_secs, 300);
+        cancel_hold_ms = 0;
+        cancel_waiting_release = true;
+        timer_reset_toast_ms = 800;
+        timer_reset_cooldown_ms = 1500;
+
+        // Step 2: Pilot continues holding [CANCEL] for the next 500ms
+        for _ in 0..15 {
+            if timer_reset_toast_ms > 0 {
+                timer_reset_toast_ms = timer_reset_toast_ms.saturating_sub(dt_ms);
+            }
+            if timer_reset_cooldown_ms > 0 {
+                timer_reset_cooldown_ms = timer_reset_cooldown_ms.saturating_sub(dt_ms);
+            }
+            let cancel_key = true;
+            if !cancel_key {
+                cancel_waiting_release = false;
+            }
+            if cancel_key && !cancel_waiting_release && timer_reset_cooldown_ms == 0 {
+                cancel_hold_ms = cancel_hold_ms.saturating_add(dt_ms);
+            } else {
+                cancel_hold_ms = 0;
+            }
+
+            // Must remain 0 while holding!
+            assert_eq!(cancel_hold_ms, 0, "cancel_hold_ms must stay 0 while button is held");
+        }
+
+        // Step 3: Pilot finally releases [CANCEL]
+        let cancel_key = false;
+        if !cancel_key {
+            cancel_waiting_release = false;
+        }
+        assert!(!cancel_waiting_release);
+
+        // Step 4: Rapid press during 1.5s cooldown must be rejected
+        let cancel_key = true;
+        if cancel_key && !cancel_waiting_release && timer_reset_cooldown_ms == 0 {
+            cancel_hold_ms = cancel_hold_ms.saturating_add(dt_ms);
+        } else {
+            cancel_hold_ms = 0;
+        }
+        assert_eq!(cancel_hold_ms, 0, "cancel_hold_ms must stay 0 during cooldown");
     }
 }

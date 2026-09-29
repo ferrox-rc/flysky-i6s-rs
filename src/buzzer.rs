@@ -452,4 +452,41 @@ impl Buzzer {
             self.play_tone(2800, 150);
         }
     }
+
+    /// Subtle acoustic tick when a rotary potentiometer passes through mechanical center.
+    pub fn pot_center_click(&mut self) {
+        self.play_tone(3200, 10);
+    }
+
+    /// Flight timer 1-minute alert: distinctive dual-tone chirp.
+    pub fn timer_minute_beep(&mut self) {
+        if self.tone_style == ToneStyle::Rich {
+            const MELODY: [Note; 2] = [
+                Note::new(2200, 40, 15),
+                Note::new(2800, 60, 0),
+            ];
+            self.play_sequence(&MELODY);
+        } else {
+            self.play_tone(2400, 60);
+        }
+    }
+
+    /// Flight timer final countdown tick (10s..1s): short urgent beep.
+    pub fn timer_countdown_beep(&mut self) {
+        self.play_tone(2600, 35);
+    }
+
+    /// Flight timer expired alarm: alternating urgent tone pattern.
+    pub fn timer_elapsed_alarm(&mut self) {
+        if self.tone_style == ToneStyle::Rich {
+            const MELODY: [Note; 3] = [
+                Note::new(3000, 70, 20),
+                Note::new(2200, 70, 20),
+                Note::new(3000, 120, 0),
+            ];
+            self.play_sequence(&MELODY);
+        } else {
+            self.play_tone(2800, 150);
+        }
+    }
 }

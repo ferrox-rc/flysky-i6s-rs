@@ -131,7 +131,7 @@ pub struct ModelConfig {
     pub expo_high: [i8; 3],        // 40..43: High expo (-100..+100%)
     pub expo_low: [i8; 3],         // 43..46: Low expo (-100..+100%)
     pub timer_secs: u16,           // 46..48: Countdown timer in seconds (e.g. 300 = 5 min)
-    pub timer_source: u8,          // 48: 0: Off, 1: Thr > 5%, 2: SA, 3: SB, 4: SC, 5: SD
+    pub timer_source: u8,          // 48: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
     pub protocol_subtype: u8,      // 49: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
     pub failsafe_thr: u16,         // 50..52: Failsafe throttle pulse in µs (e.g. 1000)
     pub aux_channels: [u8; 10],    // 52..62: Source for CH5..CH14 (0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD)

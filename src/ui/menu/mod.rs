@@ -45,6 +45,8 @@ pub struct NavKeys {
     pub up: bool,
     pub down: bool,
     pub bind: bool,
+    pub sw_change: Option<u8>,
+    pub dr_change: Option<u8>,
 }
 
 pub struct MenuController {
@@ -62,6 +64,7 @@ pub struct MenuController {
     up_hold_ms: u16,
     down_hold_ms: u16,
     repeat_timer_ms: u16,
+    prev_switches: crate::input::Switches,
 }
 
 impl Default for MenuController {
@@ -87,6 +90,12 @@ impl MenuController {
             up_hold_ms: 0,
             down_hold_ms: 0,
             repeat_timer_ms: 0,
+            prev_switches: crate::input::Switches {
+                sa: crate::input::SwitchPos::Up,
+                sb: crate::input::SwitchPos::Up,
+                sc: crate::input::SwitchPos::Up,
+                sd: crate::input::SwitchPos::Up,
+            },
         }
     }
 
@@ -119,6 +128,7 @@ impl MenuController {
         &mut self,
         lcd: &mut St7567,
         keys: u16,
+        switches: &crate::input::Switches,
         storage: &mut RadioStorage,
         trims: &mut TrimController,
         raw_adc: &[u16; adc::NUM_CHANNELS],
@@ -174,12 +184,18 @@ impl MenuController {
             self.repeat_timer_ms = 0;
         }
 
+        let sw_change = switches.detect_condition_change(&self.prev_switches);
+        let dr_change = switches.detect_dr_switch_change(&self.prev_switches);
+        self.prev_switches = *switches;
+
         let nav_keys = NavKeys {
             ok: (newly_pressed & (1 << 10)) != 0,
             cancel: (newly_pressed & (1 << 11)) != 0,
             up: up_pressed,
             down: down_pressed,
             bind: (newly_pressed & (1 << 12)) != 0,
+            sw_change,
+            dr_change,
         };
 
         if self.state == MenuState::Closed {

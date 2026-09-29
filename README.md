@@ -281,15 +281,18 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Spoken telemetry announcements (battery voltage, low RSSI, timer elapsed).
 - [x] Audible switch position announcements and flight mode voice prompts.
 
-### Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics (PLANNED / BRANCH: `feat/flight-timer-mixer-polish`)
-- [ ] Throttle- and switch-activated Flight Countdown / Stopwatch timer utilizing existing `timer_secs` storage.
-- [ ] Acoustic countdown beeps (1-min warning, 10s..1s countdown, persistent tone at 0) and formatted flight dashboard display.
-- [ ] Elevon & V-Tail saturation resolution (standardizing `(p ± r) / 2` throw limits).
-- [ ] Wing/Tail differential throw activation utilizing existing `template_diff` parameter.
-- [ ] Unipolar / half-range mixer source option (`Thr+`) to eliminate negative pitch-down at idle on compensation mixes.
-- [ ] Physical switch auto-detection in menu editors (toggling any physical switch auto-selects its condition).
-- [ ] Model Duplicate / Copy utility in `MODEL SETUP` for safe mixer experimentation.
-- [ ] Non-visual potentiometer center acoustic detent click when crossing neutral center on `VRA` and `VRB`.
+### Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics (BRANCH: `feat/flight-timer-mixer-polish`)
+- [x] EdgeTX-parity Flight Countdown / Stopwatch timer with multi-trigger modes (`THs (RUN)`, `THt (LTCH)`, `ALWAYS ON`, and switch triggers `SA^`..`SDv`).
+- [x] Auto-reset upon arming and freeze upon disarming when Arm Switch is assigned.
+- [x] Visual HUD Hold-to-Reset progress bar (holding `[CANCEL]` for 1.0s with animated bar and confirmation toast).
+- [x] Dedicated `[UP]` / `[DOWN]` page navigation on flight dashboard.
+- [x] Acoustic countdown beeps (1-min warning, 10s..1s countdown, persistent tone at 0) and formatted flight dashboard display.
+- [x] Elevon & V-Tail saturation resolution (standardizing `(p ± r) / 2` throw limits).
+- [x] Wing/Tail differential throw activation utilizing existing `template_diff` parameter.
+- [x] Unipolar / half-range mixer source option (`Thr+`) to eliminate negative pitch-down at idle on compensation mixes.
+- [x] Physical switch auto-detection in menu editors (toggling any physical switch auto-selects its condition).
+- [x] Model Duplicate / Copy utility in `MODEL SETUP` for safe mixer experimentation.
+- [x] Non-visual potentiometer center acoustic detent click when crossing neutral center on `VRA` and `VRB`.
 
 ### Phase 20: Trainer Port Subsystem & PPM In/Out (PLANNED / BRANCH: `feat/trainer-ppm`)
 - [ ] Direct PAC driver for `TIM15` (1 µs tick resolution at 48 MHz).
@@ -303,7 +306,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [ ] Auxiliary channel rate-limiter ("Servo Slow") for realistic flap deployment and gear doors without aerodynamic ballooning.
 
 ### Current Firmware Footprint
-- **Application Flash ROM**: **~89.4 KB** (.text 89,432B + .data 1,876B = 91.3 KB total) used out of **120 KB** partition (**>30.8 KB / 25.7% free headroom**).
+- **Application Flash ROM**: **~90.8 KB** (.text 90,832B + .data 1,876B = 92.7 KB total) used out of **120 KB** partition (**>29.2 KB / 24.3% free headroom**).
 - **Static RAM**: **~3.0 KB** (`.data` 1,876B + `.bss` 1,128B) out of **16 KB** available (**>81% SRAM free** with **>6.3 KB** guaranteed stack safety margin).
 - **Non-Volatile Storage**: **8,192 bytes** (Pages 60–63) managed as an append-only log with automatic wear levelling.
 
@@ -313,7 +316,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 | Action | Control | Notes |
 | :--- | :--- | :--- |
-| **Cycle Flight Pages** | **Tap `BIND` button** | Cycles through Page 1/4 (Gimbals), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
+| **Cycle Flight Pages** | **`[UP]` / `[DOWN]` or Tap `[BIND]`** | Steps through Page 1/4 (Gimbals & Timer), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
+| **Reset Flight Timer** | **Hold `[CANCEL]` (>= 1.0s)** | Displays centered HUD progress bar on flight screen; resets timer with chime on 1.0s completion |
 | **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, Protocol Setup, Monitors, Calib, Diag, & Info |
 | **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |
 | **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |

@@ -32,12 +32,16 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
 ```
 
 ### Keypad & Navigation Buttons
-- **`[UP]`** / **`[DOWN]`**: Navigate menu items, cycle characters, increment/decrement values.
+- **`[UP]`** / **`[DOWN]`**:
+  - **On Flight Screen**: Cycles through the 4 dashboard pages (`1/4` -> `2/4` -> `3/4` -> `4/4` with `[DOWN]`, and reverse with `[UP]`).
+  - **In Menus & Editors**: Navigate menu items, cycle characters, increment/decrement values.
   - **Auto-Repeat**: Holding **`[UP]`** or **`[DOWN]`** for >= 300 ms automatically repeats every **70 ms** for rapid scrolling through lists, swift character selection, and fast curve point editing.
 - **`[OK]`**: Enter submenu, toggle setting, confirm values, advance character cursor in naming editor.
   - **Hold `[OK]` for 1.2 seconds** on any flight dashboard page: Opens the **Settings Menu**.
   - **Hold `[OK]` during Power-On**: Launches **Stick Calibration** immediately.
-- **`[CANCEL]` (`[ESC]`)**: Return to previous screen, exit edit mode, abort calibration, or complete one-way receiver binding.
+- **`[CANCEL]` (`[ESC]`)**:
+  - **On Flight Screen (Hold >= 1.0s)**: Opens the **HUD Timer Reset Modal** with a real-time progress bar. Holding for 1.0s resets the flight timer back to its configured duration (or 0:00 for count-up), sounds a high chime, and flashes a `"TIMER RESET!"` confirmation. Releasing early aborts without resetting.
+  - **In Menus**: Return to previous screen, exit edit mode, abort calibration, or complete one-way receiver binding.
 - **`[BIND]` (Dedicated Button with Clean Separation Logic)**:
   - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 4 flight dashboard pages (`1/4` -> `2/4` -> `3/4` -> `4/4` -> `1/4`).
   - **Hold (`>= 1.0s`) on Flight Screen**: Initiates AFHDS 2A receiver binding.
@@ -64,7 +68,7 @@ The main flight screen features 4 switchable display pages cycled by tapping **`
 | T [========.     ]   45%   | R [====|==.======]    0%       |
 | A:U  B:M  C:D  D:U                             V: 5/ 8      | <- Switches & Pots (y=44..53)
 |-------------------------------------------------------------| <- Bottom Line (y=55)
-| P1/4                                      Hold OK:Menu      | <- Footer Bar (y=57..62)
+| P1/4                         04:32            Hold OK:Menu  | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
 - **Top Status Bar (y = 0..10)**:
@@ -73,7 +77,7 @@ The main flight screen features 4 switchable display pages cycled by tapping **`
   - **Right (`X.YYV`)**: Internal battery voltage stabilized by an exponential moving average (EMA) filter to eliminate switching jitter on the hundredths digit.
 - **Gimbal Gauges (y = 12..43)**: Live channel sliders for Roll (`A`), Pitch (`E`), Throttle (`T`), Yaw (`R`) with center ticks, trim position ticks (`.`), and percentage readouts.
 - **Switches & Pots Line (y = 44..53)**: Position of switches SA..SD (`U`=Up, `M`=Middle, `D`=Down) and rotary pots VRA/VRB (`0`..`9`), positioned cleanly above the line 55 divider.
-- **Bottom Footer (y = 57..62)**: Displays active trim adjustment (`TRM A:+04`) or `P1/4   Hold OK:Menu` in crisp small font (`FONT_4X6`).
+- **Bottom Footer (y = 57..62)**: Displays active trim adjustment (`TRM A:+04`), or a 3-zone status bar with page index (`P1/4`), **Live Flight Timer** (e.g. `04:32`, inverted/blinking on expiration), and menu hint (`Hold OK:Menu`) in crisp small font (`FONT_4X6`).
 
 ### Page 2/4: 14-Channel Dual Column Monitor
 ```
@@ -199,12 +203,25 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
   - Press **`[OK]`** to cycle between `AIRPLANE`, `GLIDER`, `HELI`, and `QUAD`.
 - **Field 2: Arm Switch (`Arm Sw:`)**:
   - Assign any physical switch and position condition as the model's arming switch: **`NONE`**, **`SA^`**, **`SAv`**, **`SB^`**, **`SB-`**, **`SBv`**, **`SC^`**, **`SC-`**, **`SCv`**, **`SD^`**, or **`SDv`**.
-  - During flight, transitioning into the armed state plays an acoustic **Armed chirp** (rising tone sequence), and transitioning out plays a **Disarmed chirp** (falling tone sequence).
-- **Field 3: Bind RX**:
-  - Displays currently bound receiver ID (`Rx: XXXXXXXX`).
-  - Press **`[OK]`** on `[OK Bind]` to initiate AFHDS 2A receiver binding directly from Model Setup.
-- **Field 4: Reset Defaults**:
-  - Press **`[OK]`** on `[OK Defaults]` to restore default trims, standard channel directions, and linear curves for this model slot.
+  - **Switch Auto-Detection**: Simply toggle the desired physical switch while editing to auto-detect and select it.
+  - **Flight Safety & Acoustic Feedback**: Arming plays a rising tone chirp; disarming plays a falling tone chirp.
+  - **Timer Integration**: Disarming pauses and unlatches the flight timer so the pilot can inspect total flight duration. Re-arming for the next flight automatically resets the timer back to its configured duration!
+- **Field 3: Timer Duration (`Timer:`)**:
+  - Configure the countdown timer in 30-second increments up to 60:00 (e.g. `05:00`), or set to `OFF` (0:00) to operate as a count-up stopwatch.
+- **Field 4: Timer Trigger (`T-Trig:`)**:
+  - Select the event that starts and runs the timer:
+    - **`OFF`**: Timer disabled.
+    - **`THs (RUN)`**: Throttle Switch mode—runs only while throttle stick $> 5\%$ ($> -900$), pauses when brought back to idle.
+    - **`THt (LTCH)`**: Throttle Trigger / Latched mode—starts counting when throttle stick first exceeds 5%, and continues running non-stop throughout zero-throttle glides or multirotor descents.
+    - **`ALWAYS ON`**: Continuous timer whenever the radio is powered on.
+    - **Switch Conditions (`SA^` through `SDv`)**: Runs while the specified switch condition is active.
+  - **Switch Auto-Detection**: Flipping any physical switch while editing `T-Trig` automatically sets that switch as the trigger.
+- **Field 5: Model Copy / Duplicate (`Copy -> Mxx`)**:
+  - Select a target model slot (`M01`..`M20`) and press **`[OK]`** to clone the current model's name, trims, curves, mixer lines, and protocol settings for safe experimentation.
+- **Field 6: Bind RX (`[OK Bind]`)**:
+  - Displays currently bound receiver ID (`Rx: XXXXXXXX`). Press **`[OK]`** to initiate receiver binding directly from Model Setup.
+- **Field 7: Reset Defaults (`[OK Defaults]`)**:
+  - Press **`[OK]`** to restore default trims, standard channel directions, linear curves, and mixer parameters for this model slot.
 
 ### Submenu 3: Dual Rate & Expo (`DUAL RATE/EXPO`)
 Configures stick throw authority and center sensitivity for primary controls:
@@ -306,7 +323,56 @@ Launches the interactive 2-step calibration wizard (see Section 5 below).
 
 ---
 
-## 5. Gimbal & Potentiometer Calibration Procedure
+## 5. Flight Timer Subsystem & Pilot Audio Ergonomics
+
+The `flysky-i6x-rs` firmware features an EdgeTX/OpenTX-parity flight timer engine designed to prevent unexpected battery depletion, track flight pack duration, and support diverse aircraft categories (fixed-wing, sailplane, and multirotor).
+
+### 1. Timer Modes & Triggers (`T-Trig:`)
+Configurable per-model in **`MODEL SETUP`** -> **`T-Trig:`**:
+
+| Mode | LCD Display | Trigger Behavior | Ideal Application |
+| :--- | :--- | :--- | :--- |
+| **Disabled** | `OFF` | Timer is completely disabled. | Bench testing / non-timed setups |
+| **Throttle Run** | `THs (RUN)` | Timer runs while throttle stick is $> 5\%$ ($> -900$), and **pauses** whenever throttle drops back to idle. | Electric airplanes & gliders where battery only discharges under motor power |
+| **Throttle Latched** | `THt (LTCH)` | Starts counting when throttle stick first exceeds 5%, and **latches ON**, continuously running throughout the flight even during low-throttle descents or inverted glides. | FPV quadcopters & aerobatic aircraft |
+| **Always On** | `ALWAYS ON` | Runs continuously whenever the transmitter is turned on. | Session duration / general stopwatch |
+| **Switch Condition** | `SA^` .. `SDv` | Runs while the assigned switch position is active; pauses when inactive. | Manual switch timing / glider thermaling |
+
+*Tip:* When editing `T-Trig:`, flipping any physical switch auto-detects and selects that switch position immediately.
+
+### 2. Arm Switch Integration (Auto-Reset on Arm / Pause on Disarm)
+When an **Arm Switch** (`Arm Sw:`) is configured in `MODEL SETUP`:
+- **Disarm (Landing)**: Unlatches `THt` and pauses the timer immediately. The timer display freezes on screen so the pilot can inspect total airtime and remaining pack duration post-landing.
+- **Re-Arm (Next Battery)**: Automatically resets the timer back to its initial countdown value (or 00:00 for count-up) and clears all elapsed accumulator seconds—ready for the next flight pack without touching any buttons.
+
+### 3. Visual Hold-to-Reset HUD Progress Modal
+To manually reset the timer on the flight dashboard at any time:
+1. Press and hold **`[CANCEL]` (`[ESC]`)** on any dashboard page.
+2. A high-contrast centered HUD modal appears with a live progress bar:
+   ```text
+   +------------------------+
+   |      RESET TIMER       |
+   |   [==============    ] |
+   +------------------------+
+   ```
+3. Hold for **1.0 second**: The progress bar reaches 100%, an acoustic confirmation chime (`2400 Hz`) sounds, the timer resets to full duration, and a `"TIMER RESET!"` toast flashes for 600 ms.
+4. *Safety Guard*: Releasing `[CANCEL]` before 1.0s aborts immediately without altering the timer.
+
+### 4. Acoustic Countdown & Alarm Sequence
+The audio engine provides distinctive non-blocking tone patterns during flight:
+- **1-Minute Beep**: A short high chime (`2400 Hz`, 50 ms) sounds on every whole minute mark (`04:00`, `03:00`, `02:00`, `01:00`).
+- **10-Second Countdown**: Single ticks (`2200 Hz`, 40 ms) sound every second from `00:10` down to `00:01`.
+- **Elapsed Alarm (`00:00`)**: A 3-tone urgent alert (`2600 Hz`) sounds when the timer reaches zero.
+- **Overdue Count-Up**: After reaching zero, the timer continues counting upward into negative time (`-00:01`, `-00:02`...) and blinks/inverts on the LCD footer, informing the pilot exactly how far overdue the flight is.
+
+### 5. Non-Visual Potentiometer Center Detent Haptics
+Because the FS-i6X hardware potentiometers (`VRA` and `VRB`) lack physical center detents, the firmware monitors knob rotation in real time:
+- Whenever `VRA` or `VRB` crosses through mechanical center ($0$), a subtle audio click (`2200 Hz`, 10 ms) sounds.
+- Enables pilots wearing FPV goggles or maintaining visual line-of-sight on their model to center flaps, gimbal pitch, or gain dials without glancing at the screen.
+
+---
+
+## 6. Gimbal & Potentiometer Calibration Procedure
 
 Calibration ensures gimbals reach full travel without clipping or deadzones:
 
@@ -328,12 +394,12 @@ Calibration ensures gimbals reach full travel without clipping or deadzones:
 
 ---
 
-## 6. Receiver Binding Instructions
+## 7. Receiver Binding Instructions
 
 The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean separation logic:
 1. **Hold `[BIND]` during Power-On**: Boots directly into RF bind mode.
 2. **Hold `[BIND]` (>= 1.0s) on Flight Screen**: Initiates binding from any flight dashboard page.
-3. **`MODEL SETUP` Menu**: Select Field 2 (`Bind RX`) and press **`[OK]`**.
+3. **`MODEL SETUP` Menu**: Select Field 6 (`Bind RX`) and press **`[OK]`**.
 4. **`RX SETUP & BIND` Menu**: Press **`[OK]`**.
 
 ### Method A: Two-Way Telemetry Receivers (FS-iA6B, FS-iA10B)
@@ -352,7 +418,7 @@ The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean 
 
 ---
 
-## 7. Firmware Flashing, Full Flash Backup, & DFU Recovery
+## 8. Firmware Flashing, Full Flash Backup, & DFU Recovery
 
 The FlySky FS-i6X can be backed up and flashed directly over USB without specialized hardware programmer probes:
 
@@ -401,7 +467,7 @@ dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
 
 ---
 
-## 8. Safety Systems & Audio Alarms
+## 9. Safety Systems & Audio Alarms
 
 The firmware includes five levels of proactive safety protection inspired by OpenTX/EdgeTX and aerospace fail-safe design:
 
@@ -435,7 +501,7 @@ The firmware includes five levels of proactive safety protection inspired by Ope
 
 ---
 
-## 9. USB Subsystem & Flight Simulator Operations
+## 10. USB Subsystem & Flight Simulator Operations
 
 The FlySky FS-i6X features a hardware USB Full-Speed port wired directly to the microcontroller (`PA11` / `PA12`). The `flysky-i6x-rs` firmware supports native plug-and-play USB Joystick control, Virtual COM Port telemetry, and silent RF running.
 

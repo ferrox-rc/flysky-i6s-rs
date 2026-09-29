@@ -82,19 +82,20 @@ pub struct ModelConfig {
     pub dr_low: [u8; 3],           // Low rates: AIL, ELE, RUD (30..100%)
     pub expo_high: [i8; 3],        // High expo (-100..+100%)
     pub expo_low: [i8; 3],         // Low expo (-100..+100%)
-    pub timer_secs: u16,           // Flight timer duration in seconds
-    pub timer_source: u8,          // 0: Off, 1: Thr > 5%, 2..5: SA..SD
-    pub protocol_subtype: u8,      // 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
-    pub failsafe_thr: u16,         // Failsafe throttle pulse in µs (e.g. 1000)
-    pub aux_channels: [u8; 10],    // Source for CH5..CH14
-    pub wing_tail_mix: u8,         // 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
-    pub template_diff: i8,         // Differential / mix ratio (-100..+100)
-    pub mixes: [MixLine; 8],       // 8 freeform mix rules (8 * 6 = 48 bytes)
+    pub timer_secs: u16,           // 46..48: Countdown timer in seconds (e.g. 300 = 5 min)
+    pub timer_source: u8,          // 48: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
+    pub protocol_subtype: u8,      // 49: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
+    pub failsafe_thr: u16,         // 50..52: Failsafe throttle pulse in µs (e.g. 1000)
+    pub aux_channels: [u8; 10],    // 52..62: Source for CH5..CH14
+    pub wing_tail_mix: u8,         // 62: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
+    pub template_diff: i8,         // 63: Differential / mix ratio (-100..+100)
+    pub mixes: [MixLine; 8],       // 64..112: 8 freeform mix rules (8 * 6 = 48 bytes)
     pub failsafe_mode: u8,         // 112: 0: Hold last, 1: Custom pulses
     pub failsafe_timeout: u8,      // 113: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,           // 114: 0: AFHDS 2A, 1: CRSF / ELRS
     pub crsf_baud: u8,             // 115: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
-    pub _reserved: [u8; 12],       // 116..128: 12 reserved bytes (Total: 128 bytes)
+    pub arm_switch: u8,            // 116: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
+    pub _reserved: [u8; 11],       // 117..128: 11 reserved bytes (Total: 128 bytes)
 }
 
 /// Unified Flash image layout (exactly 2,688 bytes in memory)

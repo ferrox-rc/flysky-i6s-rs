@@ -85,6 +85,8 @@ impl DashboardController {
         rf_ok: bool,
         is_binding: bool,
         telem: &TelemetryData,
+        timer_str: Option<&str>,
+        timer_expired: bool,
         buzzer: &mut Buzzer,
     ) {
         lcd.clear(BinaryColor::Off).ok();
@@ -105,10 +107,20 @@ impl DashboardController {
             &mut self.telem_seen,
         );
 
+        let blink_on = (self.blink_phase & 0x08) != 0;
         self.blink_phase = self.blink_phase.wrapping_add(1);
 
         match self.page {
-            0 => pages::gimbals::render(lcd, state, storage, trims, is_binding),
+            0 => pages::gimbals::render(
+                lcd,
+                state,
+                storage,
+                trims,
+                is_binding,
+                timer_str,
+                timer_expired,
+                blink_on,
+            ),
             1 => pages::channels::render(lcd, rf_chs, is_binding),
             2 => pages::model::render(lcd, storage, telem, is_binding),
             _ => {

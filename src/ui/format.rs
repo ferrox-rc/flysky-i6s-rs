@@ -40,11 +40,12 @@ pub fn prev_ascii(c: u8) -> u8 {
     }
 }
 
-pub const SOURCE_NAMES: [&str; 26] = [
+pub const SOURCE_NAMES: [&str; 27] = [
     "None", "Roll", "Pitch", "Thr", "Yaw",
     "VRA", "VRB", "SA", "SB", "SC", "SD", "MAX",
     "CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7",
     "CH8", "CH9", "CH10", "CH11", "CH12", "CH13", "CH14",
+    "Thr+",
 ];
 
 pub const SWITCH_COND_NAMES: [&str; 11] = [
@@ -132,6 +133,28 @@ pub fn format_vbat(mv: u16, buf: &mut [u8; 6]) -> &str {
         buf[4] = b'V';
         core::str::from_utf8(&buf[0..5]).unwrap_or("0.00V")
     }
+}
+
+/// Format timer in seconds to "MM:SS" or "+MM:SS" if expired.
+pub fn format_timer(secs: u16, expired: bool, buf: &mut [u8; 8]) -> &str {
+    let min = (secs / 60).min(99) as u8;
+    let sec = (secs % 60) as u8;
+    let mut i = 0;
+    if expired {
+        buf[i] = b'+';
+        i += 1;
+    }
+    buf[i] = b'0' + (min / 10);
+    i += 1;
+    buf[i] = b'0' + (min % 10);
+    i += 1;
+    buf[i] = b':';
+    i += 1;
+    buf[i] = b'0' + (sec / 10);
+    i += 1;
+    buf[i] = b'0' + (sec % 10);
+    i += 1;
+    core::str::from_utf8(&buf[..i]).unwrap_or("00:00")
 }
 
 /// Format stick value (-1000..+1000) to percentage string "-100%" .. "+100%"

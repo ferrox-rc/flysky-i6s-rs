@@ -40,6 +40,31 @@ pub fn draw_footer_split(lcd: &mut St7567, left: &str, right: &str) {
     Text::new(right, Point::new(right_x, 62), text_style).draw(lcd).ok();
 }
 
+/// Draw a standardized bottom footer with left-aligned, center-aligned, and right-aligned text (FONT_4X6)
+/// and divider line at y = 55. If center_inverted is true, draws an inverted solid background behind center text.
+pub fn draw_footer_three(lcd: &mut St7567, left: &str, center: &str, right: &str, center_inverted: bool) {
+    let text_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+    let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
+    Line::new(Point::new(0, 55), Point::new(127, 55)).into_styled(border_style).draw(lcd).ok();
+    Text::new(left, Point::new(2, 62), text_style).draw(lcd).ok();
+    if !center.is_empty() {
+        let center_x = ((128i32 - center.len() as i32 * 4) / 2).max(2);
+        if center_inverted {
+            let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
+            Rectangle::new(Point::new(center_x - 2, 56), Size::new(center.len() as u32 * 4 + 3, 7))
+                .into_styled(fill_style)
+                .draw(lcd)
+                .ok();
+            let inv_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::Off);
+            Text::new(center, Point::new(center_x, 62), inv_style).draw(lcd).ok();
+        } else {
+            Text::new(center, Point::new(center_x, 62), text_style).draw(lcd).ok();
+        }
+    }
+    let right_x = (126i32 - right.len() as i32 * 4).max(2);
+    Text::new(right, Point::new(right_x, 62), text_style).draw(lcd).ok();
+}
+
 /// Draw a horizontal channel gauge (-1000..+1000) with center ticks, trim marker, and a sliding 3px cursor.
 pub fn draw_channel_gauge(
     lcd: &mut St7567,

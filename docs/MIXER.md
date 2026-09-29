@@ -209,10 +209,10 @@ Here are proven mixer setups used by RC pilots:
 - **Switch**: `SDv`
 - **Mode**: `REPLACE (:=)`
 
-### Recipe 2: Throttle-to-Elevator Pitch Compensation
-*High-thrust airplanes often balloon upward when applying full throttle. This mix automatically injects a small amount of down-elevator as throttle increases:*
+### Recipe 2: Throttle-to-Elevator Pitch Compensation (Unipolar `Thr+`)
+*High-thrust airplanes often balloon upward when applying full throttle. This mix automatically injects a small amount of down-elevator as throttle increases without introducing negative elevator deflection at idle:*
 - **Target**: `CH2` (Elevator)
-- **Source**: `Thr`
+- **Source**: `Thr+` (Unipolar half-range throttle: 0 at idle, linearly ramping to +1000 at full throttle)
 - **Weight**: `-10%`
 - **Offset**: `0%`
 - **Switch**: `ON`

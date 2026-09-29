@@ -20,6 +20,9 @@ pub fn render(
     storage: &RadioStorage,
     trims: &TrimController,
     is_binding: bool,
+    timer_str: Option<&str>,
+    timer_expired: bool,
+    blink_on: bool,
 ) {
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let mut pct_buf = [0u8; 5];
@@ -81,6 +84,9 @@ pub fn render(
         };
         let trm_str = format_trim(trims.last_active, val, &mut trm_buf);
         widgets::draw_footer_split(lcd, trm_str, "Hold OK:Menu");
+    } else if let Some(t_str) = timer_str {
+        let invert_timer = timer_expired && blink_on;
+        widgets::draw_footer_three(lcd, "P1/4", t_str, "Hold OK:Menu", invert_timer);
     } else {
         widgets::draw_footer_split(lcd, "P1/4", "Hold OK:Menu");
     }
