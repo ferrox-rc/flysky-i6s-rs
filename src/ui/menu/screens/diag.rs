@@ -1,7 +1,7 @@
 //! Analog diagnostics and System Information screens.
 
 use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
+    mono_font::{ascii::FONT_4X6, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::Rectangle,
@@ -86,15 +86,23 @@ pub fn update_system_info(
 
     widgets::draw_header(lcd, "SYSTEM INFORMATION");
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let text_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
 
-    Text::new("MCU:", Point::new(4, 21), text_style).draw(lcd).ok();
-    Text::new(profile.name, Point::new(36, 21), text_style).draw(lcd).ok();
+    Text::new("MCU:      ", Point::new(4, 18), text_style).draw(lcd).ok();
+    Text::new(profile.name, Point::new(48, 18), text_style).draw(lcd).ok();
 
-    Text::new(concat!("Firmware: v", env!("CARGO_PKG_VERSION")), Point::new(4, 30), text_style).draw(lcd).ok();
+    Text::new("Firmware: ", Point::new(4, 25), text_style).draw(lcd).ok();
+    Text::new(
+        concat!("v", env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")"),
+        Point::new(48, 25),
+        text_style,
+    )
+    .draw(lcd)
+    .ok();
 
-    Text::new("Flash: 128KB (64P)", Point::new(4, 39), text_style).draw(lcd).ok();
-    Text::new("Profiles: 20 Models", Point::new(4, 48), text_style).draw(lcd).ok();
+    Text::new("Flash:    128KB (64 Pages)", Point::new(4, 32), text_style).draw(lcd).ok();
+    Text::new("SRAM:     16KB (Parity)", Point::new(4, 39), text_style).draw(lcd).ok();
+    Text::new("Profiles: 20 Models", Point::new(4, 46), text_style).draw(lcd).ok();
 
     widgets::draw_footer(lcd, "[ESC] Back");
 }
