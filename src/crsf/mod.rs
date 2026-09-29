@@ -286,8 +286,10 @@ pub struct ElrsConfigEngine {
     pub folder_name: [u8; 16],
     pub folder_name_len: u8,
     /// Fast folder hierarchy cache mapping param_id (1..63) -> parent_folder_id.
-    /// Initialized to 0xFF (unmapped). Populated during initial sequential scan.
+    /// Initialized to 0xFF (unmapped). Populated during initial sequential scan or folder child lists.
     pub parent_map: [u8; MAX_PARAM_MAP],
+    /// Indicates whether the active device responded to Parameter 0 (Root Folder).
+    pub has_root_folder: bool,
 }
 
 impl ElrsConfigEngine {
@@ -318,18 +320,21 @@ impl ElrsConfigEngine {
             folder_name: [0; 16],
             folder_name_len: 0,
             parent_map: [0xFF; MAX_PARAM_MAP],
+            has_root_folder: false,
         }
     }
 }
 
 /// Helper: Find the next parameter ID in `(current_id + 1)..=param_count` that belongs to `target_folder`.
-/// Returns `Some(id)` if a matching parameter is found (or unmapped 0xFF to safely discover), or `None` if done.
+/// When `has_root_folder` is true, only parameters explicitly belonging to `target_folder` are returned.
+/// When `has_root_folder` is false, unmapped `0xFF` parameters are also returned for legacy sequential scanning.
 #[inline]
 pub fn next_param_for_folder(
     current_id: u8,
     target_folder: u8,
     param_count: u8,
     parent_map: &[u8; MAX_PARAM_MAP],
+    has_root_folder: bool,
 ) -> Option<u8> {
     let mut id = current_id + 1;
     while id <= param_count {
@@ -338,8 +343,8 @@ pub fn next_param_for_folder(
         } else {
             0xFF
         };
-        // If mapped to target folder or not yet discovered (0xFF), query this param
-        if parent == target_folder || parent == 0xFF {
+        // If mapped to target folder, or not yet discovered (0xFF) on legacy devices without root folder support
+        if parent == target_folder || (!has_root_folder && parent == 0xFF) {
             return Some(id);
         }
         id += 1;
@@ -565,11 +570,23 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                 },
                 _ => {}
             }
+        } else if p_type == protocol::CRSF_TYPE_FOLDER {
+            if param_id == 0 {
+                CONFIG_ENGINE.has_root_folder = true;
+            }
+            let mut idx = rest_start;
+            while idx < chunk.len() && chunk[idx] != 0xFF {
+                let child_id = chunk[idx];
+                if (child_id as usize) < MAX_PARAM_MAP {
+                    CONFIG_ENGINE.parent_map[child_id as usize] = param_id;
+                }
+                idx += 1;
+            }
         }
     }
 
-    // Only store parameters belonging to current active folder!
-    if parent == CONFIG_ENGINE.current_folder {
+    // Only store parameters belonging to current active folder (param 0 is the root folder descriptor itself)!
+    if param_id != 0 && parent == CONFIG_ENGINE.current_folder {
         let mut found = false;
         for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
             if p.id == param_id {
@@ -694,6 +711,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                 CONFIG_ENGINE.current_folder,
                 CONFIG_ENGINE.param_count,
                 &CONFIG_ENGINE.parent_map,
+                CONFIG_ENGINE.has_root_folder,
             ) {
                 CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
                 CONFIG_ENGINE.current_chunk = 0;
@@ -747,7 +765,8 @@ unsafe fn elrs_tick(now_ms: u32) {
                     500
                 };
 
-                if CONFIG_ENGINE.retry_count < 4 {
+                let max_retries = if id == 0 { 2 } else { 4 };
+                if CONFIG_ENGINE.retry_count < max_retries {
                     CONFIG_ENGINE.retry_count += 1;
                     CONFIG_ENGINE.last_req_ms = now_ms;
                     CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
@@ -764,11 +783,25 @@ unsafe fn elrs_tick(now_ms: u32) {
                     CONFIG_ENGINE.expect_chunks_remain = 0;
                     CHUNK_LEN = 0;
                     CHUNK_PARAM_ID = 0;
-                    if let Some(next_id) = next_param_for_folder(
+                    if id == 0 {
+                        // Device does not support Parameter 0 root folder.
+                        // Fall back to legacy sequential discovery starting at param 1.
+                        CONFIG_ENGINE.has_root_folder = false;
+                        if CONFIG_ENGINE.param_count >= 1 {
+                            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+                            CONFIG_ENGINE.last_req_ms = now_ms;
+                            CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+                            send_param_read(CONFIG_ENGINE.device_id, 1, 0);
+                        } else {
+                            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                            CONFIG_ENGINE.folder_loading = false;
+                        }
+                    } else if let Some(next_id) = next_param_for_folder(
                         id,
                         CONFIG_ENGINE.current_folder,
                         CONFIG_ENGINE.param_count,
                         &CONFIG_ENGINE.parent_map,
+                        CONFIG_ENGINE.has_root_folder,
                     ) {
                         CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
                         CONFIG_ENGINE.last_req_ms = now_ms;
@@ -831,6 +864,7 @@ pub fn start_config() {
         CONFIG_ENGINE.folder_loading = false;
         CONFIG_ENGINE.folder_name = [0; 16];
         CONFIG_ENGINE.folder_name_len = 0;
+        CONFIG_ENGINE.has_root_folder = false;
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
@@ -864,12 +898,13 @@ pub fn select_device(idx: usize) -> bool {
         CONFIG_ENGINE.folder_name = [0; 16];
         CONFIG_ENGINE.folder_name_len = 0;
         CONFIG_ENGINE.parent_map = [0xFF; MAX_PARAM_MAP];
+        CONFIG_ENGINE.has_root_folder = false;
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.last_req_ms = now;
 
         if dev.param_count > 0 {
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(0);
             let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
                 1000
             } else {
@@ -877,7 +912,7 @@ pub fn select_device(idx: usize) -> bool {
             };
             CONFIG_ENGINE.last_req_ms = now;
             CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
-            send_param_read(CONFIG_ENGINE.device_id, 1, 0);
+            send_param_read(CONFIG_ENGINE.device_id, 0, 0);
         } else {
             CONFIG_ENGINE.state = ElrsConfigState::Ready;
         }
@@ -912,6 +947,7 @@ pub fn return_to_device_list() {
         CONFIG_ENGINE.folder_name = [0; 16];
         CONFIG_ENGINE.folder_name_len = 0;
         CONFIG_ENGINE.parent_map = [0xFF; MAX_PARAM_MAP];
+        CONFIG_ENGINE.has_root_folder = false;
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
@@ -947,6 +983,7 @@ pub fn enter_folder(folder_id: u8, name: &str) {
             folder_id,
             CONFIG_ENGINE.param_count,
             &CONFIG_ENGINE.parent_map,
+            CONFIG_ENGINE.has_root_folder,
         ) {
             CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(first_id);
             CONFIG_ENGINE.folder_loading = true;
@@ -989,6 +1026,7 @@ pub fn exit_current_folder() -> bool {
                 parent_id,
                 CONFIG_ENGINE.param_count,
                 &CONFIG_ENGINE.parent_map,
+                CONFIG_ENGINE.has_root_folder,
             ) {
                 CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(first_id);
                 CONFIG_ENGINE.folder_loading = true;
@@ -1321,13 +1359,13 @@ mod tests {
         assert_eq!(engine.device_id, CRSF_ADDRESS_CRSF_TRANSMITTER);
         assert_eq!(&engine.device_name[..9], b"ELRS 2.4G");
         assert_eq!(engine.param_count, 3);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
 
-        // Immediate query dispatch: Parameter Read for Param 1, Chunk 0 is sent immediately
+        // Immediate query dispatch: Parameter Read for Param 0 (Root Folder), Chunk 0 is sent immediately
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must immediately request Param 1 Chunk 0 upon selection");
+        assert_eq!(tx.len(), 1, "Must immediately request Param 0 Chunk 0 upon selection");
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
-        assert_eq!(tx[0][5], 1, "Requested param_id must be 1");
+        assert_eq!(tx[0][5], 0, "Requested param_id must be 0");
         assert_eq!(tx[0][6], 0, "Requested chunk must be 0");
     }
 
@@ -1672,12 +1710,15 @@ mod tests {
         assert_eq!(engine.device_id, 0xEE);
         assert_eq!(&engine.device_name[..6], b"RM RP2");
         assert_eq!(engine.param_count, 21);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
 
-        // Immediate query dispatch: Parameter Read for Param 1 Chunk 0 is sent immediately upon selection
+        // Immediate query dispatch: Parameter Read for Param 0 Chunk 0 is sent immediately upon selection
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must immediately emit outbound parameter read for Param 1");
-        assert_eq!(tx[0], &[0xC8, 0x06, 0x2C, 0xEE, 0xEA, 0x01, 0x00, 0x86]);
+        assert_eq!(tx.len(), 1, "Must immediately emit outbound parameter read for Param 0");
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
+        assert_eq!(tx[0][3], 0xEE);
+        assert_eq!(tx[0][5], 0, "Param 0");
+        assert_eq!(tx[0][6], 0, "Chunk 0");
     }
 
     #[test]
@@ -1706,15 +1747,40 @@ mod tests {
         uart::mock::push_rx_bytes(&frame[..total]);
         poll_telemetry(1000);
 
-        // Selecting device immediately dispatches request for Param 1 Chunk 0
+        // Selecting device immediately dispatches request for Param 0 Chunk 0
         assert!(select_device(0));
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must immediately dispatch Param 1 Chunk 0 on select_device");
+        assert_eq!(tx.len(), 1, "Must immediately dispatch Param 0 Chunk 0 on select_device");
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
-        assert_eq!(tx[0][5], 1); // param 1
+        assert_eq!(tx[0][5], 0); // param 0
         assert_eq!(tx[0][6], 0); // chunk 0
 
-        // Now respond with Chunk 0 (chunks_remain = 1) at t = 1060
+        // Respond with Param 0 Root Folder (children: [1, 0xFF])
+        let mut root_frame = [0u8; 17];
+        root_frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        root_frame[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        root_frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        root_frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        root_frame[5] = 0; // param 0
+        root_frame[6] = 0; // chunks_remain = 0
+        root_frame[7] = 0; // parent
+        root_frame[8] = protocol::CRSF_TYPE_FOLDER;
+        root_frame[9..14].copy_from_slice(b"ROOT\0");
+        root_frame[14] = 1; // child 1
+        root_frame[15] = 0xFF; // terminator
+        root_frame[1] = (root_frame.len() - 2) as u8;
+        root_frame[root_frame.len() - 1] = crc8(&root_frame[2..root_frame.len() - 1]);
+
+        uart::mock::push_rx_bytes(&root_frame);
+        poll_telemetry(1020);
+
+        // Root folder received -> immediately dispatches request for first child (Param 1, Chunk 0)
+        let tx_p1 = uart::mock::take_tx();
+        assert_eq!(tx_p1.len(), 1, "Must immediately request Param 1 Chunk 0 after Root Folder");
+        assert_eq!(tx_p1[0][5], 1);
+        assert_eq!(tx_p1[0][6], 0);
+
+        // Now respond with Chunk 0 of Param 1 (chunks_remain = 1) at t = 1060
         let mut chunk0 = [0u8; 24];
         chunk0[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
         chunk0[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
@@ -1878,7 +1944,30 @@ mod tests {
         assert_eq!(engine.device_id, 0xEE);
         assert_eq!(&engine.device_name[..6], b"RM RP2");
         assert_eq!(engine.param_count, 21);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+
+        let tx0 = uart::mock::take_tx();
+        assert_eq!(tx0.len(), 1);
+        assert_eq!(tx0[0][3], 0xEE);
+        assert_eq!(tx0[0][5], 0, "Initial request must be Param 0 (Root Folder)");
+
+        // Feed Param 0 Root folder response from 0xEE (children: [1, 0xFF])
+        let mut root_folder = [0u8; 17];
+        root_folder[0] = 0xC8;
+        root_folder[2] = 0x2B;
+        root_folder[3] = 0xEA;
+        root_folder[4] = 0xEE;
+        root_folder[5] = 0; // param 0
+        root_folder[6] = 0; // chunks_remain
+        root_folder[7] = 0; // parent
+        root_folder[8] = protocol::CRSF_TYPE_FOLDER;
+        root_folder[9..14].copy_from_slice(b"ROOT\0");
+        root_folder[14] = 1; // child 1
+        root_folder[15] = 0xFF; // end
+        root_folder[1] = (root_folder.len() - 2) as u8;
+        root_folder[root_folder.len() - 1] = crc8(&root_folder[2..root_folder.len() - 1]);
+        uart::mock::push_rx_bytes(&root_folder);
+        poll_telemetry(1010);
 
         // 2. Remote receiver (RM RP4TD-M, 0xEC, 11 params) broadcasts Device Info over the air
         let rp4td_info: [u8; 36] = [
@@ -1895,8 +1984,7 @@ mod tests {
         assert_eq!(&engine.device_name[..6], b"RM RP2", "device_name must remain RM RP2");
         assert_eq!(engine.param_count, 21, "param_count must remain 21, not overwritten to 11");
 
-        // 3. At t = 1040 (40ms pacing delay), request Param 1 Chunk 0 is sent to 0xEE
-        poll_telemetry(1040);
+        // 3. Request Param 1 Chunk 0 is sent to 0xEE
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8");
@@ -1978,15 +2066,13 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.device_id, 0xEC, "Device ID must switch to 0xEC for receiver");
         assert_eq!(engine.param_count, 11);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
 
-        // Pacing delay: verify request for receiver param 1 chunk 0 sent after 40ms
-        poll_telemetry(1070);
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8 per TBS CRSF spec");
         assert_eq!(tx[0][3], 0xEC, "Outbound payload dest must be 0xEC");
-        assert_eq!(tx[0][5], 1); // Param 1
+        assert_eq!(tx[0][5], 0); // Param 0
         assert_eq!(tx[0][6], 0); // Chunk 0
 
         // 5. Test return to device list
@@ -2386,6 +2472,250 @@ mod tests {
         assert_eq!(engine.state, ElrsConfigState::Ready, "Empty subfolder immediately reaches Ready");
         assert!(!engine.folder_loading);
         assert_eq!(uart::mock::take_tx().len(), 0, "No packets transmitted for empty subfolder");
+    }
+
+    #[test]
+    fn test_root_folder_param0_queries_only_root_children() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+        uart::mock::clear();
+
+        // 1. Device Info frame for device 0xC0 ("CruiseCtrl", 59 params)
+        let mut dev_info = [0u8; 32];
+        dev_info[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        dev_info[2] = CRSF_FRAMETYPE_DEVICE_INFO;
+        dev_info[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        dev_info[4] = 0xC0; // Device ID
+        let name = b"CruiseCtrl\0";
+        dev_info[5..5 + name.len()].copy_from_slice(name);
+        let serial_pos = 5 + name.len();
+        let count_pos = serial_pos + 12;
+        dev_info[count_pos] = 59; // 59 parameters total
+        dev_info[count_pos + 1] = 1;
+        let total = count_pos + 3;
+        dev_info[1] = (total - 2) as u8;
+        dev_info[total - 1] = crc8(&dev_info[2..total - 1]);
+
+        uart::mock::push_rx_bytes(&dev_info[..total]);
+        poll_telemetry(1000);
+
+        // Pilot selects device 0xC0
+        assert!(select_device(0));
+
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xC0);
+        assert_eq!(engine.param_count, 59);
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+        assert!(!engine.has_root_folder);
+
+        // Initial request must be Param 0 (Root Folder probe)
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
+        assert_eq!(tx[0][3], 0xC0);
+        assert_eq!(tx[0][5], 0, "Initial request must be Parameter 0");
+        assert_eq!(tx[0][6], 0, "Chunk 0");
+
+        // 2. Device 0xC0 responds to Param 0 with Root Folder
+        // Root children: [1, 2, 4, 30, 56, 0xFF]
+        let mut root_frame = [0u8; 24];
+        root_frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        root_frame[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        root_frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        root_frame[4] = 0xC0;
+        root_frame[5] = 0; // param 0
+        root_frame[6] = 0; // chunks_remain
+        root_frame[7] = 0; // parent
+        root_frame[8] = protocol::CRSF_TYPE_FOLDER;
+        root_frame[9..14].copy_from_slice(b"ROOT\0");
+        root_frame[14] = 1;
+        root_frame[15] = 2;
+        root_frame[16] = 4;
+        root_frame[17] = 30;
+        root_frame[18] = 56;
+        root_frame[19] = 0xFF; // terminator
+        root_frame[1] = 19; // payload len (2..20) = 19
+        root_frame[20] = crc8(&root_frame[2..20]);
+
+        uart::mock::push_rx_bytes(&root_frame[..21]);
+        poll_telemetry(1020);
+
+        let engine = get_config_engine();
+        assert!(engine.has_root_folder, "has_root_folder must be true");
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1), "Must advance to first child (Param 1)");
+        // Param 0 ("ROOT") must NOT be added to params display array
+        assert_eq!(engine.params_len, 0);
+
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 1, "Must request Param 1");
+
+        // 3. Respond with Param 1
+        let mut p1 = [0u8; 16];
+        p1[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        p1[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        p1[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        p1[4] = 0xC0;
+        p1[5] = 1;
+        p1[6] = 0;
+        p1[7] = 0; // parent 0
+        p1[8] = protocol::CRSF_TYPE_SELECT;
+        p1[9..14].copy_from_slice(b"Rate\0");
+        p1[14] = 0; // val
+        p1[1] = 14;
+        p1[15] = crc8(&p1[2..15]);
+        uart::mock::push_rx_bytes(&p1);
+        poll_telemetry(1040);
+
+        // Next requested child must be Param 2
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 2);
+
+        // 4. Respond with Param 2
+        let mut p2 = p1;
+        p2[5] = 2;
+        p2[15] = crc8(&p2[2..15]);
+        uart::mock::push_rx_bytes(&p2);
+        poll_telemetry(1060);
+
+        // Next requested child must be Param 4 (Param 3 is skipped since not in root children!)
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 4);
+
+        // 5. Respond with Param 4 (Subfolder "Port FD1", children: [5, 6, 7, 0xFF])
+        let mut p4 = [0u8; 20];
+        p4[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        p4[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        p4[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        p4[4] = 0xC0;
+        p4[5] = 4;
+        p4[6] = 0;
+        p4[7] = 0; // parent 0
+        p4[8] = protocol::CRSF_TYPE_FOLDER;
+        p4[9..13].copy_from_slice(b"FD1\0");
+        p4[13] = 5;
+        p4[14] = 6;
+        p4[15] = 7;
+        p4[16] = 0xFF;
+        p4[1] = 16;
+        p4[17] = crc8(&p4[2..17]);
+        uart::mock::push_rx_bytes(&p4[..18]);
+        poll_telemetry(1080);
+
+        // Crucial test: Next requested param MUST jump directly to Param 30!
+        // Subfolder children 5, 6, 7 must NOT be queried during root loading!
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 30, "Must skip subfolder children 5, 6, 7 and jump straight to Param 30");
+
+        // 6. Respond with Param 30 (Subfolder "Port FD2", children: [31, 32, 0xFF])
+        let mut p30 = [0u8; 20];
+        p30[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        p30[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        p30[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        p30[4] = 0xC0;
+        p30[5] = 30;
+        p30[6] = 0;
+        p30[7] = 0; // parent 0
+        p30[8] = protocol::CRSF_TYPE_FOLDER;
+        p30[9..13].copy_from_slice(b"FD2\0");
+        p30[13] = 31;
+        p30[14] = 32;
+        p30[15] = 0xFF;
+        p30[1] = 15;
+        p30[16] = crc8(&p30[2..16]);
+        uart::mock::push_rx_bytes(&p30[..17]);
+        poll_telemetry(1100);
+
+        // Next requested param MUST jump directly to Param 56!
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 56, "Must skip 31, 32 and jump straight to Param 56");
+
+        // 7. Respond with Param 56
+        let mut p56 = p1;
+        p56[5] = 56;
+        p56[15] = crc8(&p56[2..15]);
+        uart::mock::push_rx_bytes(&p56);
+        poll_telemetry(1120);
+
+        // Root scan complete -> reaches Ready state!
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Ready);
+        assert_eq!(engine.params_len, 5, "Only the 5 root parameters are loaded in memory");
+        assert_eq!(uart::mock::take_tx().len(), 0);
+
+        // 8. Now enter subfolder 4 ("Port FD1")
+        enter_folder(4, "FD1");
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(5), "Entering folder 4 starts loading Param 5");
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 5, "Requests first child of folder 4");
+    }
+
+    #[test]
+    fn test_param0_timeout_fallback_to_sequential_scan() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+        uart::mock::clear();
+
+        // Feed Device Info frame with 3 params (legacy device)
+        let mut dev_info = [0u8; 32];
+        dev_info[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        dev_info[2] = CRSF_FRAMETYPE_DEVICE_INFO;
+        dev_info[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        dev_info[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        let name = b"LegacyDev\0";
+        dev_info[5..5 + name.len()].copy_from_slice(name);
+        let serial_pos = 5 + name.len();
+        let count_pos = serial_pos + 12;
+        dev_info[count_pos] = 3; // 3 parameters total
+        dev_info[count_pos + 1] = 1;
+        let total = count_pos + 3;
+        dev_info[1] = (total - 2) as u8;
+        dev_info[total - 1] = crc8(&dev_info[2..total - 1]);
+
+        uart::mock::push_rx_bytes(&dev_info[..total]);
+        poll_telemetry(1000);
+
+        // Select device: initial request is Param 0
+        assert!(select_device(0));
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 0, "Attempt 0: Param 0");
+
+        // Advance time to trigger retry 1 (t = 1500)
+        set_millis(1500);
+        poll_telemetry(1500);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 0, "Attempt 1: Param 0 retry");
+
+        // Advance time to trigger retry 2 (t = 2000)
+        set_millis(2000);
+        poll_telemetry(2000);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 0, "Attempt 2: Param 0 retry");
+
+        // Advance time: retries exhausted! (t = 2500)
+        // Must fall back to legacy sequential scanning starting at Param 1
+        set_millis(2500);
+        poll_telemetry(2500);
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+        assert!(!engine.has_root_folder, "has_root_folder must be false after Param 0 timeout");
+
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 1, "Must fall back to requesting Param 1");
     }
 }
 
