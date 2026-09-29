@@ -133,22 +133,42 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
 
                     let dev = &engine.devices[idx];
                     let d_name = crate::ui::format::ascii_as_str(&dev.name[..dev.name_len as usize]);
-                    let role = crsf::protocol::device_role_str(dev.address);
 
                     // Left: Device Name
                     Text::new(d_name, Point::new(4, y + 7), style).draw(lcd).ok();
 
                     // Right: [Role] Tag (e.g. [TX], [RX], [FC], [VTX], [WIFI], [ESC1])
-                    let mut tag_buf = [b' '; 7];
+                    // Or raw hex fallback for uncommon devices (e.g. [0x55])
+                    let tag_style = if is_sel {
+                        MonoTextStyle::new(&FONT_4X6, BinaryColor::Off)
+                    } else {
+                        text_style_small
+                    };
+
+                    let mut tag_buf = [b' '; 9];
                     tag_buf[0] = b'[';
-                    let r_bytes = role.as_bytes();
-                    let r_len = r_bytes.len().min(4);
-                    tag_buf[1..1 + r_len].copy_from_slice(&r_bytes[..r_len]);
-                    tag_buf[1 + r_len] = b']';
-                    let total_tag_len = r_len + 2;
-                    let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..total_tag_len]);
-                    let tag_x = 124 - (total_tag_len as i32 * 6);
-                    Text::new(tag_str, Point::new(tag_x, y + 7), style).draw(lcd).ok();
+                    let tag_len = match crsf::protocol::device_role_str(dev.address) {
+                        Some(role) => {
+                            let r_bytes = role.as_bytes();
+                            let r_len = r_bytes.len().min(4);
+                            tag_buf[1..1 + r_len].copy_from_slice(&r_bytes[..r_len]);
+                            tag_buf[1 + r_len] = b']';
+                            r_len + 2
+                        }
+                        None => {
+                            tag_buf[1] = b'0';
+                            tag_buf[2] = b'x';
+                            const HEX: &[u8; 16] = b"0123456789ABCDEF";
+                            tag_buf[3] = HEX[((dev.address >> 4) & 0x0F) as usize];
+                            tag_buf[4] = HEX[(dev.address & 0x0F) as usize];
+                            tag_buf[5] = b']';
+                            6
+                        }
+                    };
+
+                    let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..tag_len]);
+                    let tag_x = 124 - (tag_len as i32 * 4);
+                    Text::new(tag_str, Point::new(tag_x, y + 7), tag_style).draw(lcd).ok();
                 }
 
                 widgets::draw_footer(lcd, "[OK] Select   [ESC] Back");

@@ -294,35 +294,36 @@ pub fn rf_mode_to_str(rf_mode: u8) -> &'static str {
     }
 }
 
-/// Convert CRSF device physical address to short role tag (up to 3 chars, e.g. TX, RX, FC, VTX, VRX, OSD, GPS, ESC, etc.).
-pub fn device_role_str(addr: u8) -> &'static str {
+/// Convert CRSF device physical address to short role tag (e.g. TX, RX, FC, VTX, VRX, OSD, GPS, ESC, etc.).
+/// Returns `None` if the address is not a standard known item.
+pub fn device_role_str(addr: u8) -> Option<&'static str> {
     match addr {
-        CRSF_ADDRESS_CRSF_TRANSMITTER => "TX",
-        CRSF_ADDRESS_CRSF_RECEIVER => "RX",
-        CRSF_ADDRESS_FLIGHT_CONTROLLER => "FC",
-        CRSF_ADDRESS_VTX => "VTX",
-        CRSF_ADDRESS_VIDEO_RECEIVER => "VRX",
-        CRSF_ADDRESS_OSD => "OSD",
-        CRSF_ADDRESS_GPS => "GPS",
-        CRSF_ADDRESS_CURRENT_SENSOR => "PWR",
-        CRSF_ADDRESS_BLACKBOX => "BOX",
-        CRSF_ADDRESS_BLUETOOTH_WIFI => "WIFI",
-        CRSF_ADDRESS_WIFI_RECEIVER => "WIRX",
-        CRSF_ADDRESS_USB => "USB",
-        CRSF_ADDRESS_CLOUD => "NET",
-        CRSF_ADDRESS_RACE_TAG => "TAG",
-        CRSF_ADDRESS_RADIO_TRANSMITTER => "RC",
-        CRSF_ADDRESS_REPEATER_RECEIVER => "RPRX",
-        CRSF_ADDRESS_REPEATER_TRANSMITTER => "RPTX",
-        CRSF_ADDRESS_ESC1 => "ESC1",
-        CRSF_ADDRESS_ESC2 => "ESC2",
-        CRSF_ADDRESS_ESC3 => "ESC3",
-        CRSF_ADDRESS_ESC4 => "ESC4",
-        CRSF_ADDRESS_ESC5 => "ESC5",
-        CRSF_ADDRESS_ESC6 => "ESC6",
-        CRSF_ADDRESS_ESC7 => "ESC7",
-        CRSF_ADDRESS_ESC8 => "ESC8",
-        _ => "DEV",
+        CRSF_ADDRESS_CRSF_TRANSMITTER => Some("TX"),
+        CRSF_ADDRESS_CRSF_RECEIVER => Some("RX"),
+        CRSF_ADDRESS_FLIGHT_CONTROLLER => Some("FC"),
+        CRSF_ADDRESS_VTX => Some("VTX"),
+        CRSF_ADDRESS_VIDEO_RECEIVER => Some("VRX"),
+        CRSF_ADDRESS_OSD => Some("OSD"),
+        CRSF_ADDRESS_GPS => Some("GPS"),
+        CRSF_ADDRESS_CURRENT_SENSOR => Some("PWR"),
+        CRSF_ADDRESS_BLACKBOX => Some("BOX"),
+        CRSF_ADDRESS_BLUETOOTH_WIFI => Some("WIFI"),
+        CRSF_ADDRESS_WIFI_RECEIVER => Some("WIRX"),
+        CRSF_ADDRESS_USB => Some("USB"),
+        CRSF_ADDRESS_CLOUD => Some("NET"),
+        CRSF_ADDRESS_RACE_TAG => Some("TAG"),
+        CRSF_ADDRESS_RADIO_TRANSMITTER => Some("RC"),
+        CRSF_ADDRESS_REPEATER_RECEIVER => Some("RPRX"),
+        CRSF_ADDRESS_REPEATER_TRANSMITTER => Some("RPTX"),
+        CRSF_ADDRESS_ESC1 => Some("ESC1"),
+        CRSF_ADDRESS_ESC2 => Some("ESC2"),
+        CRSF_ADDRESS_ESC3 => Some("ESC3"),
+        CRSF_ADDRESS_ESC4 => Some("ESC4"),
+        CRSF_ADDRESS_ESC5 => Some("ESC5"),
+        CRSF_ADDRESS_ESC6 => Some("ESC6"),
+        CRSF_ADDRESS_ESC7 => Some("ESC7"),
+        CRSF_ADDRESS_ESC8 => Some("ESC8"),
+        _ => None,
     }
 }
 
