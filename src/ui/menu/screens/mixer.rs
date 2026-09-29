@@ -12,8 +12,8 @@ use crate::buzzer::Buzzer;
 use crate::curve;
 use crate::display::St7567;
 use crate::menu::format::{
-    i8_to_dec, u8_to_dec, AXIS_NAMES, DR_SWITCH_NAMES, MODE_NAMES, SOURCE_NAMES,
-    SWITCH_COND_NAMES, TEMPLATE_NAMES,
+    i8_to_dec, u8_to_dec, AXIS_NAMES, DR_SWITCH_NAMES, MODE_NAMES, SOURCE_NAMES, SWITCH_COND_NAMES,
+    TEMPLATE_NAMES,
 };
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
@@ -68,10 +68,16 @@ pub fn update_dual_rate(
                     storage.models[active_idx].dr_switch = dr;
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
-                    storage.models[active_idx].dr_switch = (storage.models[active_idx].dr_switch + 1) % 5;
+                    storage.models[active_idx].dr_switch =
+                        (storage.models[active_idx].dr_switch + 1) % 5;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    storage.models[active_idx].dr_switch = if storage.models[active_idx].dr_switch == 0 { 4 } else { storage.models[active_idx].dr_switch - 1 };
+                    storage.models[active_idx].dr_switch =
+                        if storage.models[active_idx].dr_switch == 0 {
+                            4
+                        } else {
+                            storage.models[active_idx].dr_switch - 1
+                        };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -142,12 +148,15 @@ pub fn update_dual_rate(
     let mut b6 = [0u8; 6];
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
-        if idx >= FIELD_COUNT { break; }
+        if idx >= FIELD_COUNT {
+            break;
+        }
         let is_sel = idx == ctrl.selected_item;
 
         match idx {
             0 => {
-                let sw_name = DR_SWITCH_NAMES[(storage.models[active_idx].dr_switch as usize).min(4)];
+                let sw_name =
+                    DR_SWITCH_NAMES[(storage.models[active_idx].dr_switch as usize).min(4)];
                 widgets::draw_list_row(lcd, slot, is_sel, "Switch:", Some(sw_name), 60);
             }
             1 => {
@@ -173,7 +182,11 @@ pub fn update_dual_rate(
         }
     }
 
-    let footer = if ctrl.editing { "[OK] Done   [UP/DN] Value" } else { "[OK] Edit   [ESC] Exit" };
+    let footer = if ctrl.editing {
+        "[OK] Done   [UP/DN] Value"
+    } else {
+        "[OK] Edit   [ESC] Exit"
+    };
     widgets::draw_footer(lcd, footer);
 }
 
@@ -185,7 +198,11 @@ pub fn update_throttle_curve(
     buzzer: &mut Buzzer,
 ) {
     let active_idx = storage.radio.active_model as usize;
-    let pts_count = if storage.models[active_idx].thr_curve_pts == 9 { 9 } else { 5 };
+    let pts_count = if storage.models[active_idx].thr_curve_pts == 9 {
+        9
+    } else {
+        5
+    };
     let max_items = 2 + pts_count; // Item 0: Pts mode, Item 1: Smooth, Item 2..(2+pts_count-1): Points
 
     if ctrl.editing {
@@ -283,19 +300,19 @@ pub fn update_throttle_curve(
                     storage.models[active_idx].thr_curve_pts = 9;
                 } else {
                     let c = storage.models[active_idx].thr_curve;
-                    storage.models[active_idx].thr_curve = [
-                        c[0], c[2], c[4], c[6], c[8], 0, 0, 0, 0,
-                    ];
+                    storage.models[active_idx].thr_curve =
+                        [c[0], c[2], c[4], c[6], c[8], 0, 0, 0, 0];
                     storage.models[active_idx].thr_curve_pts = 5;
                 }
                 storage::save_active_model(storage);
                 buzzer.click();
             } else if ctrl.selected_item == 1 {
-                storage.models[active_idx].thr_curve_smooth = if storage.models[active_idx].thr_curve_smooth == 0 {
-                    1
-                } else {
-                    0
-                };
+                storage.models[active_idx].thr_curve_smooth =
+                    if storage.models[active_idx].thr_curve_smooth == 0 {
+                        1
+                    } else {
+                        0
+                    };
                 storage::save_active_model(storage);
                 buzzer.click();
             } else {
@@ -312,28 +329,58 @@ pub fn update_throttle_curve(
     let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
     // Left side: Mode & active point info
-    let mode_str = if storage.models[active_idx].thr_curve_pts == 9 { "9-PT" } else { "5-PT" };
+    let mode_str = if storage.models[active_idx].thr_curve_pts == 9 {
+        "9-PT"
+    } else {
+        "5-PT"
+    };
     let is_sel_pts = !ctrl.editing && ctrl.selected_item == 0;
     if is_sel_pts {
-        Rectangle::new(Point::new(2, 13), Size::new(70, 9)).into_styled(fill_style).draw(lcd).ok();
+        Rectangle::new(Point::new(2, 13), Size::new(70, 9))
+            .into_styled(fill_style)
+            .draw(lcd)
+            .ok();
         let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        Text::new("Pts:", Point::new(4, 20), inv_style).draw(lcd).ok();
-        Text::new(mode_str, Point::new(32, 20), inv_style).draw(lcd).ok();
+        Text::new("Pts:", Point::new(4, 20), inv_style)
+            .draw(lcd)
+            .ok();
+        Text::new(mode_str, Point::new(32, 20), inv_style)
+            .draw(lcd)
+            .ok();
     } else {
-        Text::new("Pts:", Point::new(4, 20), text_style).draw(lcd).ok();
-        Text::new(mode_str, Point::new(32, 20), text_style).draw(lcd).ok();
+        Text::new("Pts:", Point::new(4, 20), text_style)
+            .draw(lcd)
+            .ok();
+        Text::new(mode_str, Point::new(32, 20), text_style)
+            .draw(lcd)
+            .ok();
     }
 
-    let smooth_str = if storage.models[active_idx].thr_curve_smooth != 0 { "SMOOTH" } else { "LINEAR" };
+    let smooth_str = if storage.models[active_idx].thr_curve_smooth != 0 {
+        "SMOOTH"
+    } else {
+        "LINEAR"
+    };
     let is_sel_crv = !ctrl.editing && ctrl.selected_item == 1;
     if is_sel_crv {
-        Rectangle::new(Point::new(2, 23), Size::new(70, 9)).into_styled(fill_style).draw(lcd).ok();
+        Rectangle::new(Point::new(2, 23), Size::new(70, 9))
+            .into_styled(fill_style)
+            .draw(lcd)
+            .ok();
         let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        Text::new("Crv:", Point::new(4, 30), inv_style).draw(lcd).ok();
-        Text::new(smooth_str, Point::new(32, 30), inv_style).draw(lcd).ok();
+        Text::new("Crv:", Point::new(4, 30), inv_style)
+            .draw(lcd)
+            .ok();
+        Text::new(smooth_str, Point::new(32, 30), inv_style)
+            .draw(lcd)
+            .ok();
     } else {
-        Text::new("Crv:", Point::new(4, 30), text_style).draw(lcd).ok();
-        Text::new(smooth_str, Point::new(32, 30), text_style).draw(lcd).ok();
+        Text::new("Crv:", Point::new(4, 30), text_style)
+            .draw(lcd)
+            .ok();
+        Text::new(smooth_str, Point::new(32, 30), text_style)
+            .draw(lcd)
+            .ok();
     }
 
     if ctrl.selected_item >= 2 {
@@ -353,20 +400,39 @@ pub fn update_throttle_curve(
         let p_str = core::str::from_utf8(&p_buf).unwrap_or("P?:---%");
 
         if ctrl.editing {
-            Rectangle::new(Point::new(2, 35), Size::new(70, 11)).into_styled(fill_style).draw(lcd).ok();
+            Rectangle::new(Point::new(2, 35), Size::new(70, 11))
+                .into_styled(fill_style)
+                .draw(lcd)
+                .ok();
             let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-            Text::new(p_str, Point::new(4, 44), inv_style).draw(lcd).ok();
+            Text::new(p_str, Point::new(4, 44), inv_style)
+                .draw(lcd)
+                .ok();
         } else {
-            Rectangle::new(Point::new(2, 35), Size::new(70, 11)).into_styled(border_style).draw(lcd).ok();
-            Text::new(p_str, Point::new(4, 44), text_style).draw(lcd).ok();
+            Rectangle::new(Point::new(2, 35), Size::new(70, 11))
+                .into_styled(border_style)
+                .draw(lcd)
+                .ok();
+            Text::new(p_str, Point::new(4, 44), text_style)
+                .draw(lcd)
+                .ok();
         }
     } else {
-        let pts_range_str = if pts_count == 9 { "Pts: 1..9" } else { "Pts: 1..5" };
-        Text::new(pts_range_str, Point::new(4, 44), text_style).draw(lcd).ok();
+        let pts_range_str = if pts_count == 9 {
+            "Pts: 1..9"
+        } else {
+            "Pts: 1..5"
+        };
+        Text::new(pts_range_str, Point::new(4, 44), text_style)
+            .draw(lcd)
+            .ok();
     }
 
     // Right side: Graph box (x = 76..124, y = 13..49)
-    Rectangle::new(Point::new(76, 13), Size::new(49, 37)).into_styled(border_style).draw(lcd).ok();
+    Rectangle::new(Point::new(76, 13), Size::new(49, 37))
+        .into_styled(border_style)
+        .draw(lcd)
+        .ok();
 
     // Draw curve graph inside box (width 47, height 35)
     let pts_mode = storage.models[active_idx].thr_curve_pts;
@@ -377,7 +443,9 @@ pub fn update_throttle_curve(
         let input_pct = ((px as u32 * 1000) / 46) as u16;
         let out_pct = curve::evaluate_curve(input_pct, pts_mode, is_smooth, &curve_data);
         let py = 48 - ((out_pct as i32 * 34) / 1000);
-        Pixel(Point::new(77 + px, py), BinaryColor::On).draw(lcd).ok();
+        Pixel(Point::new(77 + px, py), BinaryColor::On)
+            .draw(lcd)
+            .ok();
     }
 
     // Draw point indicator dot on graph for selected point
@@ -390,7 +458,9 @@ pub fn update_throttle_curve(
 
         for dy in -1..=1 {
             for dx in -1..=1 {
-                Pixel(Point::new(dot_x + dx, dot_y + dy), BinaryColor::On).draw(lcd).ok();
+                Pixel(Point::new(dot_x + dx, dot_y + dy), BinaryColor::On)
+                    .draw(lcd)
+                    .ok();
             }
         }
     }
@@ -459,12 +529,17 @@ pub fn update_wing_mixer(
             buzzer.click();
             if ctrl.selected_item == 0 {
                 // Cycle Wing Template (0..3)
-                storage.models[active_idx].wing_tail_mix = (storage.models[active_idx].wing_tail_mix + 1) % 4;
+                storage.models[active_idx].wing_tail_mix =
+                    (storage.models[active_idx].wing_tail_mix + 1) % 4;
             } else if has_diff && ctrl.selected_item == 1 {
                 ctrl.editing = true;
             } else {
                 // Open Mix Line Editor
-                let m_idx = if has_diff { ctrl.selected_item - 2 } else { ctrl.selected_item - 1 };
+                let m_idx = if has_diff {
+                    ctrl.selected_item - 2
+                } else {
+                    ctrl.selected_item - 1
+                };
                 ctrl.page_idx = m_idx.min(7);
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
@@ -484,11 +559,16 @@ pub fn update_wing_mixer(
 
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
-        if idx >= mix_items { break; }
+        if idx >= mix_items {
+            break;
+        }
         let y = 14 + (slot as i32 * 9);
         let is_sel = idx == ctrl.selected_item;
         let style = if is_sel {
-            Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
+            Rectangle::new(Point::new(2, y), Size::new(124, 9))
+                .into_styled(fill_style)
+                .draw(lcd)
+                .ok();
             MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
         } else {
             text_style
@@ -496,42 +576,62 @@ pub fn update_wing_mixer(
 
         if idx == 0 {
             let t_idx = (storage.models[active_idx].wing_tail_mix as usize).min(3);
-            Text::new("Wing:", Point::new(4, y + 7), style).draw(lcd).ok();
-            Text::new(TEMPLATE_NAMES[t_idx], Point::new(36, y + 7), style).draw(lcd).ok();
+            Text::new("Wing:", Point::new(4, y + 7), style)
+                .draw(lcd)
+                .ok();
+            Text::new(TEMPLATE_NAMES[t_idx], Point::new(36, y + 7), style)
+                .draw(lcd)
+                .ok();
         } else if has_diff && idx == 1 {
             let d_str = i8_to_dec(storage.models[active_idx].template_diff, &mut b6);
-            Text::new("Diff:", Point::new(4, y + 7), style).draw(lcd).ok();
-            Text::new(d_str, Point::new(36, y + 7), style).draw(lcd).ok();
+            Text::new("Diff:", Point::new(4, y + 7), style)
+                .draw(lcd)
+                .ok();
+            Text::new(d_str, Point::new(36, y + 7), style)
+                .draw(lcd)
+                .ok();
         } else {
             let m_idx = if has_diff { idx - 2 } else { idx - 1 };
             let mix = storage.models[active_idx].mixes[m_idx];
             let mut m_buf = *b"M0: ";
             m_buf[1] = b'1' + m_idx as u8;
             let m_label = core::str::from_utf8(&m_buf).unwrap_or("M?: ");
-            Text::new(m_label, Point::new(4, y + 7), style).draw(lcd).ok();
+            Text::new(m_label, Point::new(4, y + 7), style)
+                .draw(lcd)
+                .ok();
 
             if mix.target_ch == 0 {
-                Text::new("[DISABLED]", Point::new(28, y + 7), style).draw(lcd).ok();
+                Text::new("[DISABLED]", Point::new(28, y + 7), style)
+                    .draw(lcd)
+                    .ok();
             } else {
                 let mut ch_buf = *b"CH00";
                 if mix.target_ch >= 10 {
-                    ch_buf[2] = b'1';
-                    ch_buf[3] = b'0' + (mix.target_ch - 10);
+                    ch_buf[2] = b'0' + (mix.target_ch / 10);
+                    ch_buf[3] = b'0' + (mix.target_ch % 10);
                 } else {
                     ch_buf[2] = b'0' + mix.target_ch;
                     ch_buf[3] = b' ';
                 }
                 let ch_str = core::str::from_utf8(&ch_buf).unwrap_or("CH??");
-                Text::new(ch_str, Point::new(24, y + 7), style).draw(lcd).ok();
+                Text::new(ch_str, Point::new(24, y + 7), style)
+                    .draw(lcd)
+                    .ok();
 
                 Text::new("<-", Point::new(54, y + 7), style).draw(lcd).ok();
-                let s_idx = (mix.source as usize).min(26);
-                Text::new(SOURCE_NAMES[s_idx], Point::new(70, y + 7), style).draw(lcd).ok();
+                let s_idx = (mix.source as usize).min(30);
+                Text::new(SOURCE_NAMES[s_idx], Point::new(70, y + 7), style)
+                    .draw(lcd)
+                    .ok();
             }
         }
     }
 
-    let footer = if ctrl.editing { "[OK] Done   [UP/DN] Diff" } else { "[OK] Select/Edit   [ESC] Back" };
+    let footer = if ctrl.editing {
+        "[OK] Done   [UP/DN] Diff"
+    } else {
+        "[OK] Select/Edit   [ESC] Back"
+    };
     widgets::draw_footer(lcd, footer);
 }
 
@@ -578,19 +678,23 @@ pub fn update_mixer_line_edit(
         match ctrl.selected_item {
             0 => {
                 if keys.up {
-                    mix.target_ch = (mix.target_ch + 1) % 15;
+                    mix.target_ch = (mix.target_ch + 1) % 19;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.target_ch = if mix.target_ch == 0 { 14 } else { mix.target_ch - 1 };
+                    mix.target_ch = if mix.target_ch == 0 {
+                        18
+                    } else {
+                        mix.target_ch - 1
+                    };
                     buzzer.play_tone(2200, 20);
                 }
             }
             1 => {
                 if keys.up {
-                    mix.source = (mix.source + 1) % 27;
+                    mix.source = (mix.source + 1) % 31;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.source = if mix.source == 0 { 26 } else { mix.source - 1 };
+                    mix.source = if mix.source == 0 { 30 } else { mix.source - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -651,7 +755,9 @@ pub fn update_mixer_line_edit(
     let mut b6 = [0u8; 6];
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
-        if idx >= FIELD_COUNT { break; }
+        if idx >= FIELD_COUNT {
+            break;
+        }
         let is_sel = idx == ctrl.selected_item;
 
         match idx {
@@ -661,8 +767,8 @@ pub fn update_mixer_line_edit(
                 } else {
                     let mut ch_buf = *b"CH00";
                     if mix.target_ch >= 10 {
-                        ch_buf[2] = b'1';
-                        ch_buf[3] = b'0' + (mix.target_ch - 10);
+                        ch_buf[2] = b'0' + (mix.target_ch / 10);
+                        ch_buf[3] = b'0' + (mix.target_ch % 10);
                     } else {
                         ch_buf[2] = b'0' + mix.target_ch;
                         ch_buf[3] = b' ';
@@ -672,7 +778,7 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                let s_idx = (mix.source as usize).min(26);
+                let s_idx = (mix.source as usize).min(30);
                 widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
             }
             2 => {
@@ -685,7 +791,14 @@ pub fn update_mixer_line_edit(
             }
             4 => {
                 let sw_idx = (mix.switch as usize).min(10);
-                widgets::draw_list_row(lcd, slot, is_sel, "Switch:", Some(SWITCH_COND_NAMES[sw_idx]), 56);
+                widgets::draw_list_row(
+                    lcd,
+                    slot,
+                    is_sel,
+                    "Switch:",
+                    Some(SWITCH_COND_NAMES[sw_idx]),
+                    56,
+                );
             }
             5 => {
                 let m_idx = (mix.mode as usize).min(2);
@@ -695,6 +808,10 @@ pub fn update_mixer_line_edit(
         }
     }
 
-    let footer = if ctrl.editing { "[OK] Done   [UP/DN] Value" } else { "[OK] Edit   [ESC] Back" };
+    let footer = if ctrl.editing {
+        "[OK] Done   [UP/DN] Value"
+    } else {
+        "[OK] Edit   [ESC] Back"
+    };
     widgets::draw_footer(lcd, footer);
 }

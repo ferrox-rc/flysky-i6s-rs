@@ -11,7 +11,7 @@ use crate::input::{SwitchPos, Switches};
 use crate::storage::ModelConfig;
 use crate::trim::TrimController;
 
-pub const NUM_CHANNELS: usize = 14;
+pub const NUM_CHANNELS: usize = 18;
 
 // Standard normalized mixer range (-1000..+1000)
 pub const MIXER_MIN: i16 = -1000;
@@ -42,8 +42,8 @@ pub enum MixSource {
     Sc = 9,
     Sd = 10,
     Max = 11,
-    // 12..25 map to Channel 1..14
-    ThrUnipolar = 26,
+    // 12..29 map to Channel 1..18
+    ThrUnipolar = 30,
 }
 
 /// Wing and tail aircraft mixing templates.
@@ -196,7 +196,7 @@ pub fn evaluate_source(
     cond_sticks: &[i16; 4],
     pots: &[i16; 2],
     switches: &Switches,
-    channels: &[i32; 14],
+    channels: &[i32; NUM_CHANNELS],
 ) -> i32 {
     match src {
         0 => MIXER_CENTER as i32,
@@ -206,7 +206,13 @@ pub fn evaluate_source(
         4 => cond_sticks[3] as i32, // Yaw
         5 => pots[0] as i32,        // VRA
         6 => pots[1] as i32,        // VRB
-        7 => if switches.sa == SwitchPos::Up { MIXER_MIN as i32 } else { MIXER_MAX as i32 },
+        7 => {
+            if switches.sa == SwitchPos::Up {
+                MIXER_MIN as i32
+            } else {
+                MIXER_MAX as i32
+            }
+        }
         8 => match switches.sb {
             SwitchPos::Up => MIXER_MIN as i32,
             SwitchPos::Mid => MIXER_CENTER as i32,
@@ -217,13 +223,19 @@ pub fn evaluate_source(
             SwitchPos::Mid => MIXER_CENTER as i32,
             SwitchPos::Down => MIXER_MAX as i32,
         },
-        10 => if switches.sd == SwitchPos::Up { MIXER_MIN as i32 } else { MIXER_MAX as i32 },
+        10 => {
+            if switches.sd == SwitchPos::Up {
+                MIXER_MIN as i32
+            } else {
+                MIXER_MAX as i32
+            }
+        }
         11 => MIXER_MAX as i32, // MAX
-        12..=25 => {
+        12..=29 => {
             let ch_idx = (src - 12) as usize;
             channels[ch_idx]
         }
-        26 => {
+        30 => {
             let thr = cond_sticks[2] as i32;
             ((thr + MIXER_MAX as i32) / 2).clamp(0, MIXER_MAX as i32)
         }
@@ -231,7 +243,7 @@ pub fn evaluate_source(
     }
 }
 
-/// Complete 4-stage mixer pipeline producing 14 AFHDS 2A microsecond pulses (988..2012 µs).
+/// Complete 4-stage mixer pipeline producing 18 AFHDS 2A / i-BUS microsecond pulses (988..2012 µs).
 #[allow(clippy::too_many_arguments)]
 pub fn compute_channels(
     raw_roll: i16,
@@ -243,22 +255,31 @@ pub fn compute_channels(
     model: &ModelConfig,
     trims: &TrimController,
     throttle_trim_mode: u8,
-) -> [u16; 14] {
+) -> [u16; NUM_CHANNELS] {
     // Stage 1 & 2: Input conditioning with Dual Rates & Expo
     let high_rate = is_dr_high(model.dr_switch, switches);
-    let rates = if high_rate { model.dr_high } else { model.dr_low };
-    let expos = if high_rate { model.expo_high } else { model.expo_low };
+    let rates = if high_rate {
+        model.dr_high
+    } else {
+        model.dr_low
+    };
+    let expos = if high_rate {
+        model.expo_high
+    } else {
+        model.expo_low
+    };
 
     let cond_roll = apply_dr_expo(raw_roll, rates[0], expos[0]);
     let cond_pitch = apply_dr_expo(raw_pitch, rates[1], expos[1]);
     let cond_yaw = apply_dr_expo(raw_yaw, rates[2], expos[2]);
     // Throttle input is normalized to MIXER_MIN..MIXER_MAX from curved_throttle (0..MIXER_MAX)
-    let cond_thr = (curved_throttle as i32 * 2 - MIXER_MAX as i32).clamp(MIXER_MIN as i32, MIXER_MAX as i32) as i16;
+    let cond_thr = (curved_throttle as i32 * 2 - MIXER_MAX as i32)
+        .clamp(MIXER_MIN as i32, MIXER_MAX as i32) as i16;
 
     let cond_sticks = [cond_roll, cond_pitch, cond_thr, cond_yaw];
 
     // Stage 3: Initialize channels (MIXER_MIN..MIXER_MAX)
-    let mut ch_vals = [0i32; 14];
+    let mut ch_vals = [0i32; NUM_CHANNELS];
 
     // Apply Wing/Tail templates to primary channels
     let template = WingTailTemplate::from_u8(model.wing_tail_mix);
@@ -295,7 +316,13 @@ pub fn compute_channels(
             let r = cond_roll as i32;
             let left_r = apply_differential(r, model.template_diff);
             let right_r = apply_differential(-r, model.template_diff);
-            let flap = evaluate_source(model.aux_channels[1], &cond_sticks, pots, switches, &ch_vals);
+            let flap = evaluate_source(
+                model.aux_channels[1],
+                &cond_sticks,
+                pots,
+                switches,
+                &ch_vals,
+            );
             ch_vals[0] = (left_r + flap / 2).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             ch_vals[1] = cond_pitch as i32;
             ch_vals[2] = cond_thr as i32;
@@ -304,10 +331,10 @@ pub fn compute_channels(
         }
     }
 
-    // Populate Auxiliary Channels (CH5..CH14) from aux_channels mappings
+    // Populate Auxiliary Channels (CH5..CH18) from aux_channels mappings
     for (i, &src) in model.aux_channels.iter().enumerate() {
         let ch_idx = 4 + i;
-        if ch_idx < 14 {
+        if ch_idx < NUM_CHANNELS {
             // If Flaperon mode is active, CH6 (idx 5) is managed by template
             if template == WingTailTemplate::Flaperon && ch_idx == 5 {
                 continue;
@@ -318,7 +345,7 @@ pub fn compute_channels(
 
     // Stage 3b: Freeform matrix mixer lines
     for mix in model.mixes.iter() {
-        if mix.target_ch == 0 || mix.target_ch > 14 {
+        if mix.target_ch == 0 || mix.target_ch > NUM_CHANNELS as u8 {
             continue;
         }
         if !is_switch_active(mix.switch, switches) {
@@ -333,11 +360,13 @@ pub fn compute_channels(
         match mix.mode {
             0 => {
                 // ADD (+)
-                ch_vals[target_idx] = (ch_vals[target_idx] + term).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+                ch_vals[target_idx] =
+                    (ch_vals[target_idx] + term).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             }
             1 => {
                 // MULTIPLY (*)
-                ch_vals[target_idx] = ((ch_vals[target_idx] * term) / MIXER_MAX as i32).clamp(MIXER_MIN as i32, MIXER_MAX as i32);
+                ch_vals[target_idx] = ((ch_vals[target_idx] * term) / MIXER_MAX as i32)
+                    .clamp(MIXER_MIN as i32, MIXER_MAX as i32);
             }
             2 => {
                 // REPLACE (:=)
@@ -357,7 +386,8 @@ pub fn compute_channels(
     // Apply digital trims to primary flight channels
     rf_chs[0] = TrimController::apply(rf_chs[0], trims.values.roll);
     rf_chs[1] = TrimController::apply(rf_chs[1], trims.values.pitch);
-    rf_chs[2] = TrimController::apply_throttle(rf_chs[2], trims.values.throttle, throttle_trim_mode);
+    rf_chs[2] =
+        TrimController::apply_throttle(rf_chs[2], trims.values.throttle, throttle_trim_mode);
     rf_chs[3] = TrimController::apply(rf_chs[3], trims.values.yaw);
 
     // Apply channel reversing bitmask
@@ -400,13 +430,27 @@ mod tests {
     fn test_apply_dr_expo_curves() {
         // Positive expo softens center (at half stick, output is lower than linear)
         let linear = apply_dr_expo(500, 100, 0); // 500
-        let soft = apply_dr_expo(500, 100, 50);  // 50% expo
-        assert!(soft < linear, "Positive expo should soften center response: {} < {}", soft, linear);
-        assert_eq!(apply_dr_expo(1000, 100, 50), 1000, "Full stick must still reach 100%");
+        let soft = apply_dr_expo(500, 100, 50); // 50% expo
+        assert!(
+            soft < linear,
+            "Positive expo should soften center response: {} < {}",
+            soft,
+            linear
+        );
+        assert_eq!(
+            apply_dr_expo(1000, 100, 50),
+            1000,
+            "Full stick must still reach 100%"
+        );
 
         // Negative expo sharpens center (at half stick, output is higher than linear)
         let sharp = apply_dr_expo(500, 100, -50);
-        assert!(sharp > linear, "Negative expo should sharpen center response: {} > {}", sharp, linear);
+        assert!(
+            sharp > linear,
+            "Negative expo should sharpen center response: {} > {}",
+            sharp,
+            linear
+        );
         assert_eq!(apply_dr_expo(1000, 100, -50), 1000);
     }
 
@@ -447,10 +491,22 @@ mod tests {
         // Neutral inputs: roll=0, pitch=0, throttle=500 (idle = 0), yaw=0
         let chs = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
 
-        assert_eq!(chs[0], CHANNEL_CENTER_US, "CH1 Roll should be center 1500 µs");
-        assert_eq!(chs[1], CHANNEL_CENTER_US, "CH2 Pitch should be center 1500 µs");
-        assert_eq!(chs[2], CHANNEL_CENTER_US, "CH3 Throttle mid should be center 1500 µs");
-        assert_eq!(chs[3], CHANNEL_CENTER_US, "CH4 Yaw should be center 1500 µs");
+        assert_eq!(
+            chs[0], CHANNEL_CENTER_US,
+            "CH1 Roll should be center 1500 µs"
+        );
+        assert_eq!(
+            chs[1], CHANNEL_CENTER_US,
+            "CH2 Pitch should be center 1500 µs"
+        );
+        assert_eq!(
+            chs[2], CHANNEL_CENTER_US,
+            "CH3 Throttle mid should be center 1500 µs"
+        );
+        assert_eq!(
+            chs[3], CHANNEL_CENTER_US,
+            "CH4 Yaw should be center 1500 µs"
+        );
     }
 
     #[test]
@@ -467,13 +523,29 @@ mod tests {
 
         // Full roll right (1000)
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs[0], CHANNEL_MAX_US, "CH1 max pulse should be {}", CHANNEL_MAX_US);
-        assert_eq!(chs[2], CHANNEL_MIN_US, "CH3 zero throttle should be {}", CHANNEL_MIN_US);
+        assert_eq!(
+            chs[0], CHANNEL_MAX_US,
+            "CH1 max pulse should be {}",
+            CHANNEL_MAX_US
+        );
+        assert_eq!(
+            chs[2], CHANNEL_MIN_US,
+            "CH3 zero throttle should be {}",
+            CHANNEL_MIN_US
+        );
 
         // Full roll left (-1000)
         let chs_neg = compute_channels(-1000, 0, 1000, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs_neg[0], CHANNEL_MIN_US, "CH1 min pulse should be {}", CHANNEL_MIN_US);
-        assert_eq!(chs_neg[2], CHANNEL_MAX_US, "CH3 full throttle should be {}", CHANNEL_MAX_US);
+        assert_eq!(
+            chs_neg[0], CHANNEL_MIN_US,
+            "CH1 min pulse should be {}",
+            CHANNEL_MIN_US
+        );
+        assert_eq!(
+            chs_neg[2], CHANNEL_MAX_US,
+            "CH3 full throttle should be {}",
+            CHANNEL_MAX_US
+        );
     }
 
     #[test]
@@ -496,14 +568,23 @@ mod tests {
 
         // Pitch up (1000) + Roll right (1000) -> Right elevon full throw (100%), Left elevon center (0%)
         let chs_corner = compute_channels(1000, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs_corner[0], CHANNEL_CENTER_US, "CH1 Left elevon neutral without clipping");
-        assert_eq!(chs_corner[1], CHANNEL_MAX_US, "CH2 Right elevon full travel 2012 µs");
+        assert_eq!(
+            chs_corner[0], CHANNEL_CENTER_US,
+            "CH1 Left elevon neutral without clipping"
+        );
+        assert_eq!(
+            chs_corner[1], CHANNEL_MAX_US,
+            "CH2 Right elevon full travel 2012 µs"
+        );
 
         // Differential test: diff = +50% (down-deflection attenuated by 50%)
         model.template_diff = 50;
         let chs_diff = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
         assert_eq!(chs_diff[1], 1756, "Right elevon up-deflection unattenuated");
-        assert_eq!(chs_diff[0], 1372, "Left elevon down-deflection attenuated by 50%");
+        assert_eq!(
+            chs_diff[0], 1372,
+            "Left elevon down-deflection attenuated by 50%"
+        );
     }
 
     #[test]
@@ -527,7 +608,10 @@ mod tests {
         // Full corner Pitch up (1000) + Yaw right (1000) -> CH2 full travel (2012 µs), CH4 neutral (1500 µs)
         let chs_corner = compute_channels(0, 1000, 0, 1000, &pots, &switches, &model, &trims, 0);
         assert_eq!(chs_corner[1], CHANNEL_MAX_US, "CH2 Left V-Tail full up");
-        assert_eq!(chs_corner[3], CHANNEL_CENTER_US, "CH4 Right V-Tail neutral without clipping");
+        assert_eq!(
+            chs_corner[3], CHANNEL_CENTER_US,
+            "CH4 Right V-Tail neutral without clipping"
+        );
     }
 
     #[test]
@@ -536,7 +620,7 @@ mod tests {
         // Mix line 1: CH2 (Elevator) <- Thr+ with -20% weight, ADD
         model.mixes[0] = MixLine {
             target_ch: 2,
-            source: 26, // Thr+
+            source: 30, // Thr+
             weight: -20,
             offset: 0,
             mode: 0,
@@ -553,11 +637,63 @@ mod tests {
 
         // At zero throttle (curved_throttle = 0): Thr+ evaluates to 0 -> zero elevator compensation!
         let chs_idle = compute_channels(0, 0, 0, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs_idle[1], CHANNEL_CENTER_US, "CH2 Elevator must stay neutral at idle throttle");
+        assert_eq!(
+            chs_idle[1], CHANNEL_CENTER_US,
+            "CH2 Elevator must stay neutral at idle throttle"
+        );
 
         // At 100% throttle (curved_throttle = 1000): Thr+ is 1000 -> -20% weight gives -200 offset (-102 µs)
         let chs_full = compute_channels(0, 0, 1000, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs_full[1], 1398, "CH2 Elevator receives smooth down-pitch compensation at full throttle");
+        assert_eq!(
+            chs_full[1], 1398,
+            "CH2 Elevator receives smooth down-pitch compensation at full throttle"
+        );
+    }
+
+    #[test]
+    fn test_compute_channels_18ch() {
+        let mut model = ModelConfig::default_for_index(0);
+        // Map aux channels 10..13 (CH15..CH18):
+        // CH15 = SA (7)
+        // CH16 = SB (8)
+        // CH17 = SC (9)
+        // CH18 = SD (10)
+        model.aux_channels[10] = 7;
+        model.aux_channels[11] = 8;
+        model.aux_channels[12] = 9;
+        model.aux_channels[13] = 10;
+
+        // Reverse CH18 (bit 17)
+        model.channel_reverse = 1 << 17;
+
+        let trims = TrimController::new();
+        let switches = Switches {
+            sa: SwitchPos::Down, // CH15 -> MAX (2012)
+            sb: SwitchPos::Mid,  // CH16 -> CENTER (1500)
+            sc: SwitchPos::Up,   // CH17 -> MIN (988)
+            sd: SwitchPos::Down, // CH18 -> normally MAX (2012), but reversed -> MIN (988)
+        };
+        let pots = [0i16, 0i16];
+
+        let chs = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
+        assert_eq!(chs.len(), 18);
+        assert_eq!(chs[14], CHANNEL_MAX_US, "CH15 SA Down -> MAX");
+        assert_eq!(chs[15], CHANNEL_CENTER_US, "CH16 SB Mid -> CENTER");
+        assert_eq!(chs[16], CHANNEL_MIN_US, "CH17 SC Up -> MIN");
+        assert_eq!(chs[17], CHANNEL_MIN_US, "CH18 SD Down reversed -> MIN");
+
+        // Target CH18 with a replace matrix mix
+        model.mixes[0] = MixLine {
+            target_ch: 18,
+            source: 11, // MAX (+1000)
+            weight: 100,
+            offset: 0,
+            mode: 2, // REPLACE
+            switch: 0,
+        };
+        let chs_mix = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
+        // MAX source is +1000 -> 2012 µs. But CH18 is reversed! So it inverts to 988 µs.
+        assert_eq!(chs_mix[17], CHANNEL_MIN_US);
     }
 
     #[test]
@@ -575,20 +711,24 @@ mod tests {
 
         // Roll right (+1000) with reversed CH1 should yield CHANNEL_MIN_US instead of CHANNEL_MAX_US
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs[0], CHANNEL_MIN_US, "Reversed CH1 should invert to {}", CHANNEL_MIN_US);
+        assert_eq!(
+            chs[0], CHANNEL_MIN_US,
+            "Reversed CH1 should invert to {}",
+            CHANNEL_MIN_US
+        );
     }
 
     #[test]
     fn test_matrix_mixer_modes() {
         let mut model = ModelConfig::default_for_index(0);
         model.aux_channels[0] = 0; // Set CH5 source to None (center = 0)
-        // Mix line 1: Add Roll to CH5 (Aux 1) with 50% weight
+                                   // Mix line 1: Add Roll to CH5 (Aux 1) with 50% weight
         model.mixes[0] = MixLine {
             target_ch: 5,
             source: 1, // Roll
             weight: 50,
             offset: 0,
-            mode: 0, // ADD
+            mode: 0,   // ADD
             switch: 0, // Always active
         };
 
@@ -714,7 +854,10 @@ mod tests {
             }
 
             // Must remain 0 while holding!
-            assert_eq!(cancel_hold_ms, 0, "cancel_hold_ms must stay 0 while button is held");
+            assert_eq!(
+                cancel_hold_ms, 0,
+                "cancel_hold_ms must stay 0 while button is held"
+            );
         }
 
         // Step 3: Pilot finally releases [CANCEL]
@@ -731,6 +874,9 @@ mod tests {
         } else {
             cancel_hold_ms = 0;
         }
-        assert_eq!(cancel_hold_ms, 0, "cancel_hold_ms must stay 0 during cooldown");
+        assert_eq!(
+            cancel_hold_ms, 0,
+            "cancel_hold_ms must stay 0 during cooldown"
+        );
     }
 }

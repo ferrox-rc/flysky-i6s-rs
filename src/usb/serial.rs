@@ -7,7 +7,11 @@ use crate::rf::afhds2a::TelemetryData;
 use usbd_serial::SerialPort;
 
 /// Helper to write as many bytes as possible without blocking.
-pub fn write_all<B: usb_device::bus::UsbBus, RS: core::borrow::BorrowMut<[u8]>, WS: core::borrow::BorrowMut<[u8]>>(
+pub fn write_all<
+    B: usb_device::bus::UsbBus,
+    RS: core::borrow::BorrowMut<[u8]>,
+    WS: core::borrow::BorrowMut<[u8]>,
+>(
     serial: &mut SerialPort<B, RS, WS>,
     data: &[u8],
 ) {
@@ -50,7 +54,11 @@ impl SerialHandler {
     /// Drain incoming data from the USB serial OUT endpoint into the internal FIFO queue.
     /// MUST be called from the USB interrupt handler (or when polling) so that
     /// the STM32 hardware `CTR_RX` flag on the CDC OUT endpoint is cleared.
-    pub fn drain_rx<B: usb_device::bus::UsbBus, RS: core::borrow::BorrowMut<[u8]>, WS: core::borrow::BorrowMut<[u8]>>(
+    pub fn drain_rx<
+        B: usb_device::bus::UsbBus,
+        RS: core::borrow::BorrowMut<[u8]>,
+        WS: core::borrow::BorrowMut<[u8]>,
+    >(
         &mut self,
         serial: &mut SerialPort<B, RS, WS>,
     ) {
@@ -70,10 +78,14 @@ impl SerialHandler {
     }
 
     /// Process queued incoming data from the main loop and write pending telemetry frames.
-    pub fn update<B: usb_device::bus::UsbBus, RS: core::borrow::BorrowMut<[u8]>, WS: core::borrow::BorrowMut<[u8]>>(
+    pub fn update<
+        B: usb_device::bus::UsbBus,
+        RS: core::borrow::BorrowMut<[u8]>,
+        WS: core::borrow::BorrowMut<[u8]>,
+    >(
         &mut self,
         serial: &mut SerialPort<B, RS, WS>,
-        rf_chs: &[u16; 14],
+        rf_chs: &[u16; crate::mixer::NUM_CHANNELS],
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
@@ -123,22 +135,36 @@ impl SerialHandler {
     }
 
     /// Dispatch interactive CLI command responses.
-    fn handle_command<B: usb_device::bus::UsbBus, RS: core::borrow::BorrowMut<[u8]>, WS: core::borrow::BorrowMut<[u8]>>(
+    fn handle_command<
+        B: usb_device::bus::UsbBus,
+        RS: core::borrow::BorrowMut<[u8]>,
+        WS: core::borrow::BorrowMut<[u8]>,
+    >(
         &mut self,
         serial: &mut SerialPort<B, RS, WS>,
-        rf_chs: &[u16; 14],
+        rf_chs: &[u16; crate::mixer::NUM_CHANNELS],
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
-        let cmd = core::str::from_utf8(&self.cmd_buf[..self.cmd_len]).unwrap_or("").trim();
+        let cmd = core::str::from_utf8(&self.cmd_buf[..self.cmd_len])
+            .unwrap_or("")
+            .trim();
 
         if cmd.eq_ignore_ascii_case("help") {
             write_all(
                 serial,
-                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH14)\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  reboot    - Reboot transmitter\r\n",
+                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH18)\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  reboot    - Reboot transmitter\r\n",
             );
         } else if cmd.eq_ignore_ascii_case("status") {
-            write_all(serial, concat!("FlySky FS-i6X Rust Firmware v", env!("CARGO_PKG_VERSION"), "\r\n").as_bytes());
+            write_all(
+                serial,
+                concat!(
+                    "FlySky FS-i6X Rust Firmware v",
+                    env!("CARGO_PKG_VERSION"),
+                    "\r\n"
+                )
+                .as_bytes(),
+            );
             if crate::crsf::is_enabled() {
                 write_all(serial, b"Protocol: CRSF / ExpressLRS (PD5 UART active)\r\n");
             } else {
@@ -173,9 +199,15 @@ impl SerialHandler {
             write_all(serial, &cbuf[..pos]);
         } else if cmd.eq_ignore_ascii_case("telem") {
             self.send_telemetry_line(serial, rf_chs, telem, battery_mv);
-        } else if cmd.eq_ignore_ascii_case("stream") || cmd.eq_ignore_ascii_case("telem on") || cmd.eq_ignore_ascii_case("telem stream") {
+        } else if cmd.eq_ignore_ascii_case("stream")
+            || cmd.eq_ignore_ascii_case("telem on")
+            || cmd.eq_ignore_ascii_case("telem stream")
+        {
             self.stream_enabled = true;
-            write_all(serial, b"[Streaming telemetry @ 10Hz. Press any key to stop.]\r\n");
+            write_all(
+                serial,
+                b"[Streaming telemetry @ 10Hz. Press any key to stop.]\r\n",
+            );
         } else if cmd.eq_ignore_ascii_case("telem off") {
             self.stream_enabled = false;
             write_all(serial, b"Telemetry streaming disabled\r\n");
@@ -189,10 +221,14 @@ impl SerialHandler {
 
     /// Stream a single formatted JSON telemetry line over USB CDC.
     /// Format: {"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"crsf":{...},"ch":[1500,...]}\r\n
-    pub fn send_telemetry_line<B: usb_device::bus::UsbBus, RS: core::borrow::BorrowMut<[u8]>, WS: core::borrow::BorrowMut<[u8]>>(
+    pub fn send_telemetry_line<
+        B: usb_device::bus::UsbBus,
+        RS: core::borrow::BorrowMut<[u8]>,
+        WS: core::borrow::BorrowMut<[u8]>,
+    >(
         &self,
         serial: &mut SerialPort<B, RS, WS>,
-        rf_chs: &[u16; 14],
+        rf_chs: &[u16; crate::mixer::NUM_CHANNELS],
         telem: &TelemetryData,
         battery_mv: u16,
     ) {
@@ -210,7 +246,11 @@ impl SerialHandler {
         append_bytes(&mut buf, &mut pos, b",\"rx\":");
         append_u32(&mut buf, &mut pos, telem.packets_received);
         append_bytes(&mut buf, &mut pos, b",\"err\":");
-        append_u32(&mut buf, &mut pos, telem.packets_sent.saturating_sub(telem.packets_received));
+        append_u32(
+            &mut buf,
+            &mut pos,
+            telem.packets_sent.saturating_sub(telem.packets_received),
+        );
         if crate::crsf::is_enabled() {
             let crsf = crate::crsf::get_telemetry();
             append_bytes(&mut buf, &mut pos, b",\"crsf\":{\"conn\":");
@@ -230,7 +270,11 @@ impl SerialHandler {
             append_bytes(&mut buf, &mut pos, b",\"pwr_mw\":");
             append_u32(&mut buf, &mut pos, crsf.tx_power_mw as u32);
             append_bytes(&mut buf, &mut pos, b",\"rf_rate\":\"");
-            append_bytes(&mut buf, &mut pos, crate::crsf::protocol::rf_mode_to_str(crsf.rf_mode).as_bytes());
+            append_bytes(
+                &mut buf,
+                &mut pos,
+                crate::crsf::protocol::rf_mode_to_str(crsf.rf_mode).as_bytes(),
+            );
             append_bytes(&mut buf, &mut pos, b"\",\"rx_vbat_mv\":");
             append_u32(&mut buf, &mut pos, crsf.rx_battery_mv as u32);
             append_bytes(&mut buf, &mut pos, b",\"rx_cap_mah\":");
@@ -297,12 +341,7 @@ fn append_volt(buf: &mut [u8], pos: &mut usize, mv: u16) {
         ];
         append_bytes(buf, pos, &v_buf);
     } else {
-        let v_buf = [
-            b'0' + (v as u8),
-            b'.',
-            b'0' + d1,
-            b'0' + d2,
-        ];
+        let v_buf = [b'0' + (v as u8), b'.', b'0' + d1, b'0' + d2];
         append_bytes(buf, pos, &v_buf);
     }
 }

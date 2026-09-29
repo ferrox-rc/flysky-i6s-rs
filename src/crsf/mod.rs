@@ -54,7 +54,7 @@ pub fn is_enabled() -> bool {
 }
 
 /// Transmit RC channels packet to external module if interval elapsed (~100 Hz / 10 ms).
-pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
+pub fn update_channels(now_ms: u32, channels: &[u16; crate::mixer::NUM_CHANNELS]) {
     unsafe {
         if !CRSF_ENABLED {
             return;
@@ -188,7 +188,12 @@ impl Parameter {
     }
 
     /// Extract option string for any `val` index into buffer.
-    pub fn option_str_for_val<'a>(&'a self, pool: &'a [u8], val: u8, buf: &'a mut [u8; 24]) -> &'a str {
+    pub fn option_str_for_val<'a>(
+        &'a self,
+        pool: &'a [u8],
+        val: u8,
+        buf: &'a mut [u8; 24],
+    ) -> &'a str {
         if self.options_len == 0 {
             return "";
         }
@@ -553,8 +558,7 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                     param_id: cmd_id, ..
                 } if cmd_id == param_id => match status {
                     protocol::STATUS_CONFIRMATION_NEEDED => {
-                        CONFIG_ENGINE.active_cmd =
-                            ActiveCommandState::WaitingConfirm { param_id };
+                        CONFIG_ENGINE.active_cmd = ActiveCommandState::WaitingConfirm { param_id };
                     }
                     protocol::STATUS_PROGRESS => {
                         CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
@@ -603,7 +607,8 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
             let pool_avail_name = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
             let actual_name_len = (name_len as usize).min(pool_avail_name);
             if actual_name_len > 0 {
-                CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_name_len]
+                CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len
+                    ..CONFIG_ENGINE.string_pool_len + actual_name_len]
                     .copy_from_slice(&chunk[2..2 + actual_name_len]);
                 CONFIG_ENGINE.string_pool_len += actual_name_len;
             }
@@ -613,7 +618,8 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
             let pool_avail_opt = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
             let actual_opt_len = opt_slice_len.min(pool_avail_opt);
             if actual_opt_len > 0 {
-                CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_opt_len]
+                CONFIG_ENGINE.string_pool
+                    [CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_opt_len]
                     .copy_from_slice(&chunk[rest_start..rest_start + actual_opt_len]);
                 CONFIG_ENGINE.string_pool_len += actual_opt_len;
             }
@@ -657,9 +663,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     }
 
     // Sequence check: if expecting specific chunks_remain, discard duplicates / out-of-order
-    if CONFIG_ENGINE.current_chunk > 0
-        && chunks_remain != CONFIG_ENGINE.expect_chunks_remain
-    {
+    if CONFIG_ENGINE.current_chunk > 0 && chunks_remain != CONFIG_ENGINE.expect_chunks_remain {
         return;
     }
 
@@ -719,11 +723,12 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                 CONFIG_ENGINE.retry_count = 0;
                 CHUNK_LEN = 0;
                 CHUNK_PARAM_ID = 0;
-                let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
-                    1000
-                } else {
-                    500
-                };
+                let timeout: u32 =
+                    if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                        1000
+                    } else {
+                        500
+                    };
                 CONFIG_ENGINE.last_req_ms = now_ms;
                 CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
                 send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
@@ -746,35 +751,36 @@ unsafe fn elrs_tick(now_ms: u32) {
                 let mut i = 0;
                 while i < CONFIG_ENGINE.devices_len {
                     if now_ms.wrapping_sub(CONFIG_ENGINE.devices[i].last_seen_ms) > 3000 {
-                        CONFIG_ENGINE.devices.copy_within(i + 1..CONFIG_ENGINE.devices_len, i);
+                        CONFIG_ENGINE
+                            .devices
+                            .copy_within(i + 1..CONFIG_ENGINE.devices_len, i);
                         CONFIG_ENGINE.devices_len -= 1;
                     } else {
                         i += 1;
                     }
                 }
-                if CONFIG_ENGINE.selected_device_idx >= CONFIG_ENGINE.devices_len && CONFIG_ENGINE.devices_len > 0 {
+                if CONFIG_ENGINE.selected_device_idx >= CONFIG_ENGINE.devices_len
+                    && CONFIG_ENGINE.devices_len > 0
+                {
                     CONFIG_ENGINE.selected_device_idx = CONFIG_ENGINE.devices_len - 1;
                 }
             }
         }
         ElrsConfigState::LoadingParam(id) => {
             if now_ms.wrapping_sub(CONFIG_ENGINE.next_req_ms) < 0x8000_0000 {
-                let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
-                    1000
-                } else {
-                    500
-                };
+                let timeout: u32 =
+                    if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                        1000
+                    } else {
+                        500
+                    };
 
                 let max_retries = if id == 0 { 2 } else { 4 };
                 if CONFIG_ENGINE.retry_count < max_retries {
                     CONFIG_ENGINE.retry_count += 1;
                     CONFIG_ENGINE.last_req_ms = now_ms;
                     CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
-                    send_param_read(
-                        CONFIG_ENGINE.device_id,
-                        id,
-                        CONFIG_ENGINE.current_chunk,
-                    );
+                    send_param_read(CONFIG_ENGINE.device_id, id, CONFIG_ENGINE.current_chunk);
                 } else {
                     // Retries exhausted for this parameter (packet lost over the air).
                     // Advance to next parameter immediately to avoid freezing UI permanently.
@@ -961,7 +967,8 @@ pub fn return_to_device_list() {
 pub fn enter_folder(folder_id: u8, name: &str) {
     unsafe {
         if CONFIG_ENGINE.folder_stack_len < CONFIG_ENGINE.folder_stack.len() {
-            CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len] = CONFIG_ENGINE.current_folder;
+            CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len] =
+                CONFIG_ENGINE.current_folder;
             CONFIG_ENGINE.folder_stack_len += 1;
         }
         CONFIG_ENGINE.current_folder = folder_id;
@@ -1030,11 +1037,12 @@ pub fn exit_current_folder() -> bool {
             ) {
                 CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(first_id);
                 CONFIG_ENGINE.folder_loading = true;
-                let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
-                    1000
-                } else {
-                    500
-                };
+                let timeout: u32 =
+                    if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                        1000
+                    } else {
+                        500
+                    };
                 let now = crate::time::millis();
                 CONFIG_ENGINE.last_req_ms = now;
                 CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
@@ -1068,7 +1076,10 @@ pub fn set_param_value(param_idx: usize, value: u8) {
 pub fn get_folder_params(folder_id: u8, out_indices: &mut [u8; MAX_FOLDER_ITEMS]) -> usize {
     unsafe {
         let mut count = 0;
-        for (idx, p) in CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len].iter().enumerate() {
+        for (idx, p) in CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len]
+            .iter()
+            .enumerate()
+        {
             if p.parent == folder_id && !p.is_hidden() {
                 if count < MAX_FOLDER_ITEMS {
                     out_indices[count] = idx as u8;
@@ -1085,7 +1096,9 @@ pub fn get_parent_folder(folder_id: u8) -> u8 {
     unsafe {
         if CONFIG_ENGINE.folder_stack_len > 0 {
             CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len - 1]
-        } else if (folder_id as usize) < MAX_PARAM_MAP && CONFIG_ENGINE.parent_map[folder_id as usize] != 0xFF {
+        } else if (folder_id as usize) < MAX_PARAM_MAP
+            && CONFIG_ENGINE.parent_map[folder_id as usize] != 0xFF
+        {
             CONFIG_ENGINE.parent_map[folder_id as usize]
         } else {
             for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
@@ -1182,11 +1195,10 @@ pub fn get_telemetry() -> CrsfTelemetry {
 mod tests {
     use super::*;
     use crate::crsf::protocol::{
-        crc8, CRSF_ADDRESS_CRSF_TRANSMITTER,
-        CRSF_ADDRESS_RADIO_TRANSMITTER, CRSF_FRAMETYPE_DEVICE_INFO,
-        CRSF_FRAMETYPE_LINK_STATISTICS, CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY,
-        CRSF_SYNC_BYTE, CRSF_TYPE_COMMAND, CRSF_TYPE_SELECT, STATUS_CONFIRMATION_NEEDED,
-        STATUS_PROGRESS, STATUS_READY, STATUS_START,
+        crc8, CRSF_ADDRESS_CRSF_TRANSMITTER, CRSF_ADDRESS_RADIO_TRANSMITTER,
+        CRSF_FRAMETYPE_DEVICE_INFO, CRSF_FRAMETYPE_LINK_STATISTICS,
+        CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY, CRSF_SYNC_BYTE, CRSF_TYPE_COMMAND,
+        CRSF_TYPE_SELECT, STATUS_CONFIRMATION_NEEDED, STATUS_PROGRESS, STATUS_READY, STATUS_START,
     };
     use crate::time::set_millis;
 
@@ -1218,14 +1230,16 @@ mod tests {
     ) -> usize {
         let name_offset = CONFIG_ENGINE.string_pool_len as u16;
         let n_bytes = name.as_bytes();
-        CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + n_bytes.len()]
+        CONFIG_ENGINE.string_pool
+            [CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + n_bytes.len()]
             .copy_from_slice(n_bytes);
         CONFIG_ENGINE.string_pool_len += n_bytes.len();
 
         let opt_offset = CONFIG_ENGINE.string_pool_len as u16;
         let o_bytes = options.as_bytes();
         if !o_bytes.is_empty() {
-            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + o_bytes.len()]
+            CONFIG_ENGINE.string_pool
+                [CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + o_bytes.len()]
                 .copy_from_slice(o_bytes);
             CONFIG_ENGINE.string_pool_len += o_bytes.len();
         }
@@ -1285,7 +1299,16 @@ mod tests {
             CRSF_ADDRESS_RADIO_TRANSMITTER,
             12,
             CRSF_FRAMETYPE_LINK_STATISTICS,
-            80, 85, 99, 10, 0, 2, 3, 0, 0, 0,
+            80,
+            85,
+            99,
+            10,
+            0,
+            2,
+            3,
+            0,
+            0,
+            0,
             0x00, // Bad CRC
         ];
         uart::mock::push_rx_bytes(&bad_frame);
@@ -1301,7 +1324,10 @@ mod tests {
         poll_telemetry(1000);
 
         let telem_ok = get_telemetry();
-        assert!(telem_ok.connected, "Parser must resync and accept subsequent valid frame");
+        assert!(
+            telem_ok.connected,
+            "Parser must resync and accept subsequent valid frame"
+        );
         assert_eq!(telem_ok.uplink_link_quality, 99);
         assert_eq!(telem_ok.tx_power_mw, 100);
     }
@@ -1326,9 +1352,9 @@ mod tests {
         // Frame: [addr=0xEA, len, type=0x29, dest=0xEA, orig=0xEE, "ELRS 2.4G\0", serial(4), hw(4), fw(4), count=3, ver=1, crc]
         let mut frame = [0u8; 32];
         frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xEA
-        frame[2] = CRSF_FRAMETYPE_DEVICE_INFO;     // 0x29
+        frame[2] = CRSF_FRAMETYPE_DEVICE_INFO; // 0x29
         frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER; // 0xEA
-        frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;  // 0xEE (device_id)
+        frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER; // 0xEE (device_id)
 
         // Device name: "ELRS 2.4G\0" (10 bytes)
         let name = b"ELRS 2.4G\0";
@@ -1363,7 +1389,11 @@ mod tests {
 
         // Immediate query dispatch: Parameter Read for Param 0 (Root Folder), Chunk 0 is sent immediately
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must immediately request Param 0 Chunk 0 upon selection");
+        assert_eq!(
+            tx.len(),
+            1,
+            "Must immediately request Param 0 Chunk 0 upon selection"
+        );
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
         assert_eq!(tx[0][5], 0, "Requested param_id must be 0");
         assert_eq!(tx[0][6], 0, "Requested chunk must be 0");
@@ -1395,7 +1425,11 @@ mod tests {
         assert!(select_device(0));
 
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::Ready, "0 parameters must transition directly to Ready");
+        assert_eq!(
+            engine.state,
+            ElrsConfigState::Ready,
+            "0 parameters must transition directly to Ready"
+        );
     }
 
     #[test]
@@ -1489,7 +1523,10 @@ mod tests {
 
         let engine = get_config_engine();
         assert_eq!(engine.current_chunk, 1, "Must advance to chunk 1");
-        assert_eq!(engine.params_len, 0, "Parameter not parsed until final chunk");
+        assert_eq!(
+            engine.params_len, 0,
+            "Parameter not parsed until final chunk"
+        );
 
         // Immediate query dispatch: request for Chunk 1 sent immediately upon receiving Chunk 0
         let tx = uart::mock::take_tx();
@@ -1542,7 +1579,10 @@ mod tests {
         // 1. Trigger command
         trigger_command(0);
         let engine = get_config_engine();
-        assert!(matches!(engine.active_cmd, ActiveCommandState::Starting { param_id: 1, .. }));
+        assert!(matches!(
+            engine.active_cmd,
+            ActiveCommandState::Starting { param_id: 1, .. }
+        ));
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_WRITE);
@@ -1569,12 +1609,18 @@ mod tests {
         poll_telemetry(5100);
 
         let engine = get_config_engine();
-        assert_eq!(engine.active_cmd, ActiveCommandState::WaitingConfirm { param_id: 1 });
+        assert_eq!(
+            engine.active_cmd,
+            ActiveCommandState::WaitingConfirm { param_id: 1 }
+        );
 
         // 3. User accepts confirmation
         confirm_command(true);
         let engine = get_config_engine();
-        assert!(matches!(engine.active_cmd, ActiveCommandState::Running { param_id: 1, .. }));
+        assert!(matches!(
+            engine.active_cmd,
+            ActiveCommandState::Running { param_id: 1, .. }
+        ));
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][6], protocol::STATUS_CONFIRM);
@@ -1586,7 +1632,10 @@ mod tests {
         poll_telemetry(5200);
 
         let engine = get_config_engine();
-        assert!(matches!(engine.active_cmd, ActiveCommandState::Running { param_id: 1, .. }));
+        assert!(matches!(
+            engine.active_cmd,
+            ActiveCommandState::Running { param_id: 1, .. }
+        ));
 
         // 5. Module completes with STATUS_READY (0)
         frame[14] = STATUS_READY;
@@ -1595,7 +1644,11 @@ mod tests {
         poll_telemetry(5300);
 
         let engine = get_config_engine();
-        assert_eq!(engine.active_cmd, ActiveCommandState::Idle, "Completed command returns to Idle");
+        assert_eq!(
+            engine.active_cmd,
+            ActiveCommandState::Idle,
+            "Completed command returns to Idle"
+        );
     }
 
     #[test]
@@ -1626,14 +1679,21 @@ mod tests {
 
         // Poll at t = 2050 (>1000 ms timeout): disconnected!
         poll_telemetry(2050);
-        assert!(!get_telemetry().connected, "Must mark disconnected after 1000 ms silence");
+        assert!(
+            !get_telemetry().connected,
+            "Must mark disconnected after 1000 ms silence"
+        );
     }
 
     #[test]
     fn test_rx_accepts_receiver_address_0xec() {
         reset_state();
         // Feed partial frame starting with CRSF_ADDRESS_CRSF_RECEIVER (0xEC)
-        uart::mock::push_rx_bytes(&[protocol::CRSF_ADDRESS_CRSF_RECEIVER, 12, CRSF_FRAMETYPE_LINK_STATISTICS]);
+        uart::mock::push_rx_bytes(&[
+            protocol::CRSF_ADDRESS_CRSF_RECEIVER,
+            12,
+            CRSF_FRAMETYPE_LINK_STATISTICS,
+        ]);
         poll_telemetry(100);
         unsafe {
             assert_eq!(RX_LEN, 3, "Start byte 0xEC must be accepted into RX_BUF");
@@ -1661,7 +1721,10 @@ mod tests {
         // 2. Advance time to t = 1003 (>= 3 ms silence timeout) with no new bytes
         poll_telemetry(1003);
         unsafe {
-            assert_eq!(RX_LEN, 0, "Parser must reset RX_LEN after >=3ms bus silence");
+            assert_eq!(
+                RX_LEN, 0,
+                "Parser must reset RX_LEN after >=3ms bus silence"
+            );
         }
 
         // 3. Immediately feed a valid complete frame at t = 1003
@@ -1669,7 +1732,16 @@ mod tests {
             CRSF_ADDRESS_RADIO_TRANSMITTER,
             12,
             CRSF_FRAMETYPE_LINK_STATISTICS,
-            80, 85, 99, 10, 0, 2, 3, 0, 0, 0,
+            80,
+            85,
+            99,
+            10,
+            0,
+            2,
+            3,
+            0,
+            0,
+            0,
             0x00,
         ];
         good_frame[13] = crc8(&good_frame[2..13]);
@@ -1677,7 +1749,10 @@ mod tests {
         poll_telemetry(1003);
 
         let telem = get_telemetry();
-        assert!(telem.connected, "Parser must recover and parse the subsequent valid frame");
+        assert!(
+            telem.connected,
+            "Parser must recover and parse the subsequent valid frame"
+        );
         assert_eq!(telem.uplink_link_quality, 99);
     }
 
@@ -1691,9 +1766,8 @@ mod tests {
         // Sync: 0xC8, Len: 0x19 (25), Type: 0x29 (Device Info), Dest: 0xEA, Orig: 0xEE,
         // Name: "RM RP2\0", Serial: "ELRS", HW: 0, FW: 4, Params: 21 (0x15), Ver: 0, CRC: 0x0D
         let rp2_packet: [u8; 27] = [
-            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
-            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
-            0x15, 0x00, 0x0D,
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00, 0x45, 0x4C,
+            0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x15, 0x00, 0x0D,
         ];
 
         uart::mock::push_rx_bytes(&rp2_packet);
@@ -1714,7 +1788,11 @@ mod tests {
 
         // Immediate query dispatch: Parameter Read for Param 0 Chunk 0 is sent immediately upon selection
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must immediately emit outbound parameter read for Param 0");
+        assert_eq!(
+            tx.len(),
+            1,
+            "Must immediately emit outbound parameter read for Param 0"
+        );
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
         assert_eq!(tx[0][3], 0xEE);
         assert_eq!(tx[0][5], 0, "Param 0");
@@ -1750,7 +1828,11 @@ mod tests {
         // Selecting device immediately dispatches request for Param 0 Chunk 0
         assert!(select_device(0));
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Must immediately dispatch Param 0 Chunk 0 on select_device");
+        assert_eq!(
+            tx.len(),
+            1,
+            "Must immediately dispatch Param 0 Chunk 0 on select_device"
+        );
         assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_READ);
         assert_eq!(tx[0][5], 0); // param 0
         assert_eq!(tx[0][6], 0); // chunk 0
@@ -1776,7 +1858,11 @@ mod tests {
 
         // Root folder received -> immediately dispatches request for first child (Param 1, Chunk 0)
         let tx_p1 = uart::mock::take_tx();
-        assert_eq!(tx_p1.len(), 1, "Must immediately request Param 1 Chunk 0 after Root Folder");
+        assert_eq!(
+            tx_p1.len(),
+            1,
+            "Must immediately request Param 1 Chunk 0 after Root Folder"
+        );
         assert_eq!(tx_p1[0][5], 1);
         assert_eq!(tx_p1[0][6], 0);
 
@@ -1799,7 +1885,11 @@ mod tests {
 
         // Immediate query dispatch: Chunk 1 request sent immediately upon receiving Chunk 0!
         let tx2 = uart::mock::take_tx();
-        assert_eq!(tx2.len(), 1, "Must immediately request Chunk 1 without pacing delay");
+        assert_eq!(
+            tx2.len(),
+            1,
+            "Must immediately request Chunk 1 without pacing delay"
+        );
         assert_eq!(tx2[0][5], 1);
         assert_eq!(tx2[0][6], 1);
     }
@@ -1841,7 +1931,10 @@ mod tests {
 
         // Verify accumulator was NOT corrupted by duplicate chunk
         let engine = get_config_engine();
-        assert_eq!(engine.current_chunk, 1, "Must not advance chunk on duplicate");
+        assert_eq!(
+            engine.current_chunk, 1,
+            "Must not advance chunk on duplicate"
+        );
         assert_eq!(engine.expect_chunks_remain, 1);
         unsafe {
             assert_eq!(CHUNK_LEN, 12, "Accumulator length must remain untouched");
@@ -1893,11 +1986,19 @@ mod tests {
         // t = 3000: Retries exhausted! Must safely advance to Param 2 immediately
         poll_telemetry(3000);
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "Immediate request for Param 2 Chunk 0 sent upon skipping");
+        assert_eq!(
+            tx.len(),
+            1,
+            "Immediate request for Param 2 Chunk 0 sent upon skipping"
+        );
         assert_eq!(tx[0][5], 2, "Requested Param 2");
         assert_eq!(tx[0][6], 0, "Chunk 0");
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(2), "Advanced to Param 2");
+        assert_eq!(
+            engine.state,
+            ElrsConfigState::LoadingParam(2),
+            "Advanced to Param 2"
+        );
         assert_eq!(engine.retry_count, 0, "Retry count reset for next param");
     }
 
@@ -1915,7 +2016,11 @@ mod tests {
         poll_telemetry(1100);
         poll_telemetry(1500);
         poll_telemetry(1999);
-        assert_eq!(uart::mock::take_tx().len(), 0, "No ping before 1000ms interval");
+        assert_eq!(
+            uart::mock::take_tx().len(),
+            0,
+            "No ping before 1000ms interval"
+        );
 
         // At t = 2000 (>= 1000ms), second ping is sent
         poll_telemetry(2000);
@@ -1932,9 +2037,8 @@ mod tests {
 
         // 1. Module (RM RP2, 0xEE, 21 params) replies to ping with Device Info
         let rp2_info: [u8; 27] = [
-            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
-            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
-            0x15, 0x00, 0x0D,
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00, 0x45, 0x4C,
+            0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x15, 0x00, 0x0D,
         ];
         uart::mock::push_rx_bytes(&rp2_info);
         poll_telemetry(1000);
@@ -1949,7 +2053,10 @@ mod tests {
         let tx0 = uart::mock::take_tx();
         assert_eq!(tx0.len(), 1);
         assert_eq!(tx0[0][3], 0xEE);
-        assert_eq!(tx0[0][5], 0, "Initial request must be Param 0 (Root Folder)");
+        assert_eq!(
+            tx0[0][5], 0,
+            "Initial request must be Param 0 (Root Folder)"
+        );
 
         // Feed Param 0 Root folder response from 0xEE (children: [1, 0xFF])
         let mut root_folder = [0u8; 17];
@@ -1971,9 +2078,9 @@ mod tests {
 
         // 2. Remote receiver (RM RP4TD-M, 0xEC, 11 params) broadcasts Device Info over the air
         let rp4td_info: [u8; 36] = [
-            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
-            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
-            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54, 0x44, 0x2D,
+            0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
         ];
         uart::mock::push_rx_bytes(&rp4td_info);
         poll_telemetry(1020);
@@ -1981,8 +2088,15 @@ mod tests {
         // Handset must NOT be hijacked by remote receiver 0xEC:
         let engine = get_config_engine();
         assert_eq!(engine.device_id, 0xEE, "device_id must remain 0xEE");
-        assert_eq!(&engine.device_name[..6], b"RM RP2", "device_name must remain RM RP2");
-        assert_eq!(engine.param_count, 21, "param_count must remain 21, not overwritten to 11");
+        assert_eq!(
+            &engine.device_name[..6],
+            b"RM RP2",
+            "device_name must remain RM RP2"
+        );
+        assert_eq!(
+            engine.param_count, 21,
+            "param_count must remain 21, not overwritten to 11"
+        );
 
         // 3. Request Param 1 Chunk 0 is sent to 0xEE
         let tx = uart::mock::take_tx();
@@ -1994,19 +2108,21 @@ mod tests {
 
         // 4. Feed real capture Chunk 0 of Param 1 ("Packet Rate") from 0xEE (chunks_remain = 3)
         let rp2_param1_chunk0: [u8; 64] = [
-            0xC8, 0x3E, 0x2B, 0xEA, 0xEE, 0x01, 0x03, 0x00, 0x09, 0x50, 0x61, 0x63,
-            0x6B, 0x65, 0x74, 0x20, 0x52, 0x61, 0x74, 0x65, 0x00, 0x35, 0x30, 0x48,
-            0x7A, 0x28, 0x2D, 0x31, 0x31, 0x35, 0x64, 0x42, 0x6D, 0x29, 0x3B, 0x31,
-            0x30, 0x30, 0x48, 0x7A, 0x20, 0x46, 0x75, 0x6C, 0x6C, 0x28, 0x2D, 0x31,
-            0x31, 0x32, 0x64, 0x42, 0x6D, 0x29, 0x3B, 0x31, 0x35, 0x30, 0x48, 0x7A,
-            0x28, 0x2D, 0x31, 0x8A,
+            0xC8, 0x3E, 0x2B, 0xEA, 0xEE, 0x01, 0x03, 0x00, 0x09, 0x50, 0x61, 0x63, 0x6B, 0x65,
+            0x74, 0x20, 0x52, 0x61, 0x74, 0x65, 0x00, 0x35, 0x30, 0x48, 0x7A, 0x28, 0x2D, 0x31,
+            0x31, 0x35, 0x64, 0x42, 0x6D, 0x29, 0x3B, 0x31, 0x30, 0x30, 0x48, 0x7A, 0x20, 0x46,
+            0x75, 0x6C, 0x6C, 0x28, 0x2D, 0x31, 0x31, 0x32, 0x64, 0x42, 0x6D, 0x29, 0x3B, 0x31,
+            0x35, 0x30, 0x48, 0x7A, 0x28, 0x2D, 0x31, 0x8A,
         ];
         uart::mock::push_rx_bytes(&rp2_param1_chunk0);
         poll_telemetry(1050);
 
         let engine = get_config_engine();
         assert_eq!(engine.current_chunk, 1, "Must advance to Chunk 1");
-        assert_eq!(engine.expect_chunks_remain, 2, "Must expect chunks_remain = 2 next");
+        assert_eq!(
+            engine.expect_chunks_remain, 2,
+            "Must expect chunks_remain = 2 next"
+        );
         unsafe {
             assert_eq!(CHUNK_LEN, 56, "56 bytes accumulated from Chunk 0");
         }
@@ -2030,18 +2146,17 @@ mod tests {
 
         // 1. Device 1 responds: TX module (RM RP2, 0xEE, 21 params)
         let rp2_info: [u8; 27] = [
-            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
-            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
-            0x15, 0x00, 0x0D,
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00, 0x45, 0x4C,
+            0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x15, 0x00, 0x0D,
         ];
         uart::mock::push_rx_bytes(&rp2_info);
         poll_telemetry(1010);
 
         // 2. Device 2 responds: RX module (RM RP4TD-M 2400, 0xEC, 11 params)
         let rp4td_info: [u8; 36] = [
-            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
-            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
-            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54, 0x44, 0x2D,
+            0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
         ];
         uart::mock::push_rx_bytes(&rp4td_info);
         poll_telemetry(1020);
@@ -2052,7 +2167,10 @@ mod tests {
 
         let engine = get_config_engine();
         assert_eq!(engine.state, ElrsConfigState::Discovering);
-        assert_eq!(engine.devices_len, 2, "Must deduplicate and register exactly 2 devices");
+        assert_eq!(
+            engine.devices_len, 2,
+            "Must deduplicate and register exactly 2 devices"
+        );
         assert_eq!(engine.devices[0].address, 0xEE);
         assert_eq!(&engine.devices[0].name[..6], b"RM RP2");
         assert_eq!(engine.devices[0].param_count, 21);
@@ -2064,13 +2182,19 @@ mod tests {
         assert!(select_device(1));
 
         let engine = get_config_engine();
-        assert_eq!(engine.device_id, 0xEC, "Device ID must switch to 0xEC for receiver");
+        assert_eq!(
+            engine.device_id, 0xEC,
+            "Device ID must switch to 0xEC for receiver"
+        );
         assert_eq!(engine.param_count, 11);
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
 
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
-        assert_eq!(tx[0][0], CRSF_SYNC_BYTE, "Wire sync byte must be 0xC8 per TBS CRSF spec");
+        assert_eq!(
+            tx[0][0], CRSF_SYNC_BYTE,
+            "Wire sync byte must be 0xC8 per TBS CRSF spec"
+        );
         assert_eq!(tx[0][3], 0xEC, "Outbound payload dest must be 0xEC");
         assert_eq!(tx[0][5], 0); // Param 0
         assert_eq!(tx[0][6], 0); // Chunk 0
@@ -2079,7 +2203,10 @@ mod tests {
         return_to_device_list();
         let engine = get_config_engine();
         assert_eq!(engine.state, ElrsConfigState::Discovering);
-        assert_eq!(engine.devices_len, 2, "Discovered devices must persist when returning to list");
+        assert_eq!(
+            engine.devices_len, 2,
+            "Discovered devices must persist when returning to list"
+        );
     }
 
     #[test]
@@ -2128,17 +2255,55 @@ mod tests {
 
         // 1. Simulate feeding root parameters (current_folder == 0)
         // Param 1: parent 0 (Packet Rate)
-        let chunk_p1 = [0x00, protocol::CRSF_TYPE_SELECT, b'R', b'a', b't', b'e', 0x00, b'5', b'0', b';', b'1', b'0', b'0', 0x00, 0x01];
-        unsafe { parse_and_store_parameter(&chunk_p1, 1, 100); }
+        let chunk_p1 = [
+            0x00,
+            protocol::CRSF_TYPE_SELECT,
+            b'R',
+            b'a',
+            b't',
+            b'e',
+            0x00,
+            b'5',
+            b'0',
+            b';',
+            b'1',
+            b'0',
+            b'0',
+            0x00,
+            0x01,
+        ];
+        unsafe {
+            parse_and_store_parameter(&chunk_p1, 1, 100);
+        }
         // Param 2: parent 0 (VTX Admin folder)
         let chunk_p2 = [0x00, protocol::CRSF_TYPE_FOLDER, b'V', b'T', b'X', 0x00];
-        unsafe { parse_and_store_parameter(&chunk_p2, 2, 100); }
+        unsafe {
+            parse_and_store_parameter(&chunk_p2, 2, 100);
+        }
         // Param 3: parent 2 (Band - child of VTX Admin) -> must be filtered out while in root!
-        let chunk_p3 = [0x02, protocol::CRSF_TYPE_SELECT, b'B', b'a', b'n', b'd', 0x00, b'A', b';', b'B', 0x00, 0x00];
-        unsafe { parse_and_store_parameter(&chunk_p3, 3, 100); }
+        let chunk_p3 = [
+            0x02,
+            protocol::CRSF_TYPE_SELECT,
+            b'B',
+            b'a',
+            b'n',
+            b'd',
+            0x00,
+            b'A',
+            b';',
+            b'B',
+            0x00,
+            0x00,
+        ];
+        unsafe {
+            parse_and_store_parameter(&chunk_p3, 3, 100);
+        }
 
         let engine = get_config_engine();
-        assert_eq!(engine.params_len, 2, "Only root items (parent 0) must be stored in root folder");
+        assert_eq!(
+            engine.params_len, 2,
+            "Only root items (parent 0) must be stored in root folder"
+        );
         assert_eq!(engine.params[0].id, 1);
         assert_eq!(engine.params[1].id, 2);
 
@@ -2149,16 +2314,26 @@ mod tests {
         assert_eq!(engine.folder_stack_len, 1);
         assert_eq!(engine.folder_stack[0], 0);
         assert!(engine.folder_loading);
-        assert_eq!(engine.params_len, 0, "Entering folder must flush active parameters");
-        assert_eq!(engine.string_pool_len, 0, "Entering folder must flush active string pool");
+        assert_eq!(
+            engine.params_len, 0,
+            "Entering folder must flush active parameters"
+        );
+        assert_eq!(
+            engine.string_pool_len, 0,
+            "Entering folder must flush active string pool"
+        );
 
         // 3. Feed parameters while in subfolder 2
         // Param 1 (parent 0) -> must be filtered out while in subfolder 2!
-        unsafe { parse_and_store_parameter(&chunk_p1, 1, 200); }
+        unsafe {
+            parse_and_store_parameter(&chunk_p1, 1, 200);
+        }
         assert_eq!(get_config_engine().params_len, 0);
 
         // Param 3 (parent 2) -> belongs to subfolder 2, must be stored!
-        unsafe { parse_and_store_parameter(&chunk_p3, 3, 200); }
+        unsafe {
+            parse_and_store_parameter(&chunk_p3, 3, 200);
+        }
         let engine = get_config_engine();
         assert_eq!(engine.params_len, 1);
         assert_eq!(engine.params[0].id, 3);
@@ -2170,15 +2345,24 @@ mod tests {
         assert_eq!(get_parent_folder(2), 0);
 
         // 4. Step back to root folder via exit_current_folder
-        assert!(exit_current_folder(), "Stepping back from subfolder must return true");
+        assert!(
+            exit_current_folder(),
+            "Stepping back from subfolder must return true"
+        );
         let engine = get_config_engine();
         assert_eq!(engine.current_folder, 0, "Must be back at root folder");
         assert_eq!(engine.folder_stack_len, 0);
         assert!(engine.folder_loading);
-        assert_eq!(engine.params_len, 0, "Exiting folder flushes active params for root re-stream");
+        assert_eq!(
+            engine.params_len, 0,
+            "Exiting folder flushes active params for root re-stream"
+        );
 
         // 5. Exiting from root folder must return false (signaling return to device list)
-        assert!(!exit_current_folder(), "Exiting from root folder must return false");
+        assert!(
+            !exit_current_folder(),
+            "Exiting from root folder must return false"
+        );
     }
 
     #[test]
@@ -2186,16 +2370,33 @@ mod tests {
         reset_state();
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
-            add_test_param(1, 0, protocol::CRSF_TYPE_SELECT, "Power", 0, 3, "10mW;25mW;100mW;250mW");
+            add_test_param(
+                1,
+                0,
+                protocol::CRSF_TYPE_SELECT,
+                "Power",
+                0,
+                3,
+                "10mW;25mW;100mW;250mW",
+            );
         }
 
         let engine = get_config_engine();
         let p = &engine.params[0];
         let mut buf = [0u8; 24];
         assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "10mW");
-        assert_eq!(p.option_str_for_val(&engine.string_pool, 1, &mut buf), "25mW");
-        assert_eq!(p.option_str_for_val(&engine.string_pool, 2, &mut buf), "100mW");
-        assert_eq!(p.option_str_for_val(&engine.string_pool, 3, &mut buf), "250mW");
+        assert_eq!(
+            p.option_str_for_val(&engine.string_pool, 1, &mut buf),
+            "25mW"
+        );
+        assert_eq!(
+            p.option_str_for_val(&engine.string_pool, 2, &mut buf),
+            "100mW"
+        );
+        assert_eq!(
+            p.option_str_for_val(&engine.string_pool, 3, &mut buf),
+            "250mW"
+        );
 
         // Simulate committing tentative edit value = 2 (100mW)
         uart::mock::clear();
@@ -2204,7 +2405,10 @@ mod tests {
         // Param value updated locally
         let p_updated = &get_config_engine().params[0];
         assert_eq!(p_updated.value, 2);
-        assert_eq!(p_updated.current_option_str(&get_config_engine().string_pool, &mut buf), "100mW");
+        assert_eq!(
+            p_updated.current_option_str(&get_config_engine().string_pool, &mut buf),
+            "100mW"
+        );
 
         // Param Write frame (0x2D) transmitted
         let tx = uart::mock::take_tx();
@@ -2220,7 +2424,15 @@ mod tests {
         reset_state();
         unsafe {
             // Visible parameter: Model Match (id 1, parent 0, type 0x09)
-            add_test_param(1, 0, protocol::CRSF_TYPE_SELECT, "Model Match", 0, 1, "Off;On");
+            add_test_param(
+                1,
+                0,
+                protocol::CRSF_TYPE_SELECT,
+                "Model Match",
+                0,
+                1,
+                "Off;On",
+            );
             // Hidden parameter: Internal UID (id 2, parent 0, type 0x89 -> 0x09 with bit 7 set)
             add_test_param(2, 0, protocol::CRSF_TYPE_SELECT | 0x80, "UID", 0, 0, "");
             // Visible parameter: Output Map (id 3, parent 0, type 0x0B)
@@ -2230,14 +2442,20 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.params_len, 3);
         assert!(!engine.params[0].is_hidden());
-        assert!(engine.params[1].is_hidden(), "Param 2 must have is_hidden() == true");
+        assert!(
+            engine.params[1].is_hidden(),
+            "Param 2 must have is_hidden() == true"
+        );
         assert_eq!(engine.params[1].clean_type(), protocol::CRSF_TYPE_SELECT);
         assert!(!engine.params[2].is_hidden());
 
         // Querying root folder (0) must filter out the hidden parameter (UID)
         let mut indices = [0u8; MAX_FOLDER_ITEMS];
         let count = get_folder_params(0, &mut indices);
-        assert_eq!(count, 2, "Hidden parameter must be excluded from folder items");
+        assert_eq!(
+            count, 2,
+            "Hidden parameter must be excluded from folder items"
+        );
         assert_eq!(indices[0], 0); // Model Match
         assert_eq!(indices[1], 2); // Output Map (skipped index 1 UID)
     }
@@ -2254,30 +2472,72 @@ mod tests {
         }
 
         let engine = get_config_engine();
-        assert_eq!(engine.params_len, MAX_PARAMS, "Must successfully allocate all parameters up to capacity");
+        assert_eq!(
+            engine.params_len, MAX_PARAMS,
+            "Must successfully allocate all parameters up to capacity"
+        );
         assert_eq!(engine.params[0].id, 1);
         assert_eq!(engine.params[MAX_PARAMS - 1].id, MAX_PARAMS as u8);
 
         let mut buf = [0u8; 24];
         assert_eq!(engine.params[0].name(&engine.string_pool), "Param");
         // Param 2 (even) has options
-        assert_eq!(engine.params[1].current_option_str(&engine.string_pool, &mut buf), "Med");
-        assert_eq!(engine.params[1].option_str_for_val(&engine.string_pool, 2, &mut buf), "High");
+        assert_eq!(
+            engine.params[1].current_option_str(&engine.string_pool, &mut buf),
+            "Med"
+        );
+        assert_eq!(
+            engine.params[1].option_str_for_val(&engine.string_pool, 2, &mut buf),
+            "High"
+        );
     }
 
     #[test]
     fn test_device_role_strings() {
-        assert_eq!(protocol::device_role_str(CRSF_ADDRESS_CRSF_TRANSMITTER), Some("TX"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_CRSF_RECEIVER), Some("RX"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER), Some("FC"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_VTX), Some("VTX"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_VIDEO_RECEIVER), Some("VRX"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_OSD), Some("OSD"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_GPS), Some("GPS"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_CURRENT_SENSOR), Some("PWR"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_BLACKBOX), Some("BOX"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_BLUETOOTH_WIFI), Some("WIFI"));
-        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_ESC1), Some("ESC1"));
+        assert_eq!(
+            protocol::device_role_str(CRSF_ADDRESS_CRSF_TRANSMITTER),
+            Some("TX")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_CRSF_RECEIVER),
+            Some("RX")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER),
+            Some("FC")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_VTX),
+            Some("VTX")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_VIDEO_RECEIVER),
+            Some("VRX")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_OSD),
+            Some("OSD")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_GPS),
+            Some("GPS")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_CURRENT_SENSOR),
+            Some("PWR")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_BLACKBOX),
+            Some("BOX")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_BLUETOOTH_WIFI),
+            Some("WIFI")
+        );
+        assert_eq!(
+            protocol::device_role_str(protocol::CRSF_ADDRESS_ESC1),
+            Some("ESC1")
+        );
         assert_eq!(protocol::device_role_str(0x55), None);
     }
 
@@ -2288,14 +2548,13 @@ mod tests {
         start_config();
 
         let tx_info: [u8; 27] = [
-            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00,
-            0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
-            0x15, 0x00, 0x0D,
+            0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00, 0x45, 0x4C,
+            0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x15, 0x00, 0x0D,
         ];
         let rx_info: [u8; 36] = [
-            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54,
-            0x44, 0x2D, 0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52,
-            0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
+            0xC8, 0x22, 0x29, 0xEA, 0xEC, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x34, 0x54, 0x44, 0x2D,
+            0x4D, 0x20, 0x32, 0x34, 0x30, 0x30, 0x00, 0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x04, 0x00, 0x80, 0x0B, 0x00, 0x76,
         ];
 
         // Discover both devices at t = 1000
@@ -2326,14 +2585,23 @@ mod tests {
         // At t = 5000 (> 3000ms since last seen at t = 1000), ping check prunes RX (0xEC)
         poll_telemetry(5000);
         let engine = get_config_engine();
-        assert_eq!(engine.devices_len, 1, "RX must be auto-pruned after >3000ms without response");
-        assert_eq!(engine.devices[0].address, 0xEE, "Remaining device must be TX module");
+        assert_eq!(
+            engine.devices_len, 1,
+            "RX must be auto-pruned after >3000ms without response"
+        );
+        assert_eq!(
+            engine.devices[0].address, 0xEE,
+            "Remaining device must be TX module"
+        );
 
         // Reconnect RX at t = 6000
         uart::mock::push_rx_bytes(&rx_info);
         poll_telemetry(6000);
         let engine = get_config_engine();
-        assert_eq!(engine.devices_len, 2, "RX re-added seamlessly upon reconnection");
+        assert_eq!(
+            engine.devices_len, 2,
+            "RX re-added seamlessly upon reconnection"
+        );
     }
 
     #[test]
@@ -2355,16 +2623,97 @@ mod tests {
         // Param 8: parent 2 (Power VTX)
         // Param 9: parent 0 (Model Match)
         // Param 10: parent 6 (WiFi SSID)
-        let chunk_p1 = [0x00, protocol::CRSF_TYPE_SELECT, b'R', b'a', b't', b'e', 0x00, 0x00];
+        let chunk_p1 = [
+            0x00,
+            protocol::CRSF_TYPE_SELECT,
+            b'R',
+            b'a',
+            b't',
+            b'e',
+            0x00,
+            0x00,
+        ];
         let chunk_p2 = [0x00, protocol::CRSF_TYPE_FOLDER, b'V', b'T', b'X', 0x00];
-        let chunk_p3 = [0x02, protocol::CRSF_TYPE_SELECT, b'B', b'a', b'n', b'd', 0x00, 0x00];
-        let chunk_p4 = [0x02, protocol::CRSF_TYPE_SELECT, b'C', b'h', b'a', b'n', 0x00, 0x00];
-        let chunk_p5 = [0x00, protocol::CRSF_TYPE_SELECT, b'P', b'w', b'r', 0x00, 0x00];
-        let chunk_p6 = [0x00, protocol::CRSF_TYPE_FOLDER, b'W', b'i', b'F', b'i', 0x00];
-        let chunk_p7 = [0x06, protocol::CRSF_TYPE_COMMAND, b'S', b't', b'a', b'r', b't', 0x00, 0x00];
-        let chunk_p8 = [0x02, protocol::CRSF_TYPE_SELECT, b'V', b'P', b'w', b'r', 0x00, 0x00];
-        let chunk_p9 = [0x00, protocol::CRSF_TYPE_SELECT, b'M', b'a', b't', b'c', b'h', 0x00, 0x00];
-        let chunk_p10 = [0x06, protocol::CRSF_TYPE_COMMAND, b'S', b'S', b'I', b'D', 0x00, 0x00];
+        let chunk_p3 = [
+            0x02,
+            protocol::CRSF_TYPE_SELECT,
+            b'B',
+            b'a',
+            b'n',
+            b'd',
+            0x00,
+            0x00,
+        ];
+        let chunk_p4 = [
+            0x02,
+            protocol::CRSF_TYPE_SELECT,
+            b'C',
+            b'h',
+            b'a',
+            b'n',
+            0x00,
+            0x00,
+        ];
+        let chunk_p5 = [
+            0x00,
+            protocol::CRSF_TYPE_SELECT,
+            b'P',
+            b'w',
+            b'r',
+            0x00,
+            0x00,
+        ];
+        let chunk_p6 = [
+            0x00,
+            protocol::CRSF_TYPE_FOLDER,
+            b'W',
+            b'i',
+            b'F',
+            b'i',
+            0x00,
+        ];
+        let chunk_p7 = [
+            0x06,
+            protocol::CRSF_TYPE_COMMAND,
+            b'S',
+            b't',
+            b'a',
+            b'r',
+            b't',
+            0x00,
+            0x00,
+        ];
+        let chunk_p8 = [
+            0x02,
+            protocol::CRSF_TYPE_SELECT,
+            b'V',
+            b'P',
+            b'w',
+            b'r',
+            0x00,
+            0x00,
+        ];
+        let chunk_p9 = [
+            0x00,
+            protocol::CRSF_TYPE_SELECT,
+            b'M',
+            b'a',
+            b't',
+            b'c',
+            b'h',
+            0x00,
+            0x00,
+        ];
+        let chunk_p10 = [
+            0x06,
+            protocol::CRSF_TYPE_COMMAND,
+            b'S',
+            b'S',
+            b'I',
+            b'D',
+            0x00,
+            0x00,
+        ];
 
         unsafe {
             parse_and_store_parameter(&chunk_p1, 1, 100);
@@ -2398,7 +2747,11 @@ mod tests {
         enter_folder(2, "VTX");
 
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(3), "Must directly request Param 3");
+        assert_eq!(
+            engine.state,
+            ElrsConfigState::LoadingParam(3),
+            "Must directly request Param 3"
+        );
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][5], 3, "First requested param for folder 2 must be 3");
@@ -2437,7 +2790,10 @@ mod tests {
         // Param 5, 6, 7 are skipped completely!
         let tx3 = uart::mock::take_tx();
         assert_eq!(tx3.len(), 1);
-        assert_eq!(tx3[0][5], 8, "Must jump directly to Param 8, skipping 5, 6, 7!");
+        assert_eq!(
+            tx3[0][5], 8,
+            "Must jump directly to Param 8, skipping 5, 6, 7!"
+        );
 
         // 4. Respond to Param 8 entry frame
         let mut f8 = f3;
@@ -2448,7 +2804,11 @@ mod tests {
 
         // No more params with parent == 2 -> transitions immediately to Ready!
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::Ready, "Must finish and transition to Ready without querying 9 or 10");
+        assert_eq!(
+            engine.state,
+            ElrsConfigState::Ready,
+            "Must finish and transition to Ready without querying 9 or 10"
+        );
         assert_eq!(uart::mock::take_tx().len(), 0, "No extra packets sent");
     }
 
@@ -2469,9 +2829,17 @@ mod tests {
         enter_folder(99, "Empty");
 
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::Ready, "Empty subfolder immediately reaches Ready");
+        assert_eq!(
+            engine.state,
+            ElrsConfigState::Ready,
+            "Empty subfolder immediately reaches Ready"
+        );
         assert!(!engine.folder_loading);
-        assert_eq!(uart::mock::take_tx().len(), 0, "No packets transmitted for empty subfolder");
+        assert_eq!(
+            uart::mock::take_tx().len(),
+            0,
+            "No packets transmitted for empty subfolder"
+        );
     }
 
     #[test]
@@ -2543,7 +2911,11 @@ mod tests {
 
         let engine = get_config_engine();
         assert!(engine.has_root_folder, "has_root_folder must be true");
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1), "Must advance to first child (Param 1)");
+        assert_eq!(
+            engine.state,
+            ElrsConfigState::LoadingParam(1),
+            "Must advance to first child (Param 1)"
+        );
         // Param 0 ("ROOT") must NOT be added to params display array
         assert_eq!(engine.params_len, 0);
 
@@ -2609,7 +2981,10 @@ mod tests {
         // Subfolder children 5, 6, 7 must NOT be queried during root loading!
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
-        assert_eq!(tx[0][5], 30, "Must skip subfolder children 5, 6, 7 and jump straight to Param 30");
+        assert_eq!(
+            tx[0][5], 30,
+            "Must skip subfolder children 5, 6, 7 and jump straight to Param 30"
+        );
 
         // 6. Respond with Param 30 (Subfolder "Port FD2", children: [31, 32, 0xFF])
         let mut p30 = [0u8; 20];
@@ -2633,7 +3008,10 @@ mod tests {
         // Next requested param MUST jump directly to Param 56!
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
-        assert_eq!(tx[0][5], 56, "Must skip 31, 32 and jump straight to Param 56");
+        assert_eq!(
+            tx[0][5], 56,
+            "Must skip 31, 32 and jump straight to Param 56"
+        );
 
         // 7. Respond with Param 56
         let mut p56 = p1;
@@ -2645,13 +3023,20 @@ mod tests {
         // Root scan complete -> reaches Ready state!
         let engine = get_config_engine();
         assert_eq!(engine.state, ElrsConfigState::Ready);
-        assert_eq!(engine.params_len, 5, "Only the 5 root parameters are loaded in memory");
+        assert_eq!(
+            engine.params_len, 5,
+            "Only the 5 root parameters are loaded in memory"
+        );
         assert_eq!(uart::mock::take_tx().len(), 0);
 
         // 8. Now enter subfolder 4 ("Port FD1")
         enter_folder(4, "FD1");
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(5), "Entering folder 4 starts loading Param 5");
+        assert_eq!(
+            engine.state,
+            ElrsConfigState::LoadingParam(5),
+            "Entering folder 4 starts loading Param 5"
+        );
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][5], 5, "Requests first child of folder 4");
@@ -2711,11 +3096,13 @@ mod tests {
         poll_telemetry(2500);
         let engine = get_config_engine();
         assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
-        assert!(!engine.has_root_folder, "has_root_folder must be false after Param 0 timeout");
+        assert!(
+            !engine.has_root_folder,
+            "has_root_folder must be false after Param 0 timeout"
+        );
 
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][5], 1, "Must fall back to requesting Param 1");
     }
 }
-

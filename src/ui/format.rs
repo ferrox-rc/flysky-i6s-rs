@@ -56,17 +56,14 @@ pub fn prev_ascii(c: u8) -> u8 {
     }
 }
 
-pub const SOURCE_NAMES: [&str; 27] = [
-    "None", "Roll", "Pitch", "Thr", "Yaw",
-    "VRA", "VRB", "SA", "SB", "SC", "SD", "MAX",
-    "CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7",
-    "CH8", "CH9", "CH10", "CH11", "CH12", "CH13", "CH14",
-    "Thr+",
+pub const SOURCE_NAMES: [&str; 31] = [
+    "None", "Roll", "Pitch", "Thr", "Yaw", "VRA", "VRB", "SA", "SB", "SC", "SD", "MAX", "CH1",
+    "CH2", "CH3", "CH4", "CH5", "CH6", "CH7", "CH8", "CH9", "CH10", "CH11", "CH12", "CH13", "CH14",
+    "CH15", "CH16", "CH17", "CH18", "Thr+",
 ];
 
 pub const SWITCH_COND_NAMES: [&str; 11] = [
-    "ON", "SA^", "SAv", "SB^", "SB-", "SBv",
-    "SC^", "SC-", "SCv", "SD^", "SDv",
+    "ON", "SA^", "SAv", "SB^", "SB-", "SBv", "SC^", "SC-", "SCv", "SD^", "SDv",
 ];
 
 pub const MODE_NAMES: [&str; 3] = ["ADD (+)", "MULT (*)", "REPL (:=)"];
@@ -119,10 +116,26 @@ pub fn u8_to_dec(val: u8, buf: &mut [u8; 5]) -> &str {
 
 pub fn u32_to_dec_5(val: u32, buf: &mut [u8; 5]) {
     let v = val.min(99999);
-    buf[0] = if v >= 10000 { b'0' + ((v / 10000) % 10) as u8 } else { b' ' };
-    buf[1] = if v >= 1000 { b'0' + ((v / 1000) % 10) as u8 } else { b' ' };
-    buf[2] = if v >= 100 { b'0' + ((v / 100) % 10) as u8 } else { b' ' };
-    buf[3] = if v >= 10 { b'0' + ((v / 10) % 10) as u8 } else { b' ' };
+    buf[0] = if v >= 10000 {
+        b'0' + ((v / 10000) % 10) as u8
+    } else {
+        b' '
+    };
+    buf[1] = if v >= 1000 {
+        b'0' + ((v / 1000) % 10) as u8
+    } else {
+        b' '
+    };
+    buf[2] = if v >= 100 {
+        b'0' + ((v / 100) % 10) as u8
+    } else {
+        b' '
+    };
+    buf[3] = if v >= 10 {
+        b'0' + ((v / 10) % 10) as u8
+    } else {
+        b' '
+    };
     buf[4] = b'0' + (v % 10) as u8;
 }
 
@@ -247,7 +260,13 @@ pub fn format_trim(axis: crate::trim::ActiveTrim, val: i8, buf: &mut [u8; 9]) ->
     buf[3] = b' ';
     buf[4] = name;
     buf[5] = b':';
-    buf[6] = if val < 0 { b'-' } else if val > 0 { b'+' } else { b' ' };
+    buf[6] = if val < 0 {
+        b'-'
+    } else if val > 0 {
+        b'+'
+    } else {
+        b' '
+    };
     let abs = val.unsigned_abs();
     buf[7] = b'0' + (abs / 10);
     buf[8] = b'0' + (abs % 10);

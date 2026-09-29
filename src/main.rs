@@ -14,8 +14,8 @@ use embedded_graphics::{
 };
 
 use flysky_i6x_rs::{
-    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, storage, time,
-    trim, ui, usb, watchdog,
+    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, storage, time, trim,
+    ui, usb, watchdog,
 };
 pub use ui::menu;
 
@@ -37,6 +37,10 @@ const SAFE_IDLE_CHANNELS: [u16; mixer::NUM_CHANNELS] = [
     mixer::CHANNEL_CENTER_US, // CH12 Extra 2
     mixer::CHANNEL_CENTER_US, // CH13 Extra 3
     mixer::CHANNEL_CENTER_US, // CH14 Extra 4
+    mixer::CHANNEL_CENTER_US, // CH15 Extra 5
+    mixer::CHANNEL_CENTER_US, // CH16 Extra 6
+    mixer::CHANNEL_CENTER_US, // CH17 Extra 7
+    mixer::CHANNEL_CENTER_US, // CH18 Extra 8
 ];
 
 /// High-rate flight pipeline state and outputs.
@@ -110,7 +114,8 @@ impl FlightPipeline {
         }
 
         // 4. Evaluate active model throttle curve (normalized 0..MIXER_MAX)
-        let thr_input = ((state.sticks.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
+        let thr_input =
+            ((state.sticks.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
         let thr_curved = curve::evaluate_curve(
             thr_input,
             active_model.thr_curve_pts,
@@ -447,7 +452,11 @@ impl BackgroundIdleManager {
         }
 
         // Check for manual reset via [CANCEL] held for >= 1.0s on flight dashboard
-        if !menu_active && cancel_key && !self.cancel_waiting_release && self.timer_reset_cooldown_ms == 0 {
+        if !menu_active
+            && cancel_key
+            && !self.cancel_waiting_release
+            && self.timer_reset_cooldown_ms == 0
+        {
             self.cancel_hold_ms = self.cancel_hold_ms.saturating_add(dt_ms);
             if self.cancel_hold_ms >= 1000 {
                 self.timer_remaining_secs = model.timer_secs;
@@ -825,7 +834,8 @@ fn main() -> ! {
                             }
                         }
                     }
-                    let sw_str = ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
+                    let sw_str =
+                        ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
                     Text::new(sw_str, Point::new(2, 44), text_style)
                         .draw(&mut lcd)
                         .ok();

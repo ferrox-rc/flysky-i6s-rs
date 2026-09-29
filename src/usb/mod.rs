@@ -11,8 +11,8 @@ pub mod serial;
 use crate::input::Switches;
 use crate::rf::afhds2a::TelemetryData;
 use serial::SerialHandler;
-use stm32f0xx_hal::pac::interrupt;
 use stm32_usbd::{MemoryAccess, UsbBus, UsbPeripheral};
+use stm32f0xx_hal::pac::interrupt;
 use usb_device::{
     bus::UsbBusAllocator,
     device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbDeviceState, UsbRev, UsbVidPid},
@@ -34,7 +34,10 @@ unsafe impl UsbPeripheral for FlyskyUsb {
         unsafe {
             // Enable USB peripheral clock in RCC_APB1ENR bit 23
             let rcc_apb1enr = 0x4002_101C as *mut u32;
-            core::ptr::write_volatile(rcc_apb1enr, core::ptr::read_volatile(rcc_apb1enr) | (1 << 23));
+            core::ptr::write_volatile(
+                rcc_apb1enr,
+                core::ptr::read_volatile(rcc_apb1enr) | (1 << 23),
+            );
         }
     }
 
@@ -98,7 +101,10 @@ pub fn init(mode: u8) {
 
         // 2. Ensure USB peripheral clock is enabled so BCDR and peripheral registers can be written
         let rcc_apb1enr = 0x4002_101C as *mut u32;
-        core::ptr::write_volatile(rcc_apb1enr, core::ptr::read_volatile(rcc_apb1enr) | (1 << 23));
+        core::ptr::write_volatile(
+            rcc_apb1enr,
+            core::ptr::read_volatile(rcc_apb1enr) | (1 << 23),
+        );
 
         // 3. Disable DPPU in BCDR and drive PA11 (D-) and PA12 (D+) LOW (SE0) to force physical disconnect on host PC
         let bcdr = 0x4000_5C58 as *mut u32;
@@ -117,9 +123,15 @@ pub fn init(mode: u8) {
 
         // 4. Hardware peripheral reset via RCC APB1RSTR (bit 23 = USBRST)
         let rcc_apb1rstr = 0x4002_1010 as *mut u32;
-        core::ptr::write_volatile(rcc_apb1rstr, core::ptr::read_volatile(rcc_apb1rstr) | (1 << 23));
+        core::ptr::write_volatile(
+            rcc_apb1rstr,
+            core::ptr::read_volatile(rcc_apb1rstr) | (1 << 23),
+        );
         cortex_m::asm::delay(48_000);
-        core::ptr::write_volatile(rcc_apb1rstr, core::ptr::read_volatile(rcc_apb1rstr) & !(1 << 23));
+        core::ptr::write_volatile(
+            rcc_apb1rstr,
+            core::ptr::read_volatile(rcc_apb1rstr) & !(1 << 23),
+        );
 
         // 5. Drop existing USB stack instances
         USB_DEV = None;
@@ -130,7 +142,10 @@ pub fn init(mode: u8) {
 
         if usb_mode == UsbMode::Off {
             // Disable USB peripheral clock
-            core::ptr::write_volatile(rcc_apb1enr, core::ptr::read_volatile(rcc_apb1enr) & !(1 << 23));
+            core::ptr::write_volatile(
+                rcc_apb1enr,
+                core::ptr::read_volatile(rcc_apb1enr) & !(1 << 23),
+            );
             // Set PA11 and PA12 as analog inputs to float pins and conserve battery
             let moder = core::ptr::read_volatile(gpioa_moder);
             core::ptr::write_volatile(gpioa_moder, moder | (0b11 << 22) | (0b11 << 24));
@@ -311,7 +326,7 @@ pub fn on_interrupt() {
 /// Dispatches HID reports at ~100 Hz (10 ms) and services serial CLI & telemetry.
 pub fn poll(
     now_ms: u32,
-    rf_chs: &[u16; 14],
+    rf_chs: &[u16; crate::mixer::NUM_CHANNELS],
     switches: &Switches,
     telem: &TelemetryData,
     battery_mv: u16,

@@ -152,7 +152,8 @@ pub fn us_to_crsf(us: u16) -> u16 {
     let clamped = us.clamp(CHANNEL_MIN_US, CHANNEL_MAX_US) as i32;
     // Standard CRSF 11-bit channel scaling:
     // Scale = (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN) / (CHANNEL_MAX_US - CHANNEL_MIN_US) = 1639 / 1024
-    let val = (((clamped - CHANNEL_MIN_US as i32) * CRSF_CHANNEL_SPAN as i32 + (CHANNEL_SPAN_US as i32 / 2))
+    let val = (((clamped - CHANNEL_MIN_US as i32) * CRSF_CHANNEL_SPAN as i32
+        + (CHANNEL_SPAN_US as i32 / 2))
         / CHANNEL_SPAN_US as i32)
         + CRSF_CHANNEL_MIN as i32;
     val.clamp(0, CRSF_CHANNEL_VALUE_MAX as i32) as u16
@@ -161,7 +162,7 @@ pub fn us_to_crsf(us: u16) -> u16 {
 /// Build a packed 16-channel CRSF RC packet (Type 0x16) into `out_frame`.
 /// Returns the number of bytes written (always 26 bytes).
 pub fn build_channels_frame(
-    channels: &[u16; 14],
+    channels: &[u16; crate::mixer::NUM_CHANNELS],
     out_frame: &mut [u8; CRSF_RC_FRAME_SIZE],
 ) -> usize {
     // Header
@@ -169,9 +170,9 @@ pub fn build_channels_frame(
     out_frame[1] = 24; // Length: Type (1) + Payload (22) + CRC (1) = 24
     out_frame[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED; // 0x16
 
-    // Convert 14 radio channels to 16 CRSF 11-bit values (fill channels 15 & 16 with neutral CRSF_CHANNEL_CENTER)
+    // Convert first 16 radio channels to 16 CRSF 11-bit values (channels 17 & 18 ignored by CRSF 16-ch packet)
     let mut ch11 = [CRSF_CHANNEL_CENTER; 16];
-    for i in 0..14 {
+    for i in 0..16 {
         ch11[i] = us_to_crsf(channels[i]);
     }
 
@@ -412,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_build_channels_frame_and_unpack() {
-        let channels: [u16; 14] = [
+        let channels: [u16; crate::mixer::NUM_CHANNELS] = [
             CHANNEL_CENTER_US, // CH1 1500 -> 992
             CHANNEL_MIN_US,    // CH2 988  -> 172
             CHANNEL_MAX_US,    // CH3 2012 -> 1811
@@ -427,6 +428,10 @@ mod tests {
             1500,              // CH12
             1500,              // CH13
             1500,              // CH14
+            1750,              // CH15
+            1250,              // CH16
+            1900,              // CH17 (ignored by CRSF 16ch)
+            1100,              // CH18 (ignored by CRSF 16ch)
         ];
 
         let mut frame = [0u8; CRSF_RC_FRAME_SIZE];
@@ -441,23 +446,28 @@ mod tests {
         // CRC check
         assert_eq!(frame[25], crc8(&frame[2..25]));
 
-        // Unpack 16 channels from 22 bytes (bits 0..176)
+        // Unpack channels from 22 bytes (bits 0..176)
         let p = &frame[3..25];
         let mut unpacked = [0u16; 16];
         unpacked[0] = ((p[0] as u16) | ((p[1] as u16) << 8)) & 0x07FF;
         unpacked[1] = (((p[1] as u16) >> 3) | ((p[2] as u16) << 5)) & 0x07FF;
-        unpacked[2] = (((p[2] as u16) >> 6) | ((p[3] as u16) << 2) | ((p[4] as u16) << 10)) & 0x07FF;
+        unpacked[2] =
+            (((p[2] as u16) >> 6) | ((p[3] as u16) << 2) | ((p[4] as u16) << 10)) & 0x07FF;
         unpacked[3] = (((p[4] as u16) >> 1) | ((p[5] as u16) << 7)) & 0x07FF;
         unpacked[4] = (((p[5] as u16) >> 4) | ((p[6] as u16) << 4)) & 0x07FF;
         unpacked[5] = (((p[6] as u16) >> 7) | ((p[7] as u16) << 1) | ((p[8] as u16) << 9)) & 0x07FF;
         unpacked[6] = (((p[8] as u16) >> 2) | ((p[9] as u16) << 6)) & 0x07FF;
         unpacked[7] = ((p[9] as u16) >> 5) | ((p[10] as u16) << 3) & 0x07FF;
+        unpacked[14] = (((p[19] as u16) >> 2) | ((p[20] as u16) << 6)) & 0x07FF;
+        unpacked[15] = (((p[20] as u16) >> 5) | ((p[21] as u16) << 3)) & 0x07FF;
 
         // Verify unpacked values match expected CRSF counts
         assert_eq!(unpacked[0], us_to_crsf(channels[0]));
         assert_eq!(unpacked[1], us_to_crsf(channels[1]));
         assert_eq!(unpacked[2], us_to_crsf(channels[2]));
         assert_eq!(unpacked[3], us_to_crsf(channels[3]));
+        assert_eq!(unpacked[14], us_to_crsf(channels[14]));
+        assert_eq!(unpacked[15], us_to_crsf(channels[15]));
     }
 
     #[test]
@@ -473,9 +483,9 @@ mod tests {
         frame[4] = 85; // RSSI2: 85 -> -85 dBm
         frame[5] = 99; // LQ: 99%
         frame[6] = 10; // SNR: +10 dB
-        frame[7] = 0;  // Antenna 0
-        frame[8] = 2;  // RF Mode 2
-        frame[9] = 3;  // Power code 3 -> 100 mW
+        frame[7] = 0; // Antenna 0
+        frame[8] = 2; // RF Mode 2
+        frame[9] = 3; // Power code 3 -> 100 mW
         frame[10] = 0;
         frame[11] = 0;
         frame[12] = 0;
@@ -503,14 +513,14 @@ mod tests {
         frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
         frame[1] = 10; // type(1) + 8 payload + crc(1)
         frame[2] = CRSF_FRAMETYPE_BATTERY_SENSOR;
-        frame[3] = 0;   // Voltage high byte (126 = 0x007E)
+        frame[3] = 0; // Voltage high byte (126 = 0x007E)
         frame[4] = 126; // Voltage low byte -> 126 * 100 = 12,600 mV
-        frame[5] = 0;   // Current high byte (35 = 0x0023)
-        frame[6] = 35;  // Current low byte -> 35 * 100 = 3,500 mA
+        frame[5] = 0; // Current high byte (35 = 0x0023)
+        frame[6] = 35; // Current low byte -> 35 * 100 = 3,500 mA
         frame[7] = 0x00; // Capacity byte 2 (1500 = 0x0005DC)
         frame[8] = 0x05; // Capacity byte 1
         frame[9] = 0xDC; // Capacity byte 0 -> 1500 mAh
-        frame[10] = 85;  // 85% remaining
+        frame[10] = 85; // 85% remaining
         frame[11] = crc8(&frame[2..11]);
 
         let success = parse_telemetry_frame(&frame, &mut telem, 1500);
@@ -559,7 +569,8 @@ mod tests {
         assert_eq!(read_buf[7], crc8(&read_buf[2..7]));
 
         let mut write_buf = [0u8; 8];
-        let write_len = build_param_write_frame(CRSF_ADDRESS_CRSF_TRANSMITTER, 3, 42, &mut write_buf);
+        let write_len =
+            build_param_write_frame(CRSF_ADDRESS_CRSF_TRANSMITTER, 3, 42, &mut write_buf);
         assert_eq!(write_len, 8);
         assert_eq!(write_buf[0], CRSF_SYNC_BYTE);
         assert_eq!(write_buf[2], CRSF_FRAMETYPE_PARAMETER_WRITE);
@@ -584,12 +595,24 @@ mod tests {
         let mut buf = [0u8; 8];
         // Target 1: ELRS Receiver (0xEC)
         build_param_read_frame(CRSF_ADDRESS_CRSF_RECEIVER, 1, 0, &mut buf);
-        assert_eq!(buf[0], CRSF_SYNC_BYTE, "Wire sync byte must always be 0xC8 per TBS CRSF spec");
-        assert_eq!(buf[3], CRSF_ADDRESS_CRSF_RECEIVER, "Payload destination must match target (0xEC)");
+        assert_eq!(
+            buf[0], CRSF_SYNC_BYTE,
+            "Wire sync byte must always be 0xC8 per TBS CRSF spec"
+        );
+        assert_eq!(
+            buf[3], CRSF_ADDRESS_CRSF_RECEIVER,
+            "Payload destination must match target (0xEC)"
+        );
 
         // Target 2: Flight Controller (0xC8)
         build_param_write_frame(CRSF_ADDRESS_FLIGHT_CONTROLLER, 2, 99, &mut buf);
-        assert_eq!(buf[0], CRSF_SYNC_BYTE, "Wire sync byte must always be 0xC8 per TBS CRSF spec");
-        assert_eq!(buf[3], CRSF_ADDRESS_FLIGHT_CONTROLLER, "Payload destination must match target (0xC8)");
+        assert_eq!(
+            buf[0], CRSF_SYNC_BYTE,
+            "Wire sync byte must always be 0xC8 per TBS CRSF spec"
+        );
+        assert_eq!(
+            buf[3], CRSF_ADDRESS_FLIGHT_CONTROLLER,
+            "Payload destination must match target (0xC8)"
+        );
     }
 }

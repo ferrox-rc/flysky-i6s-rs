@@ -133,11 +133,13 @@ impl MenuController {
         storage: &mut RadioStorage,
         trims: &mut TrimController,
         raw_adc: &[u16; adc::NUM_CHANNELS],
-        rf_chs: &[u16; 14],
+        rf_chs: &[u16; crate::mixer::NUM_CHANNELS],
         buzzer: &mut Buzzer,
     ) {
         // Key release tracking (bit 10: OK, bit 11: Cancel, bit 9: Up, bit 8: Down, bit 12: Bind)
-        if self.waiting_release && (keys & ((1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12))) == 0 {
+        if self.waiting_release
+            && (keys & ((1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12))) == 0
+        {
             self.waiting_release = false;
         }
 

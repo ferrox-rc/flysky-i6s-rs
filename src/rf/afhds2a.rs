@@ -11,7 +11,7 @@
 use super::{a7105, spi};
 use crate::mixer::{CHANNEL_CENTER_US, CHANNEL_MAX_US, CHANNEL_MIN_US};
 
-pub const NUM_CHANNELS: usize = 14;
+pub const NUM_CHANNELS: usize = 18;
 pub const NUM_FREQ: usize = 16;
 pub const TX_PACKET_SIZE: usize = 38;
 pub const RX_PACKET_SIZE: usize = 37;
@@ -47,8 +47,8 @@ enum SubState {
 #[derive(Copy, Clone, Debug)]
 pub struct TelemetryData {
     pub connected: bool,
-    pub rssi: u8,            // 0..100%
-    pub rx_voltage_mv: u16,  // in millivolts (e.g. 5000 for 5.00V)
+    pub rssi: u8,           // 0..100%
+    pub rx_voltage_mv: u16, // in millivolts (e.g. 5000 for 5.00V)
     pub packets_sent: u32,
     pub packets_received: u32,
 }
@@ -67,6 +67,10 @@ impl TelemetryData {
 
 /// Read persisted receiver ID from Flash if previously bound.
 pub fn load_saved_rx_id() -> Option<u32> {
+    #[cfg(test)]
+    return None;
+
+    #[cfg(not(test))]
     crate::storage::load_saved_rx_id()
 }
 
@@ -110,7 +114,7 @@ impl Afhds2a {
         }
     }
 
-    /// Update 14 RC channel pulse widths (988..2012 µs).
+    /// Update 18 RC channel pulse widths (988..2012 µs).
     pub fn set_channels(&mut self, chs: &[u16; NUM_CHANNELS]) {
         self.channels.copy_from_slice(chs);
     }
@@ -201,7 +205,9 @@ impl Afhds2a {
 
                 // Autonomous periodic failsafe broadcast: every 1,569 packets (~6.0s at 260 Hz),
                 // refresh receiver failsafe register memory even if downlink frames were dropped.
-                if self.next_packet_type == PacketType::Sticks && self.telemetry.packets_sent.is_multiple_of(1569) {
+                if self.next_packet_type == PacketType::Sticks
+                    && self.telemetry.packets_sent.is_multiple_of(1569)
+                {
                     self.next_packet_type = PacketType::Failsafe;
                 }
 
@@ -275,11 +281,28 @@ impl Afhds2a {
         out[1..5].copy_from_slice(&self.tx_id.to_le_bytes());
         out[5..9].copy_from_slice(&self.rx_id.to_le_bytes());
 
-        // Pack 14 channels (each 12 bits, little endian)
-        for ch in 0..NUM_CHANNELS {
+        // 1. Pack base 14 channels (lower 12 bits) into 14 slots (bytes 9..36)
+        for ch in 0..14 {
             let val = self.channels[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
             out[9 + ch * 2] = (val & 0xFF) as u8;
             out[10 + ch * 2] = ((val >> 8) & 0x0F) as u8;
+        }
+
+        // 2. Interleave channels 15..18 (indices 14..17) across the upper nibbles of slots 0..11
+        // Matches Betaflight / iNav / Cleanflight rx/ibus.c updateChannelData unpacking:
+        // for (i = IBUS_MAX_SLOTS, offset = ibusChannelOffset + 1; i < IBUS_MAX_CHANNEL; i++, offset += 6) {
+        //     ibusChannelData[i] = ((ibus[offset] & 0xF0) >> 4) | (ibus[offset + 2] & 0xF0) | ((ibus[offset + 4] & 0xF0) << 4);
+        // }
+        for ext_ch in 0..4 {
+            let val = self.channels[14 + ext_ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
+            let base_slot = ext_ch * 3;
+
+            // Bits 0..3 -> High nibble of slot (base_slot + 0)
+            out[10 + base_slot * 2] |= ((val & 0x000F) << 4) as u8;
+            // Bits 4..7 -> High nibble of slot (base_slot + 1)
+            out[10 + (base_slot + 1) * 2] |= (val & 0x00F0) as u8;
+            // Bits 8..11 -> High nibble of slot (base_slot + 2)
+            out[10 + (base_slot + 2) * 2] |= ((val >> 4) & 0x00F0) as u8;
         }
 
         out[37] = 0x00;
@@ -309,7 +332,8 @@ impl Afhds2a {
         out[1..5].copy_from_slice(&self.tx_id.to_le_bytes());
         out[5..9].copy_from_slice(&self.rx_id.to_le_bytes());
 
-        for ch in 0..NUM_CHANNELS {
+        // AFHDS 2A failsafe packets carry 14 channels (each 16 bits = 28 bytes filling bytes 9..36)
+        for ch in 0..14 {
             if ch == 2 {
                 // CH3 (Throttle): failsafe cutoff to FAILSAFE_THROTTLE_US (motor stop)
                 let fs_bytes = FAILSAFE_THROTTLE_US.to_le_bytes();
@@ -476,7 +500,13 @@ pub fn calculate_hopping_table(tx_id: u32) -> [u8; NUM_FREQ] {
         let next_ch = band_no * 41 + 1 + (((rnd >> idx) % 41) as u8);
 
         // Relax channel separation if excessive collisions occur on pathological UIDs
-        let min_sep = if attempts > 500 { 1 } else if attempts > 200 { 3 } else { 5 };
+        let min_sep = if attempts > 500 {
+            1
+        } else if attempts > 200 {
+            3
+        } else {
+            5
+        };
 
         let mut valid = true;
         for &h in hopping.iter().take(idx) {
@@ -495,3 +525,136 @@ pub fn calculate_hopping_table(tx_id: u32) -> [u8; NUM_FREQ] {
     hopping
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_stick_packet_18ch_roundtrip() {
+        let mut radio = Afhds2a::new(0x1234_5678);
+        radio.rx_id = 0x9ABC_DEF0;
+
+        let test_channels: [u16; 18] = [
+            1500, // CH1
+            988,  // CH2 (min)
+            2012, // CH3 (max)
+            1123, // CH4
+            1456, // CH5
+            1789, // CH6
+            1357, // CH7
+            1642, // CH8
+            1890, // CH9
+            1050, // CH10
+            1555, // CH11
+            1999, // CH12
+            1001, // CH13
+            1620, // CH14
+            1234, // CH15 (ext 0)
+            1987, // CH16 (ext 1)
+            1432, // CH17 (ext 2)
+            1876, // CH18 (ext 3)
+        ];
+        radio.set_channels(&test_channels);
+
+        let mut packet = [0u8; TX_PACKET_SIZE];
+        radio.build_stick_packet(&mut packet);
+
+        assert_eq!(packet[0], PACKET_STICKS);
+        assert_eq!(&packet[1..5], &0x1234_5678u32.to_le_bytes());
+        assert_eq!(&packet[5..9], &0x9ABC_DEF0u32.to_le_bytes());
+
+        // Decode using exact Betaflight updateChannelData logic from rx/ibus.c:
+        // In iBus frame:
+        // offset 0: 0x20, offset 1: 0x40.
+        // channel slots begin at offset 2 (which corresponds to packet[9..37]).
+        let slot_bytes = &packet[9..37]; // 28 bytes
+        let mut decoded = [0u16; 18];
+
+        // 1. Standard channels 0..13 (slots 0..13)
+        for i in 0..14 {
+            let offset = i * 2;
+            decoded[i] =
+                (slot_bytes[offset] as u16) | (((slot_bytes[offset + 1] & 0x0F) as u16) << 8);
+        }
+
+        // 2. Extended channels 14..17 (CH15..CH18)
+        for i in 0..4 {
+            let offset = (i * 3) * 2 + 1;
+            let val = ((slot_bytes[offset] & 0xF0) >> 4) as u16
+                | ((slot_bytes[offset + 2] & 0xF0) as u16)
+                | (((slot_bytes[offset + 4] & 0xF0) as u16) << 4);
+            decoded[14 + i] = val;
+        }
+
+        for ch in 0..18 {
+            assert_eq!(
+                decoded[ch],
+                test_channels[ch],
+                "Channel {} mismatch: decoded {}, expected {}",
+                ch + 1,
+                decoded[ch],
+                test_channels[ch]
+            );
+        }
+    }
+
+    #[test]
+    fn test_backward_compatible_14ch_unpack() {
+        let mut radio = Afhds2a::new(0x1122_3344);
+        radio.rx_id = 0x5566_7788;
+
+        let test_channels: [u16; 18] = [
+            1500, 1000, 2000, 1200, 1400, 1600, 1800, 1100, 1300, 1500, 1700, 1900, 1050, 1950,
+            2012, 988, 1750, 1250, // Channels 15..18 with diverse bit patterns
+        ];
+        radio.set_channels(&test_channels);
+
+        let mut packet = [0u8; TX_PACKET_SIZE];
+        radio.build_stick_packet(&mut packet);
+
+        // A legacy 14-channel decoder reads 16-bit little-endian and masks 12 bits (& 0x0FFF)
+        let slot_bytes = &packet[9..37];
+        for ch in 0..14 {
+            let offset = ch * 2;
+            let raw_16 = (slot_bytes[offset] as u16) | ((slot_bytes[offset + 1] as u16) << 8);
+            let legacy_12 = raw_16 & 0x0FFF;
+            assert_eq!(
+                legacy_12,
+                test_channels[ch],
+                "Legacy 14-ch decoder on CH{} failed: got {}, expected {}",
+                ch + 1,
+                legacy_12,
+                test_channels[ch]
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_failsafe_packet() {
+        let radio = Afhds2a::new(0xAABB_CCDD);
+        let mut packet = [0u8; TX_PACKET_SIZE];
+        radio.build_failsafe_packet(&mut packet);
+
+        assert_eq!(packet[0], PACKET_FAILSAFE); // 0x56
+        assert_eq!(&packet[1..5], &0xAABB_CCDDu32.to_le_bytes());
+
+        // CH3 (throttle) failsafe cutoff: FAILSAFE_THROTTLE_US = 988
+        let ch3_fs = (packet[9 + 2 * 2] as u16) | ((packet[10 + 2 * 2] as u16) << 8);
+        assert_eq!(ch3_fs, FAILSAFE_THROTTLE_US);
+
+        // Other channels 0, 1, 3..13: hold last (0xFFFF)
+        for ch in 0..14 {
+            if ch != 2 {
+                let val = (packet[9 + ch * 2] as u16) | ((packet[10 + ch * 2] as u16) << 8);
+                assert_eq!(
+                    val,
+                    0xFFFF,
+                    "Channel {} should be hold-last (0xFFFF)",
+                    ch + 1
+                );
+            }
+        }
+
+        assert_eq!(packet[37], 0x00);
+    }
+}

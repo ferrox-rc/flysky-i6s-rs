@@ -7,8 +7,8 @@ pub mod a7105;
 pub mod afhds2a;
 pub mod spi;
 
-use afhds2a::{Afhds2a, TelemetryData, NUM_CHANNELS};
 use crate::mixer::CHANNEL_CENTER_US;
+use afhds2a::{Afhds2a, TelemetryData, NUM_CHANNELS};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use stm32f0xx_hal::pac::interrupt;
@@ -104,7 +104,8 @@ impl<T: Copy> TripleBuffer<T> {
     }
 }
 
-static CHANNEL_BUFFER: TripleBuffer<[u16; NUM_CHANNELS]> = TripleBuffer::new([CHANNEL_CENTER_US; NUM_CHANNELS]);
+static CHANNEL_BUFFER: TripleBuffer<[u16; NUM_CHANNELS]> =
+    TripleBuffer::new([CHANNEL_CENTER_US; NUM_CHANNELS]);
 static TELEMETRY_BUFFER: TripleBuffer<TelemetryData> = TripleBuffer::new(TelemetryData::new());
 static RF_SILENCED: AtomicBool = AtomicBool::new(false);
 
@@ -156,7 +157,7 @@ pub fn is_silenced() -> bool {
     RF_SILENCED.load(Ordering::Relaxed)
 }
 
-/// Update channel outputs (CH1..CH14) in microseconds (988..2012 µs).
+/// Update channel outputs (CH1..CH18) in microseconds (988..2012 µs).
 /// Completely lock-free triple-buffered write: zero critical sections, zero interrupt latency.
 #[inline(always)]
 pub fn set_channels(channels: &[u16; NUM_CHANNELS]) {
@@ -208,7 +209,8 @@ pub fn take_pending_rx_save() -> Option<u32> {
         } else {
             None
         }
-    }).flatten()
+    })
+    .flatten()
 }
 
 /// Get currently active receiver ID.

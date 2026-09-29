@@ -81,7 +81,7 @@ impl DashboardController {
         state: &InputState,
         storage: &RadioStorage,
         trims: &TrimController,
-        rf_chs: &[u16; 14],
+        rf_chs: &[u16; crate::mixer::NUM_CHANNELS],
         rf_ok: bool,
         is_binding: bool,
         telem: &TelemetryData,
