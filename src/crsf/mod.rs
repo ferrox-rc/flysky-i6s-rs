@@ -426,7 +426,7 @@ unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
     let param_count = if param_count_offset < payload.len() {
         payload[param_count_offset]
     } else {
-        10
+        MAX_PARAMS as u8
     };
 
     // If in Discovering state, collect responding devices into device list
