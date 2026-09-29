@@ -167,23 +167,9 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             }
 
             widgets::draw_header(lcd, "CRSF CONFIG");
-            Text::new("Loading parameters...", Point::new(4, 26), text_style)
+            Text::new("Loading...", Point::new(12, 28), text_style)
                 .draw(lcd)
                 .ok();
-
-            if let ElrsConfigState::LoadingParam(id) = engine.state {
-                let mut pbuf = [b' '; 18];
-                pbuf[..6].copy_from_slice(b"Param ");
-                pbuf[6] = b'0' + ((id / 10) % 10);
-                pbuf[7] = b'0' + (id % 10);
-                pbuf[8..12].copy_from_slice(b" of ");
-                pbuf[12] = b'0' + ((engine.param_count / 10) % 10);
-                pbuf[13] = b'0' + (engine.param_count % 10);
-                let p_str = crate::ui::format::ascii_as_str(&pbuf[..14]);
-                Text::new(p_str, Point::new(4, 38), text_style_small)
-                    .draw(lcd)
-                    .ok();
-            }
 
             widgets::draw_footer(lcd, "Please wait...  [ESC] Abort");
         }
