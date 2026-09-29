@@ -71,6 +71,7 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
 }
 
 pub const MAX_PARAMS: usize = 32;
+pub const MAX_PARAM_MAP: usize = 64;
 pub const MAX_ACTIVE_FOLDER_PARAMS: usize = 32;
 pub const MAX_FOLDER_ITEMS: usize = 32;
 pub const STRING_POOL_SIZE: usize = 1024;
@@ -284,6 +285,9 @@ pub struct ElrsConfigEngine {
     pub folder_loading: bool,
     pub folder_name: [u8; 16],
     pub folder_name_len: u8,
+    /// Fast folder hierarchy cache mapping param_id (1..63) -> parent_folder_id.
+    /// Initialized to 0xFF (unmapped). Populated during initial sequential scan.
+    pub parent_map: [u8; MAX_PARAM_MAP],
 }
 
 impl ElrsConfigEngine {
@@ -313,8 +317,34 @@ impl ElrsConfigEngine {
             folder_loading: false,
             folder_name: [0; 16],
             folder_name_len: 0,
+            parent_map: [0xFF; MAX_PARAM_MAP],
         }
     }
+}
+
+/// Helper: Find the next parameter ID in `(current_id + 1)..=param_count` that belongs to `target_folder`.
+/// Returns `Some(id)` if a matching parameter is found (or unmapped 0xFF to safely discover), or `None` if done.
+#[inline]
+pub fn next_param_for_folder(
+    current_id: u8,
+    target_folder: u8,
+    param_count: u8,
+    parent_map: &[u8; MAX_PARAM_MAP],
+) -> Option<u8> {
+    let mut id = current_id + 1;
+    while id <= param_count {
+        let parent = if (id as usize) < MAX_PARAM_MAP {
+            parent_map[id as usize]
+        } else {
+            0xFF
+        };
+        // If mapped to target folder or not yet discovered (0xFF), query this param
+        if parent == target_folder || parent == 0xFF {
+            return Some(id);
+        }
+        id += 1;
+    }
+    None
 }
 
 static mut CONFIG_ENGINE: ElrsConfigEngine = ElrsConfigEngine::new();
@@ -475,6 +505,10 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
     let parent = chunk[0];
     let raw_type = chunk[1];
     let p_type = raw_type & 0x7F;
+
+    if (param_id as usize) < MAX_PARAM_MAP {
+        CONFIG_ENGINE.parent_map[param_id as usize] = parent;
+    }
 
     let mut name_buf = [0u8; 16];
     let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
@@ -655,8 +689,12 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     // Only advance loading sequence if engine was actively in initial loading phase
     if let ElrsConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
         if param_id == loading_id {
-            if param_id < CONFIG_ENGINE.param_count {
-                let next_id = param_id + 1;
+            if let Some(next_id) = next_param_for_folder(
+                param_id,
+                CONFIG_ENGINE.current_folder,
+                CONFIG_ENGINE.param_count,
+                &CONFIG_ENGINE.parent_map,
+            ) {
                 CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
                 CONFIG_ENGINE.current_chunk = 0;
                 CONFIG_ENGINE.expect_chunks_remain = 0;
@@ -726,8 +764,12 @@ unsafe fn elrs_tick(now_ms: u32) {
                     CONFIG_ENGINE.expect_chunks_remain = 0;
                     CHUNK_LEN = 0;
                     CHUNK_PARAM_ID = 0;
-                    if id < CONFIG_ENGINE.param_count {
-                        let next_id = id + 1;
+                    if let Some(next_id) = next_param_for_folder(
+                        id,
+                        CONFIG_ENGINE.current_folder,
+                        CONFIG_ENGINE.param_count,
+                        &CONFIG_ENGINE.parent_map,
+                    ) {
                         CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
                         CONFIG_ENGINE.last_req_ms = now_ms;
                         CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
@@ -821,6 +863,7 @@ pub fn select_device(idx: usize) -> bool {
         CONFIG_ENGINE.folder_loading = false;
         CONFIG_ENGINE.folder_name = [0; 16];
         CONFIG_ENGINE.folder_name_len = 0;
+        CONFIG_ENGINE.parent_map = [0xFF; MAX_PARAM_MAP];
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.last_req_ms = now;
@@ -868,6 +911,7 @@ pub fn return_to_device_list() {
         CONFIG_ENGINE.folder_loading = false;
         CONFIG_ENGINE.folder_name = [0; 16];
         CONFIG_ENGINE.folder_name_len = 0;
+        CONFIG_ENGINE.parent_map = [0xFF; MAX_PARAM_MAP];
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
@@ -898,8 +942,13 @@ pub fn enter_folder(folder_id: u8, name: &str) {
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
 
-        if CONFIG_ENGINE.param_count > 0 {
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+        if let Some(first_id) = next_param_for_folder(
+            0,
+            folder_id,
+            CONFIG_ENGINE.param_count,
+            &CONFIG_ENGINE.parent_map,
+        ) {
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(first_id);
             CONFIG_ENGINE.folder_loading = true;
             let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
                 1000
@@ -909,7 +958,7 @@ pub fn enter_folder(folder_id: u8, name: &str) {
             let now = crate::time::millis();
             CONFIG_ENGINE.last_req_ms = now;
             CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
-            send_param_read(CONFIG_ENGINE.device_id, 1, 0);
+            send_param_read(CONFIG_ENGINE.device_id, first_id, 0);
         } else {
             CONFIG_ENGINE.state = ElrsConfigState::Ready;
             CONFIG_ENGINE.folder_loading = false;
@@ -935,8 +984,13 @@ pub fn exit_current_folder() -> bool {
             CHUNK_LEN = 0;
             CHUNK_PARAM_ID = 0;
 
-            if CONFIG_ENGINE.param_count > 0 {
-                CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            if let Some(first_id) = next_param_for_folder(
+                0,
+                parent_id,
+                CONFIG_ENGINE.param_count,
+                &CONFIG_ENGINE.parent_map,
+            ) {
+                CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(first_id);
                 CONFIG_ENGINE.folder_loading = true;
                 let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
                     1000
@@ -946,7 +1000,7 @@ pub fn exit_current_folder() -> bool {
                 let now = crate::time::millis();
                 CONFIG_ENGINE.last_req_ms = now;
                 CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
-                send_param_read(CONFIG_ENGINE.device_id, 1, 0);
+                send_param_read(CONFIG_ENGINE.device_id, first_id, 0);
             } else {
                 CONFIG_ENGINE.state = ElrsConfigState::Ready;
                 CONFIG_ENGINE.folder_loading = false;
@@ -993,6 +1047,8 @@ pub fn get_parent_folder(folder_id: u8) -> u8 {
     unsafe {
         if CONFIG_ENGINE.folder_stack_len > 0 {
             CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len - 1]
+        } else if (folder_id as usize) < MAX_PARAM_MAP && CONFIG_ENGINE.parent_map[folder_id as usize] != 0xFF {
+            CONFIG_ENGINE.parent_map[folder_id as usize]
         } else {
             for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
                 if p.id == folder_id {
@@ -1137,6 +1193,9 @@ mod tests {
         }
 
         let idx = CONFIG_ENGINE.params_len;
+        if (id as usize) < MAX_PARAM_MAP {
+            CONFIG_ENGINE.parent_map[id as usize] = parent;
+        }
         CONFIG_ENGINE.params[idx] = Parameter {
             id,
             parent,
@@ -2181,6 +2240,144 @@ mod tests {
         poll_telemetry(6000);
         let engine = get_config_engine();
         assert_eq!(engine.devices_len, 2, "RX re-added seamlessly upon reconnection");
+    }
+
+    #[test]
+    fn test_parent_map_selective_folder_queries() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.param_count = 10;
+        }
+
+        // Simulate initial scan where 10 parameters are discovered:
+        // Param 1: parent 0 (Packet Rate)
+        // Param 2: parent 0 (VTX Admin folder)
+        // Param 3: parent 2 (Band)
+        // Param 4: parent 2 (Channel)
+        // Param 5: parent 0 (Power)
+        // Param 6: parent 0 (WiFi folder)
+        // Param 7: parent 6 (WiFi On)
+        // Param 8: parent 2 (Power VTX)
+        // Param 9: parent 0 (Model Match)
+        // Param 10: parent 6 (WiFi SSID)
+        let chunk_p1 = [0x00, protocol::CRSF_TYPE_SELECT, b'R', b'a', b't', b'e', 0x00, 0x00];
+        let chunk_p2 = [0x00, protocol::CRSF_TYPE_FOLDER, b'V', b'T', b'X', 0x00];
+        let chunk_p3 = [0x02, protocol::CRSF_TYPE_SELECT, b'B', b'a', b'n', b'd', 0x00, 0x00];
+        let chunk_p4 = [0x02, protocol::CRSF_TYPE_SELECT, b'C', b'h', b'a', b'n', 0x00, 0x00];
+        let chunk_p5 = [0x00, protocol::CRSF_TYPE_SELECT, b'P', b'w', b'r', 0x00, 0x00];
+        let chunk_p6 = [0x00, protocol::CRSF_TYPE_FOLDER, b'W', b'i', b'F', b'i', 0x00];
+        let chunk_p7 = [0x06, protocol::CRSF_TYPE_COMMAND, b'S', b't', b'a', b'r', b't', 0x00, 0x00];
+        let chunk_p8 = [0x02, protocol::CRSF_TYPE_SELECT, b'V', b'P', b'w', b'r', 0x00, 0x00];
+        let chunk_p9 = [0x00, protocol::CRSF_TYPE_SELECT, b'M', b'a', b't', b'c', b'h', 0x00, 0x00];
+        let chunk_p10 = [0x06, protocol::CRSF_TYPE_COMMAND, b'S', b'S', b'I', b'D', 0x00, 0x00];
+
+        unsafe {
+            parse_and_store_parameter(&chunk_p1, 1, 100);
+            parse_and_store_parameter(&chunk_p2, 2, 100);
+            parse_and_store_parameter(&chunk_p3, 3, 100);
+            parse_and_store_parameter(&chunk_p4, 4, 100);
+            parse_and_store_parameter(&chunk_p5, 5, 100);
+            parse_and_store_parameter(&chunk_p6, 6, 100);
+            parse_and_store_parameter(&chunk_p7, 7, 100);
+            parse_and_store_parameter(&chunk_p8, 8, 100);
+            parse_and_store_parameter(&chunk_p9, 9, 100);
+            parse_and_store_parameter(&chunk_p10, 10, 100);
+        }
+
+        // Verify parent map is recorded
+        let engine = get_config_engine();
+        assert_eq!(engine.parent_map[1], 0);
+        assert_eq!(engine.parent_map[2], 0);
+        assert_eq!(engine.parent_map[3], 2);
+        assert_eq!(engine.parent_map[4], 2);
+        assert_eq!(engine.parent_map[5], 0);
+        assert_eq!(engine.parent_map[6], 0);
+        assert_eq!(engine.parent_map[7], 6);
+        assert_eq!(engine.parent_map[8], 2);
+        assert_eq!(engine.parent_map[9], 0);
+        assert_eq!(engine.parent_map[10], 6);
+
+        // 1. Enter VTX folder (id = 2)
+        // Selective query must skip Param 1 and 2, and start directly with Param 3!
+        uart::mock::clear();
+        enter_folder(2, "VTX");
+
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::LoadingParam(3), "Must directly request Param 3");
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][5], 3, "First requested param for folder 2 must be 3");
+
+        // 2. Respond to Param 3 entry frame
+        let mut f3 = [0u8; 16];
+        f3[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        f3[1] = 14;
+        f3[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        f3[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        f3[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        f3[5] = 3; // param_id
+        f3[6] = 0; // chunks_remain
+        f3[7] = 2; // parent
+        f3[8] = CRSF_TYPE_SELECT;
+        f3[9..14].copy_from_slice(b"Band\0");
+        f3[14] = 0; // val
+        f3[15] = crc8(&f3[2..15]);
+
+        uart::mock::push_rx_bytes(&f3);
+        poll_telemetry(200);
+
+        // Param 3 response arrived -> next matching param is Param 4!
+        let tx2 = uart::mock::take_tx();
+        assert_eq!(tx2.len(), 1);
+        assert_eq!(tx2[0][5], 4, "Next requested param must be 4");
+
+        // 3. Respond to Param 4 entry frame
+        let mut f4 = f3;
+        f4[5] = 4;
+        f4[15] = crc8(&f4[2..15]);
+        uart::mock::push_rx_bytes(&f4);
+        poll_telemetry(300);
+
+        // Param 4 response arrived -> next matching param for folder 2 is Param 8!
+        // Param 5, 6, 7 are skipped completely!
+        let tx3 = uart::mock::take_tx();
+        assert_eq!(tx3.len(), 1);
+        assert_eq!(tx3[0][5], 8, "Must jump directly to Param 8, skipping 5, 6, 7!");
+
+        // 4. Respond to Param 8 entry frame
+        let mut f8 = f3;
+        f8[5] = 8;
+        f8[15] = crc8(&f8[2..15]);
+        uart::mock::push_rx_bytes(&f8);
+        poll_telemetry(400);
+
+        // No more params with parent == 2 -> transitions immediately to Ready!
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Ready, "Must finish and transition to Ready without querying 9 or 10");
+        assert_eq!(uart::mock::take_tx().len(), 0, "No extra packets sent");
+    }
+
+    #[test]
+    fn test_empty_subfolder_immediate_ready() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.param_count = 5;
+            // Mark all params as parent 0
+            for i in 1..=5 {
+                CONFIG_ENGINE.parent_map[i] = 0;
+            }
+        }
+
+        // Enter subfolder 99 which has 0 params in parent_map
+        uart::mock::clear();
+        enter_folder(99, "Empty");
+
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Ready, "Empty subfolder immediately reaches Ready");
+        assert!(!engine.folder_loading);
+        assert_eq!(uart::mock::take_tx().len(), 0, "No packets transmitted for empty subfolder");
     }
 }
 
