@@ -248,6 +248,12 @@ impl RadioStorage {
         if self.radio.ext_module_pwr > 1 {
             self.radio.ext_module_pwr = 0;
         }
+        if self.radio.throttle_trim > 2 {
+            self.radio.throttle_trim = 0;
+        }
+        if self.radio.tone_style > 1 {
+            self.radio.tone_style = 1;
+        }
 
         for stick in self.radio.sticks.iter_mut() {
             if stick.min >= stick.center || stick.center >= stick.max || stick.max > crate::adc::ADC_MAX {
@@ -307,13 +313,22 @@ impl RadioStorage {
                 }
             }
             for mix in m.mixes.iter_mut() {
-                if mix.target_ch > 14 || mix.source > 25 || mix.mode > 2 || mix.switch > 10 {
+                if mix.target_ch > 14 || mix.source > 26 || mix.mode > 2 || mix.switch > 10 {
                     *mix = MixLine::disabled();
                 }
             }
             if m.thr_curve_pts != 5 && m.thr_curve_pts != 9 {
                 m.thr_curve_pts = 5;
                 m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0];
+            }
+            if m.arm_switch > 10 {
+                m.arm_switch = 0;
+            }
+            if m.timer_source > 13 {
+                m.timer_source = 0;
+            }
+            if m.timer_secs > 3600 {
+                m.timer_secs = 0;
             }
             if m.name[0] == 0 || m.name[0] == 0xFF {
                 let num = (idx + 1) as u8;
@@ -789,4 +804,66 @@ pub fn load_saved_rx_id() -> Option<u32> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_storage_sanitize_uninitialized_and_corrupt_data() {
+        let mut storage = RadioStorage::empty();
+        // Simulate dirty/uninitialized 0xFF flash pattern
+        storage.radio.active_model = 255;
+        storage.radio.throttle_trim = 255;
+        storage.radio.tone_style = 255;
+        storage.radio.vbat_warn_deci = 255;
+        storage.radio.lcd_contrast = 255;
+        storage.radio.usb_mode = 255;
+        storage.radio.ext_module_pwr = 255;
+
+        for m in storage.models.iter_mut() {
+            m.arm_switch = 255;
+            m.timer_source = 255;
+            m.timer_secs = 65535;
+            m.rf_protocol = 255;
+            m.crsf_baud = 255;
+            m.dr_switch = 255;
+            m.wing_tail_mix = 255;
+            m.failsafe_thr = 65535;
+            m.name[0] = 0xFF;
+            m.mixes[0].target_ch = 20;
+            m.mixes[0].source = 50;
+        }
+
+        storage.sanitize();
+
+        assert_eq!(storage.radio.active_model, 0);
+        assert_eq!(storage.radio.throttle_trim, 0);
+        assert_eq!(storage.radio.tone_style, 1);
+        assert_eq!(storage.radio.vbat_warn_deci, 44);
+        assert_eq!(storage.radio.lcd_contrast, 37);
+        assert_eq!(storage.radio.usb_mode, 0);
+        assert_eq!(storage.radio.ext_module_pwr, 0);
+
+        for (idx, m) in storage.models.iter().enumerate() {
+            assert!(m.arm_switch <= 10, "arm_switch must be sanitized <= 10");
+            assert_eq!(m.arm_switch, 0);
+            assert!(m.timer_source <= 13, "timer_source must be sanitized <= 13");
+            assert_eq!(m.timer_source, 0);
+            assert_eq!(m.timer_secs, 0);
+            assert_eq!(m.rf_protocol, 0);
+            assert_eq!(m.crsf_baud, 0);
+            assert_eq!(m.dr_switch, 0);
+            assert_eq!(m.wing_tail_mix, 0);
+            assert_eq!(m.failsafe_thr, 1000);
+            assert_eq!(m.mixes[0].target_ch, 0);
+            assert_eq!(m.name[0], b'M');
+            assert_eq!(m.name[5], b' ');
+            let expected_digit1 = b'0' + ((idx + 1) / 10) as u8;
+            let expected_digit2 = b'0' + ((idx + 1) % 10) as u8;
+            assert_eq!(m.name[6], expected_digit1);
+            assert_eq!(m.name[7], expected_digit2);
+        }
+    }
 }

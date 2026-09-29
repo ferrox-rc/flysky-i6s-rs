@@ -504,7 +504,7 @@ impl BackgroundIdleManager {
                         buzzer.timer_elapsed_alarm();
                     } else if self.timer_remaining_secs <= 10 {
                         buzzer.timer_countdown_beep();
-                    } else if self.timer_remaining_secs % 60 == 0 {
+                    } else if self.timer_remaining_secs.is_multiple_of(60) {
                         buzzer.timer_minute_beep();
                     }
                 } else {
@@ -626,7 +626,7 @@ fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
             .ok();
 
         // Progress fill: up to 70px wide
-        let fill_w = ((progress_pct as u32 * 70) / 100).min(70) as u32;
+        let fill_w = ((progress_pct as u32 * 70) / 100).min(70);
         if fill_w > 0 {
             Rectangle::new(Point::new(29, 35), Size::new(fill_w, 2))
                 .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
@@ -699,6 +699,7 @@ fn main() -> ! {
     // 9. Load persistent radio storage and 20-model configuration
     let mut storage = storage::RadioStorage::empty();
     storage::load_storage_into(&mut storage);
+    input::apply_calibration(&storage.radio);
     buzzer.enabled = storage.radio.audio_enabled != 0;
     buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
     if was_watchdog_reset {

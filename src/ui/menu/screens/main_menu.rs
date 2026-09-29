@@ -57,6 +57,7 @@ pub fn update(
             1 => {
                 ctrl.state = MenuState::ModelSetup;
                 ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
                 ctrl.sub_idx = 0;
             }
             2 => {
@@ -68,6 +69,7 @@ pub fn update(
             3 => {
                 ctrl.state = MenuState::ThrottleCurve;
                 ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
             }
             4 => {
                 ctrl.state = MenuState::WingMixer;
@@ -105,9 +107,13 @@ pub fn update(
             }
             11 => {
                 ctrl.state = MenuState::DiagAnas;
+                ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
             }
             12 => {
                 ctrl.state = MenuState::SystemInfo;
+                ctrl.selected_item = 0;
+                ctrl.scroll_offset = 0;
             }
             _ => {}
         }
