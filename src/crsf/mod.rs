@@ -130,7 +130,12 @@ pub enum ActiveCommandState {
     Running {
         param_id: u8,
         poll_timer_ms: u32,
+        poll_interval_ms: u32,
         timeout_ms: u32,
+    },
+    Completed {
+        param_id: u8,
+        done_timer_ms: u32,
     },
 }
 
@@ -231,6 +236,20 @@ impl Parameter {
     pub fn current_option_str<'a>(&'a self, pool: &'a [u8], buf: &'a mut [u8; 24]) -> &'a str {
         self.option_str_for_val(pool, self.value, buf)
     }
+
+    /// Extract info / string text from string pool.
+    pub fn info_str<'a>(&'a self, pool: &'a [u8]) -> &'a str {
+        if self.options_len == 0 {
+            return "";
+        }
+        let start = self.options_offset as usize;
+        let end = (start + self.options_len as usize).min(pool.len());
+        if start < end {
+            core::str::from_utf8(&pool[start..end]).unwrap_or("")
+        } else {
+            ""
+        }
+    }
 }
 
 pub const MAX_DISCOVERED_DEVICES: usize = 4;
@@ -295,6 +314,9 @@ pub struct ElrsConfigEngine {
     pub parent_map: [u8; MAX_PARAM_MAP],
     /// Indicates whether the active device responded to Parameter 0 (Root Folder).
     pub has_root_folder: bool,
+    /// Live feedback or confirmation string sent by device for active command.
+    pub cmd_info: [u8; 24],
+    pub cmd_info_len: u8,
 }
 
 impl ElrsConfigEngine {
@@ -326,7 +348,17 @@ impl ElrsConfigEngine {
             folder_name_len: 0,
             parent_map: [0xFF; MAX_PARAM_MAP],
             has_root_folder: false,
+            cmd_info: [0; 24],
+            cmd_info_len: 0,
         }
+    }
+
+    pub fn cmd_info_str(&self) -> &str {
+        if self.cmd_info_len == 0 {
+            return "";
+        }
+        let len = (self.cmd_info_len as usize).min(self.cmd_info.len());
+        core::str::from_utf8(&self.cmd_info[..len]).unwrap_or("")
     }
 }
 
@@ -524,6 +556,7 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
     let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
 
     let mut opt_slice_len = 0usize;
+    let mut opt_slice_start = rest_start;
     let mut val = 0u8;
     let mut max_val = 0u8;
     let mut status = 0u8;
@@ -539,6 +572,7 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                 opt_end += 1;
             }
             opt_slice_len = opt_end.saturating_sub(rest_start);
+            opt_slice_start = rest_start;
             max_val = opt_count.saturating_sub(1);
 
             let val_pos = opt_end + 1;
@@ -548,6 +582,28 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
         } else if p_type == protocol::CRSF_TYPE_COMMAND {
             status = chunk[rest_start];
             val = status;
+            let timeout_byte = if rest_start + 1 < chunk.len() {
+                chunk[rest_start + 1]
+            } else {
+                0
+            };
+            let poll_interval_ms: u32 = if timeout_byte > 0 {
+                (timeout_byte as u32) * 100
+            } else {
+                250
+            };
+
+            let mut info_buf = [0u8; 24];
+            let (_, info_len) = if rest_start + 2 < chunk.len() {
+                extract_null_string(chunk, rest_start + 2, &mut info_buf)
+            } else {
+                (0, 0)
+            };
+            if info_len > 0 {
+                let copy_len = (info_len as usize).min(CONFIG_ENGINE.cmd_info.len());
+                CONFIG_ENGINE.cmd_info[..copy_len].copy_from_slice(&info_buf[..copy_len]);
+                CONFIG_ENGINE.cmd_info_len = copy_len as u8;
+            }
 
             // Drive active command state transitions based on module response
             match CONFIG_ENGINE.active_cmd {
@@ -563,16 +619,42 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                     protocol::STATUS_PROGRESS => {
                         CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
                             param_id,
-                            poll_timer_ms: now_ms.wrapping_add(250),
+                            poll_timer_ms: now_ms.wrapping_add(poll_interval_ms),
+                            poll_interval_ms,
                             timeout_ms: now_ms.wrapping_add(8000),
                         };
                     }
                     protocol::STATUS_READY => {
-                        CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+                        if CONFIG_ENGINE.cmd_info_len == 0 {
+                            let ok_bytes = b"OK";
+                            CONFIG_ENGINE.cmd_info[..2].copy_from_slice(ok_bytes);
+                            CONFIG_ENGINE.cmd_info_len = 2;
+                        }
+                        CONFIG_ENGINE.active_cmd = ActiveCommandState::Completed {
+                            param_id,
+                            done_timer_ms: now_ms.wrapping_add(2500),
+                        };
                     }
                     _ => {}
                 },
                 _ => {}
+            }
+        } else if p_type == protocol::CRSF_TYPE_INFO {
+            let mut info_end = rest_start;
+            while info_end < chunk.len() && chunk[info_end] != 0 {
+                info_end += 1;
+            }
+            opt_slice_start = rest_start;
+            opt_slice_len = info_end.saturating_sub(rest_start);
+        } else if p_type == protocol::CRSF_TYPE_STRING {
+            let val_start = rest_start + 1;
+            if val_start < chunk.len() {
+                let mut val_end = val_start;
+                while val_end < chunk.len() && chunk[val_end] != 0 {
+                    val_end += 1;
+                }
+                opt_slice_start = val_start;
+                opt_slice_len = val_end.saturating_sub(val_start);
             }
         } else if p_type == protocol::CRSF_TYPE_FOLDER {
             if param_id == 0 {
@@ -601,7 +683,23 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                 break;
             }
         }
-        if !found && CONFIG_ENGINE.params_len < MAX_PARAMS {
+        if found {
+            if (p_type == protocol::CRSF_TYPE_INFO || p_type == protocol::CRSF_TYPE_STRING)
+                && opt_slice_len > 0
+            {
+                for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+                    if p.id == param_id {
+                        let offset = p.options_offset as usize;
+                        if offset + opt_slice_len <= CONFIG_ENGINE.string_pool.len() {
+                            CONFIG_ENGINE.string_pool[offset..offset + opt_slice_len]
+                                .copy_from_slice(&chunk[opt_slice_start..opt_slice_start + opt_slice_len]);
+                            p.options_len = opt_slice_len as u8;
+                        }
+                        break;
+                    }
+                }
+            }
+        } else if CONFIG_ENGINE.params_len < MAX_PARAMS {
             // Append name to string_pool
             let name_offset = CONFIG_ENGINE.string_pool_len as u16;
             let pool_avail_name = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
@@ -613,14 +711,14 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                 CONFIG_ENGINE.string_pool_len += actual_name_len;
             }
 
-            // Append options to string_pool
+            // Append options/info to string_pool
             let opt_offset = CONFIG_ENGINE.string_pool_len as u16;
             let pool_avail_opt = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
             let actual_opt_len = opt_slice_len.min(pool_avail_opt);
             if actual_opt_len > 0 {
                 CONFIG_ENGINE.string_pool
                     [CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_opt_len]
-                    .copy_from_slice(&chunk[rest_start..rest_start + actual_opt_len]);
+                    .copy_from_slice(&chunk[opt_slice_start..opt_slice_start + actual_opt_len]);
                 CONFIG_ENGINE.string_pool_len += actual_opt_len;
             }
 
@@ -828,22 +926,35 @@ unsafe fn elrs_tick(now_ms: u32) {
         ActiveCommandState::Starting { timeout_ms, .. } => {
             if now_ms.wrapping_sub(timeout_ms) < 0x8000_0000 {
                 CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+                CONFIG_ENGINE.cmd_info = [0; 24];
+                CONFIG_ENGINE.cmd_info_len = 0;
             }
         }
         ActiveCommandState::Running {
             param_id,
             poll_timer_ms,
+            poll_interval_ms,
             timeout_ms,
         } => {
             if now_ms.wrapping_sub(timeout_ms) < 0x8000_0000 {
                 CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+                CONFIG_ENGINE.cmd_info = [0; 24];
+                CONFIG_ENGINE.cmd_info_len = 0;
             } else if now_ms.wrapping_sub(poll_timer_ms) < 0x8000_0000 {
                 send_param_write(CONFIG_ENGINE.device_id, param_id, protocol::STATUS_POLL);
                 CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
                     param_id,
-                    poll_timer_ms: now_ms.wrapping_add(250),
+                    poll_timer_ms: now_ms.wrapping_add(poll_interval_ms),
+                    poll_interval_ms,
                     timeout_ms,
                 };
+            }
+        }
+        ActiveCommandState::Completed { done_timer_ms, .. } => {
+            if now_ms.wrapping_sub(done_timer_ms) < 0x8000_0000 {
+                CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+                CONFIG_ENGINE.cmd_info = [0; 24];
+                CONFIG_ENGINE.cmd_info_len = 0;
             }
         }
         _ => {}
@@ -874,6 +985,8 @@ pub fn start_config() {
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+        CONFIG_ENGINE.cmd_info = [0; 24];
+        CONFIG_ENGINE.cmd_info_len = 0;
         send_ping();
     }
 }
@@ -907,6 +1020,9 @@ pub fn select_device(idx: usize) -> bool {
         CONFIG_ENGINE.has_root_folder = false;
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
+        CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+        CONFIG_ENGINE.cmd_info = [0; 24];
+        CONFIG_ENGINE.cmd_info_len = 0;
         CONFIG_ENGINE.last_req_ms = now;
 
         if dev.param_count > 0 {
@@ -957,6 +1073,8 @@ pub fn return_to_device_list() {
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+        CONFIG_ENGINE.cmd_info = [0; 24];
+        CONFIG_ENGINE.cmd_info_len = 0;
         CONFIG_ENGINE.last_req_ms = now;
         CONFIG_ENGINE.next_req_ms = now.wrapping_add(1000);
         send_ping();
@@ -1148,9 +1266,12 @@ pub fn trigger_command(param_idx: usize) {
         if param_idx < CONFIG_ENGINE.params_len {
             let p = &mut CONFIG_ENGINE.params[param_idx];
             if p.param_type == protocol::CRSF_TYPE_COMMAND
-                && CONFIG_ENGINE.active_cmd == ActiveCommandState::Idle
+                && (CONFIG_ENGINE.active_cmd == ActiveCommandState::Idle
+                    || matches!(CONFIG_ENGINE.active_cmd, ActiveCommandState::Completed { .. }))
             {
                 let now = crate::time::millis();
+                CONFIG_ENGINE.cmd_info = [0; 24];
+                CONFIG_ENGINE.cmd_info_len = 0;
                 send_param_write(CONFIG_ENGINE.device_id, p.id, protocol::STATUS_START);
                 CONFIG_ENGINE.active_cmd = ActiveCommandState::Starting {
                     param_id: p.id,
@@ -1171,13 +1292,25 @@ pub fn confirm_command(accept: bool) {
                 CONFIG_ENGINE.active_cmd = ActiveCommandState::Running {
                     param_id,
                     poll_timer_ms: now.wrapping_add(250),
+                    poll_interval_ms: 250,
                     timeout_ms: now.wrapping_add(8000),
                 };
             } else {
                 send_param_write(CONFIG_ENGINE.device_id, param_id, protocol::STATUS_CANCEL);
                 CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+                CONFIG_ENGINE.cmd_info = [0; 24];
+                CONFIG_ENGINE.cmd_info_len = 0;
             }
         }
+    }
+}
+
+/// Dismiss any active or completed command state immediately back to Idle.
+pub fn dismiss_command() {
+    unsafe {
+        CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+        CONFIG_ENGINE.cmd_info = [0; 24];
+        CONFIG_ENGINE.cmd_info_len = 0;
     }
 }
 
@@ -1644,11 +1777,176 @@ mod tests {
         poll_telemetry(5300);
 
         let engine = get_config_engine();
+        assert!(
+            matches!(engine.active_cmd, ActiveCommandState::Completed { param_id: 1, .. }),
+            "Completed command enters Completed state"
+        );
+
+        // 6. Dismiss command
+        dismiss_command();
+        let engine = get_config_engine();
         assert_eq!(
             engine.active_cmd,
             ActiveCommandState::Idle,
-            "Completed command returns to Idle"
+            "Dismissed command returns to Idle"
         );
+    }
+
+    #[test]
+    fn test_command_dynamic_timeout_polling_and_info_text() {
+        reset_state();
+        set_millis(5000);
+
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY, 0, "");
+        }
+
+        // 1. Trigger command
+        trigger_command(0);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][6], STATUS_START);
+
+        // 2. Module responds with STATUS_PROGRESS, Timeout = 5 (500ms), and Info = "Binding..."
+        let mut frame = [0u8; 32];
+        frame[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        frame[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        frame[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        frame[5] = 1; // param_id
+        frame[6] = 0; // chunks_remain
+        frame[7] = 0; // parent
+        frame[8] = CRSF_TYPE_COMMAND;
+        frame[9..14].copy_from_slice(b"Bind\0");
+        frame[14] = STATUS_PROGRESS;
+        frame[15] = 5; // Timeout = 5 * 100ms = 500ms
+        frame[16..27].copy_from_slice(b"Binding...\0");
+        let total = 28;
+        frame[1] = (total - 2) as u8;
+        frame[total - 1] = crc8(&frame[2..total - 1]);
+
+        uart::mock::push_rx_bytes(&frame[..total]);
+        poll_telemetry(5010);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.cmd_info_str(), "Binding...");
+        match engine.active_cmd {
+            ActiveCommandState::Running { poll_interval_ms, .. } => {
+                assert_eq!(poll_interval_ms, 500, "Dynamic poll interval should be 500ms");
+            }
+            _ => panic!("Expected Running state"),
+        }
+
+        // 3. Before 500ms expires, no STATUS_POLL should be transmitted
+        uart::mock::clear();
+        poll_telemetry(5509);
+        assert_eq!(uart::mock::take_tx().len(), 0, "No poll before interval expires");
+
+        // At 5510 (5010 + 500), STATUS_POLL should be transmitted
+        poll_telemetry(5510);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1, "STATUS_POLL must be sent when poll_timer expires");
+        assert_eq!(tx[0][6], protocol::STATUS_POLL);
+
+        // 4. Module completes with STATUS_READY and Info = "Success"
+        frame[14] = STATUS_READY;
+        frame[15] = 0;
+        frame[16..24].copy_from_slice(b"Success\0");
+        let total = 25;
+        frame[1] = (total - 2) as u8;
+        frame[total - 1] = crc8(&frame[2..total - 1]);
+
+        uart::mock::push_rx_bytes(&frame[..total]);
+        poll_telemetry(5600);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.cmd_info_str(), "Success");
+        assert!(matches!(
+            engine.active_cmd,
+            ActiveCommandState::Completed { param_id: 1, .. }
+        ));
+
+        // 5. After completion timer (2500ms), state auto-clears to Idle
+        poll_telemetry(5600 + 2501);
+        let engine = get_config_engine();
+        assert_eq!(engine.active_cmd, ActiveCommandState::Idle);
+        assert_eq!(engine.cmd_info_str(), "");
+    }
+
+    #[test]
+    fn test_info_and_string_parameter_parsing() {
+        reset_state();
+        set_millis(1000);
+
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+        }
+
+        // 1. INFO parameter: parent(0), type(CRSF_TYPE_INFO = 12), Name="Regulatory\0", Info="ISM_2400\0"
+        let mut f1 = [0u8; 32];
+        f1[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        f1[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        f1[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        f1[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        f1[5] = 1; // param_id
+        f1[6] = 0; // chunks_remain
+        f1[7] = 0; // parent
+        f1[8] = protocol::CRSF_TYPE_INFO;
+        f1[9..20].copy_from_slice(b"Regulatory\0");
+        f1[20..29].copy_from_slice(b"ISM_2400\0");
+        let total1 = 30;
+        f1[1] = (total1 - 2) as u8;
+        f1[total1 - 1] = crc8(&f1[2..total1 - 1]);
+
+        uart::mock::push_rx_bytes(&f1[..total1]);
+        poll_telemetry(1010);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 1);
+        let p1 = &engine.params[0];
+        assert_eq!(p1.name(&engine.string_pool), "Regulatory");
+        assert_eq!(p1.info_str(&engine.string_pool), "ISM_2400");
+
+        // 2. STRING parameter: parent(0), type(CRSF_TYPE_STRING = 10), Name="UID\0", Max_len=16, Value="123,456\0"
+        let mut f2 = [0u8; 32];
+        f2[0] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        f2[2] = CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY;
+        f2[3] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+        f2[4] = CRSF_ADDRESS_CRSF_TRANSMITTER;
+        f2[5] = 2; // param_id
+        f2[6] = 0; // chunks_remain
+        f2[7] = 0; // parent
+        f2[8] = protocol::CRSF_TYPE_STRING;
+        f2[9..13].copy_from_slice(b"UID\0");
+        f2[13] = 16; // max_len
+        f2[14..22].copy_from_slice(b"123,456\0");
+        let total2 = 23;
+        f2[1] = (total2 - 2) as u8;
+        f2[total2 - 1] = crc8(&f2[2..total2 - 1]);
+
+        uart::mock::push_rx_bytes(&f2[..total2]);
+        poll_telemetry(1020);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 2);
+        let p2 = &engine.params[1];
+        assert_eq!(p2.name(&engine.string_pool), "UID");
+        assert_eq!(p2.info_str(&engine.string_pool), "123,456");
+
+        // 3. Dynamic in-place update of INFO parameter (e.g. updated to "EU_868")
+        f1[20..27].copy_from_slice(b"EU_868\0");
+        let total3 = 28;
+        f1[1] = (total3 - 2) as u8;
+        f1[total3 - 1] = crc8(&f1[2..total3 - 1]);
+
+        uart::mock::push_rx_bytes(&f1[..total3]);
+        poll_telemetry(1030);
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params[0].info_str(&engine.string_pool), "EU_868");
     }
 
     #[test]

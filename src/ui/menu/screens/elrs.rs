@@ -50,6 +50,15 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
         }
     }
 
+    // 2. Intercept keys if a command has completed (allow immediate dismissal)
+    if let crsf::ActiveCommandState::Completed { .. } = engine.active_cmd {
+        if keys.ok || keys.cancel {
+            crsf::dismiss_command();
+            buzzer.click();
+            return;
+        }
+    }
+
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
@@ -450,15 +459,32 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             Text::new(opt_clean, Point::new(val_x, y + 7), style).draw(lcd).ok();
                         }
                     } else if p_type == crsf::protocol::CRSF_TYPE_COMMAND {
-                        let is_running = match engine.active_cmd {
+                        let is_active = match engine.active_cmd {
                             crsf::ActiveCommandState::Starting { param_id, .. }
-                            | crsf::ActiveCommandState::Running { param_id, .. } => {
+                            | crsf::ActiveCommandState::Running { param_id, .. }
+                            | crsf::ActiveCommandState::Completed { param_id, .. } => {
                                 param_id == p.id
                             }
                             _ => false,
                         };
-                        if is_running {
-                            Text::new("[Executing...]", Point::new(14, y + 7), style)
+                        if is_active {
+                            let info_str = engine.cmd_info_str();
+                            let text_to_show = if !info_str.is_empty() {
+                                info_str
+                            } else {
+                                match engine.active_cmd {
+                                    crsf::ActiveCommandState::Completed { .. } => "OK",
+                                    _ => "Executing...",
+                                }
+                            };
+                            let mut cmd_buf = [b' '; 22];
+                            cmd_buf[0] = b'[';
+                            let t_bytes = text_to_show.as_bytes();
+                            let t_len = t_bytes.len().min(18);
+                            cmd_buf[1..1 + t_len].copy_from_slice(&t_bytes[..t_len]);
+                            cmd_buf[1 + t_len] = b']';
+                            let c_str = crate::ui::format::ascii_as_str(&cmd_buf[..2 + t_len]);
+                            Text::new(c_str, Point::new(6, y + 7), style)
                                 .draw(lcd)
                                 .ok();
                         } else {
@@ -469,9 +495,44 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             cmd_buf[1..1 + n_len].copy_from_slice(&n_bytes[..n_len]);
                             cmd_buf[1 + n_len] = b']';
                             let c_str = crate::ui::format::ascii_as_str(&cmd_buf[..2 + n_len]);
-                            Text::new(c_str, Point::new(14, y + 7), style)
+                            Text::new(c_str, Point::new(6, y + 7), style)
                                 .draw(lcd)
                                 .ok();
+                        }
+                    } else if p_type == crsf::protocol::CRSF_TYPE_INFO
+                        || p_type == crsf::protocol::CRSF_TYPE_STRING
+                    {
+                        let info = p.info_str(&engine.string_pool);
+                        if info.is_empty() {
+                            let max_n_chars = 19usize;
+                            let n_disp = &name[..name.len().min(max_n_chars)];
+                            Text::new(n_disp, Point::new(4, y + 7), style).draw(lcd).ok();
+                        } else {
+                            let use_small = info.len() > 7 || name.len() + info.len() > 17;
+                            if use_small {
+                                let tag_style = if is_sel {
+                                    MonoTextStyle::new(&FONT_4X6, BinaryColor::Off)
+                                } else {
+                                    text_style_small
+                                };
+                                let max_info_chars = 15usize;
+                                let info_len = info.len().min(max_info_chars);
+                                let info_disp = &info[..info_len];
+                                let val_x = 124i32.saturating_sub(info_len as i32 * 4);
+                                let max_name_width = (val_x - 6).max(24);
+                                let max_name_chars = (max_name_width / 6) as usize;
+                                let name_disp = &name[..name.len().min(max_name_chars)];
+
+                                Text::new(name_disp, Point::new(4, y + 7), style).draw(lcd).ok();
+                                Text::new(info_disp, Point::new(val_x, y + 7), tag_style).draw(lcd).ok();
+                            } else {
+                                let val_x = 124i32.saturating_sub(info.len() as i32 * 6);
+                                let max_name_chars = 20usize.saturating_sub(info.len() + 1).max(5);
+                                let name_disp = &name[..name.len().min(max_name_chars)];
+
+                                Text::new(name_disp, Point::new(4, y + 7), style).draw(lcd).ok();
+                                Text::new(info, Point::new(val_x, y + 7), style).draw(lcd).ok();
+                            }
                         }
                     } else {
                         let max_n_chars = 19usize;
@@ -489,26 +550,37 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         .map(|p| p.name(&engine.string_pool))
                         .unwrap_or("Action");
 
-                    Rectangle::new(Point::new(12, 18), Size::new(104, 28))
+                    Rectangle::new(Point::new(10, 16), Size::new(108, 32))
                         .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
                         .draw(lcd)
                         .ok();
-                    Rectangle::new(Point::new(12, 18), Size::new(104, 28))
+                    Rectangle::new(Point::new(10, 16), Size::new(108, 32))
                         .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
                         .draw(lcd)
                         .ok();
 
-                    let mut q_buf = [b' '; 18];
-                    q_buf[..6].copy_from_slice(b"Run: [");
-                    let n_len = p_name.len().min(8);
-                    q_buf[6..6 + n_len].copy_from_slice(&p_name.as_bytes()[..n_len]);
-                    q_buf[6 + n_len] = b']';
-                    q_buf[7 + n_len] = b'?';
-                    let q_str = crate::ui::format::ascii_as_str(&q_buf[..8 + n_len]);
-                    Text::new(q_str, Point::new(18, 28), text_style)
-                        .draw(lcd)
-                        .ok();
-                    Text::new("[OK] Yes  [ESC] No", Point::new(18, 40), text_style_small)
+                    let info_prompt = engine.cmd_info_str();
+                    if !info_prompt.is_empty() {
+                        let prompt_len = info_prompt.len().min(17);
+                        let prompt_disp = &info_prompt[..prompt_len];
+                        let prompt_x = 10 + (108i32.saturating_sub(prompt_len as i32 * 6) / 2);
+                        Text::new(prompt_disp, Point::new(prompt_x, 27), text_style)
+                            .draw(lcd)
+                            .ok();
+                    } else {
+                        let mut q_buf = [b' '; 18];
+                        q_buf[..6].copy_from_slice(b"Run: [");
+                        let n_len = p_name.len().min(8);
+                        q_buf[6..6 + n_len].copy_from_slice(&p_name.as_bytes()[..n_len]);
+                        q_buf[6 + n_len] = b']';
+                        q_buf[7 + n_len] = b'?';
+                        let q_str = crate::ui::format::ascii_as_str(&q_buf[..8 + n_len]);
+                        let q_x = 10 + (108i32.saturating_sub((8 + n_len) as i32 * 6) / 2);
+                        Text::new(q_str, Point::new(q_x, 27), text_style)
+                            .draw(lcd)
+                            .ok();
+                    }
+                    Text::new("[OK] Yes  [ESC] No", Point::new(20, 42), text_style_small)
                         .draw(lcd)
                         .ok();
 
@@ -517,10 +589,47 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     widgets::draw_footer(lcd, "Loading...    [ESC] Back");
                 } else if ctrl.editing {
                     widgets::draw_footer(lcd, "[OK] Confirm   [ESC] Cancel");
-                } else if current_folder > 0 {
-                    widgets::draw_footer(lcd, "[OK] Select   [ESC] Up");
                 } else {
-                    widgets::draw_footer(lcd, "[OK] Select   [ESC] Devices");
+                    let sel_p = if ctrl.selected_item < count {
+                        let actual_idx = folder_indices[ctrl.selected_item] as usize;
+                        if actual_idx < engine.params_len {
+                            Some(&engine.params[actual_idx])
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    let esc_text = if current_folder > 0 { "[ESC] Up" } else { "[ESC] Devices" };
+
+                    if let Some(p) = sel_p {
+                        let p_type = p.clean_type();
+                        if p_type == crsf::protocol::CRSF_TYPE_INFO
+                            || p_type == crsf::protocol::CRSF_TYPE_STRING
+                        {
+                            let info = p.info_str(&engine.string_pool);
+                            if info.len() > 6 {
+                                let max_chars = 20usize;
+                                let disp_len = info.len().min(max_chars);
+                                widgets::draw_footer_split(lcd, &info[..disp_len], esc_text);
+                            } else {
+                                widgets::draw_footer(lcd, esc_text);
+                            }
+                        } else {
+                            let mut fbuf = [b' '; 26];
+                            fbuf[..14].copy_from_slice(b"[OK] Select   ");
+                            let e_bytes = esc_text.as_bytes();
+                            let e_len = e_bytes.len().min(12);
+                            fbuf[14..14 + e_len].copy_from_slice(&e_bytes[..e_len]);
+                            let f_str = crate::ui::format::ascii_as_str(&fbuf[..14 + e_len]);
+                            widgets::draw_footer(lcd, f_str);
+                        }
+                    } else if current_folder > 0 {
+                        widgets::draw_footer(lcd, "[OK] Select   [ESC] Up");
+                    } else {
+                        widgets::draw_footer(lcd, "[OK] Select   [ESC] Devices");
+                    }
                 }
             }
         }
