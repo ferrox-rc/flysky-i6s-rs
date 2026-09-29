@@ -14,10 +14,31 @@ pub const CRSF_CHANNEL_VALUE_MAX: u16 = 2047; // 11-bit maximum (0x07FF)
 
 pub const CRSF_SYNC_BYTE: u8 = 0xC8;
 pub const CRSF_ADDRESS_BROADCAST: u8 = 0x00;
-pub const CRSF_ADDRESS_CRSF_TRANSMITTER: u8 = 0xEE;
-pub const CRSF_ADDRESS_RADIO_TRANSMITTER: u8 = 0xEA;
-pub const CRSF_ADDRESS_CRSF_RECEIVER: u8 = 0xEC;
+pub const CRSF_ADDRESS_CLOUD: u8 = 0x0E;
+pub const CRSF_ADDRESS_USB: u8 = 0x10;
+pub const CRSF_ADDRESS_BLUETOOTH_WIFI: u8 = 0x12;
+pub const CRSF_ADDRESS_WIFI_RECEIVER: u8 = 0x13;
+pub const CRSF_ADDRESS_VIDEO_RECEIVER: u8 = 0x14;
+pub const CRSF_ADDRESS_OSD: u8 = 0x80;
+pub const CRSF_ADDRESS_ESC1: u8 = 0x90;
+pub const CRSF_ADDRESS_ESC2: u8 = 0x91;
+pub const CRSF_ADDRESS_ESC3: u8 = 0x92;
+pub const CRSF_ADDRESS_ESC4: u8 = 0x93;
+pub const CRSF_ADDRESS_ESC5: u8 = 0x94;
+pub const CRSF_ADDRESS_ESC6: u8 = 0x95;
+pub const CRSF_ADDRESS_ESC7: u8 = 0x96;
+pub const CRSF_ADDRESS_ESC8: u8 = 0x97;
+pub const CRSF_ADDRESS_CURRENT_SENSOR: u8 = 0xC0;
+pub const CRSF_ADDRESS_GPS: u8 = 0xC2;
+pub const CRSF_ADDRESS_BLACKBOX: u8 = 0xC4;
 pub const CRSF_ADDRESS_FLIGHT_CONTROLLER: u8 = 0xC8;
+pub const CRSF_ADDRESS_RACE_TAG: u8 = 0xCC;
+pub const CRSF_ADDRESS_VTX: u8 = 0xCE;
+pub const CRSF_ADDRESS_RADIO_TRANSMITTER: u8 = 0xEA;
+pub const CRSF_ADDRESS_REPEATER_RECEIVER: u8 = 0xEB;
+pub const CRSF_ADDRESS_CRSF_RECEIVER: u8 = 0xEC;
+pub const CRSF_ADDRESS_REPEATER_TRANSMITTER: u8 = 0xED;
+pub const CRSF_ADDRESS_CRSF_TRANSMITTER: u8 = 0xEE;
 
 // Frame types
 pub const CRSF_FRAMETYPE_GPS: u8 = 0x02;
@@ -273,12 +294,34 @@ pub fn rf_mode_to_str(rf_mode: u8) -> &'static str {
     }
 }
 
-/// Convert CRSF device physical address to 2-letter role tag.
+/// Convert CRSF device physical address to short role tag (up to 3 chars, e.g. TX, RX, FC, VTX, VRX, OSD, GPS, ESC, etc.).
 pub fn device_role_str(addr: u8) -> &'static str {
     match addr {
         CRSF_ADDRESS_CRSF_TRANSMITTER => "TX",
         CRSF_ADDRESS_CRSF_RECEIVER => "RX",
         CRSF_ADDRESS_FLIGHT_CONTROLLER => "FC",
+        CRSF_ADDRESS_VTX => "VTX",
+        CRSF_ADDRESS_VIDEO_RECEIVER => "VRX",
+        CRSF_ADDRESS_OSD => "OSD",
+        CRSF_ADDRESS_GPS => "GPS",
+        CRSF_ADDRESS_CURRENT_SENSOR => "PWR",
+        CRSF_ADDRESS_BLACKBOX => "BOX",
+        CRSF_ADDRESS_BLUETOOTH_WIFI => "WIFI",
+        CRSF_ADDRESS_WIFI_RECEIVER => "WIRX",
+        CRSF_ADDRESS_USB => "USB",
+        CRSF_ADDRESS_CLOUD => "NET",
+        CRSF_ADDRESS_RACE_TAG => "TAG",
+        CRSF_ADDRESS_RADIO_TRANSMITTER => "RC",
+        CRSF_ADDRESS_REPEATER_RECEIVER => "RPRX",
+        CRSF_ADDRESS_REPEATER_TRANSMITTER => "RPTX",
+        CRSF_ADDRESS_ESC1 => "ESC1",
+        CRSF_ADDRESS_ESC2 => "ESC2",
+        CRSF_ADDRESS_ESC3 => "ESC3",
+        CRSF_ADDRESS_ESC4 => "ESC4",
+        CRSF_ADDRESS_ESC5 => "ESC5",
+        CRSF_ADDRESS_ESC6 => "ESC6",
+        CRSF_ADDRESS_ESC7 => "ESC7",
+        CRSF_ADDRESS_ESC8 => "ESC8",
         _ => "DEV",
     }
 }

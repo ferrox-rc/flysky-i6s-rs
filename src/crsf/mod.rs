@@ -2184,6 +2184,14 @@ mod tests {
         assert_eq!(protocol::device_role_str(CRSF_ADDRESS_CRSF_TRANSMITTER), "TX");
         assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_CRSF_RECEIVER), "RX");
         assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_FLIGHT_CONTROLLER), "FC");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_VTX), "VTX");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_VIDEO_RECEIVER), "VRX");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_OSD), "OSD");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_GPS), "GPS");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_CURRENT_SENSOR), "PWR");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_BLACKBOX), "BOX");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_BLUETOOTH_WIFI), "WIFI");
+        assert_eq!(protocol::device_role_str(protocol::CRSF_ADDRESS_ESC1), "ESC1");
         assert_eq!(protocol::device_role_str(0x55), "DEV");
     }
 

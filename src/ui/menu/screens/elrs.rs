@@ -138,15 +138,17 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     // Left: Device Name
                     Text::new(d_name, Point::new(4, y + 7), style).draw(lcd).ok();
 
-                    // Right: [Role] Tag (e.g. [TX], [RX], [FC])
-                    let mut tag_buf = [b' '; 5];
+                    // Right: [Role] Tag (e.g. [TX], [RX], [FC], [VTX], [WIFI], [ESC1])
+                    let mut tag_buf = [b' '; 7];
                     tag_buf[0] = b'[';
                     let r_bytes = role.as_bytes();
-                    let r_len = r_bytes.len().min(2);
+                    let r_len = r_bytes.len().min(4);
                     tag_buf[1..1 + r_len].copy_from_slice(&r_bytes[..r_len]);
                     tag_buf[1 + r_len] = b']';
-                    let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..2 + r_len]);
-                    Text::new(tag_str, Point::new(102, y + 7), style).draw(lcd).ok();
+                    let total_tag_len = r_len + 2;
+                    let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..total_tag_len]);
+                    let tag_x = 124 - (total_tag_len as i32 * 6);
+                    Text::new(tag_str, Point::new(tag_x, y + 7), style).draw(lcd).ok();
                 }
 
                 widgets::draw_footer(lcd, "[OK] Select   [ESC] Back");
