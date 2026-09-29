@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "flysky-i6x-rs"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",

@@ -281,7 +281,7 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Spoken telemetry announcements (battery voltage, low RSSI, timer elapsed).
 - [x] Audible switch position announcements and flight mode voice prompts.
 
-### Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics (BRANCH: `feat/flight-timer-mixer-polish`)
+### Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics (COMPLETED)
 - [x] EdgeTX-parity Flight Countdown / Stopwatch timer with multi-trigger modes (`THs (RUN)`, `THt (LTCH)`, `ALWAYS ON`, and switch triggers `SA^`..`SDv`).
 - [x] Auto-reset upon arming and freeze upon disarming when Arm Switch is assigned.
 - [x] Visual HUD Hold-to-Reset progress bar (holding `[CANCEL]` for 1.0s with animated bar and confirmation toast).
@@ -293,6 +293,9 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Physical switch auto-detection in menu editors (toggling any physical switch auto-selects its condition).
 - [x] Model Duplicate / Copy utility in `MODEL SETUP` for safe mixer experimentation.
 - [x] Non-visual potentiometer center acoustic detent click when crossing neutral center on `VRA` and `VRB`.
+- [x] 18-channel i-BUS & AFHDS 2A over-the-air encoding with `ModelConfig` v5 and automatic v4 flash migration.
+- [x] CRSF Parameter 0 root-folder query and child-ID selective discovery.
+- [x] CRSF dynamic command timeout polling, live command info text (`[Binding]`, `[OK]`, `[Failed]`), and clamped info/string parameter rendering.
 
 ### Phase 20: Trainer Port Subsystem & PPM In/Out (PLANNED / BRANCH: `feat/trainer-ppm`)
 - [ ] Direct PAC driver for `TIM15` (1 µs tick resolution at 48 MHz).
@@ -306,8 +309,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [ ] Auxiliary channel rate-limiter ("Servo Slow") for realistic flap deployment and gear doors without aerodynamic ballooning.
 
 ### Current Firmware Footprint
-- **Application Flash ROM**: **~90.8 KB** (.text 90,832B + .data 1,876B = 92.7 KB total) used out of **120 KB** partition (**>29.2 KB / 24.3% free headroom**).
-- **Static RAM**: **~3.0 KB** (`.data` 1,876B + `.bss` 1,128B) out of **16 KB** available (**>81% SRAM free** with **>6.3 KB** guaranteed stack safety margin).
+- **Application Flash ROM**: **~101.6 KB** (.text 87,056B + .rodata 8,072B + .data 6,292B + .vector_table 192B = 101.6 KB total) used out of **120 KB** partition (**>18.4 KB / 15.3% free headroom**).
+- **Static RAM**: **~7.3 KB** (`.data` 6,292B + `.bss` 1,000B) out of **16 KB** available (**>54% SRAM free** with **>8.7 KB** guaranteed stack safety margin).
 - **Non-Volatile Storage**: **8,192 bytes** (Pages 60–63) managed as an append-only log with automatic wear levelling.
 
 ---

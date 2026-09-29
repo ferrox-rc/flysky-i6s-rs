@@ -5,12 +5,36 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics
+## [0.18.0] - 2026-09-29
 
 ### Summary
-Feature release implementing EdgeTX/OpenTX-parity flight countdown and stopwatch timers, unipolar throttle compensation mixing, wing/tail differential mixing, physical switch auto-detection across menus, on-screen HUD hold-to-reset progress modal, model copying, and potentiometer center haptic detents.
+Major feature release delivering 18-channel i-BUS over-the-air encoding and mixer expansion, `ModelConfig` v5 with backward-compatible v4 flash migration, CRSF Parameter 0 root-folder querying with selective child-ID discovery, dynamic CRSF command polling with live info text feedback, clamped info and string parameter rendering, expanded TBS device role identifiers, system info git commit hash display, and Phase 19 EdgeTX flight countdown/stopwatch timers, unipolar throttle compensation mixing, wing/tail differential mixing, physical switch auto-detection, and model duplication.
 
 ### Added
+- **18-Channel i-BUS & AFHDS 2A Subsystem ([`src/rf/afhds2a.rs`](src/rf/afhds2a.rs), [`src/mixer.rs`](src/mixer.rs), [`src/storage.rs`](src/storage.rs))**:
+  - **Over-the-Air 18-Channel Encoding**: Implemented interleaved payload encoding matching Betaflight/iNav `rx/ibus.c` `updateChannelData`, transmitting all 18 channels reliably over standard AFHDS 2A links.
+  - **`ModelConfig` v5 Architecture**: Expanded `channel_reverse` to a 32-bit bitmask and increased auxiliary channel mappings to 14 channels (`aux_channels: [u8; 14]`), preserving the 128-byte alignment invariant with automatic v4-to-v5 sequential storage migration on first boot.
+  - **18-Channel Mixer Engine**: Expanded mixer outputs and matrix mixer sources to support `CH1..CH18` and `Thr+` unipolar throttle, with dual-column channel monitor display on flight dashboard Page 2/4.
+  - **CRSF Alignment**: Mapped channels 1..16 directly to the 16-channel CRSF stream with zero channel clipping or protocol conflicts.
+  - **Failsafe Packet Clamping**: Clamped over-the-air failsafe frames to the standard 14-channel frame bounds to avoid RF receiver sync faults.
+- **CRSF Parameter 0 Root-Folder Querying & Selective Child Discovery ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Automatically queries Parameter 0 (Root Folder descriptor) upon device connection per the TBS CRSF specification.
+  - Parses `0x0B FOLDER` child ID lists (`List_of_children`) to discover and query only root items, eliminating full 59-parameter sequential scans and speeding up device initial connection by >80%.
+  - Maintains automatic retry fallback (up to 2 retries) for legacy devices lacking Parameter 0 support.
+- **Dynamic CRSF Command Polling & Live Feedback ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Obeyed `Timeout` byte (in units of 100 ms) in `0x0D COMMAND` replies to dynamically pace `0x2D STATUS_POLL` frames (with a safe 250 ms fallback when `timeout == 0`, avoiding tight loops per ExpressLRS Lua Issue #16).
+  - Displays live device `Info` text feedback during execution (e.g. `[Binding]`, `[Erasing]`, `[45%]`) instead of static `[Executing...]`.
+  - Custom confirmation modal questions (e.g. `"Erase model?"`) derived directly from device-supplied `Info` strings.
+  - Dedicated `ActiveCommandState::Completed` state displaying final status strings (e.g. `[OK]`, `[Done]`, `[Failed]`) for ~2.5s or dismissed immediately on `[OK]` / `[ESC]` (per ExpressLRS Lua Issue #17).
+- **Clamped Info & String Parameter Rendering ([`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Parsed `0x0C INFO` and `0x0A STRING` parameter values into the unified string pool.
+  - Right-aligned info values at $x = 124$ with dynamic character clamping and automatic fallback to `FONT_4X6` for long strings, strictly preventing right-edge display overflow.
+  - Integrated split footer display (`draw_footer_split`) showing complete, un-truncated info strings when highlighted.
+- **Expanded CRSF Device Role Tags ([`src/crsf/protocol.rs`](src/crsf/protocol.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Expanded role tag strings from the TBS CRSF specification (`[TX]`, `[RX]`, `[FC]`, `[VTX]`, `[WIFI]`, `[ESC1..4]`, `[OSD]`, `[GIMB]`, `[BLU]`).
+  - Added hex fallback (`[0x..]`) and `FONT_4X6` rendering to prevent display overflow on unknown device IDs.
+- **System Info Git Commit Hash Display ([`src/ui/menu/screens/diag.rs`](src/ui/menu/screens/diag.rs), [`build.rs`](build.rs))**:
+  - Captured current shortened git commit hash during build and rendered `v0.18.0 (<hash>)` in small font on the System Info screen.
 - **EdgeTX-Parity Flight Timer Subsystem ([`src/main.rs`](src/main.rs), [`src/mixer.rs`](src/mixer.rs), [`src/storage.rs`](src/storage.rs))**:
   - **Multi-Trigger Engine (`is_timer_active`)**: Supports `OFF`, `THs (RUN)` (active while throttle $> 5\%$), `THt (LTCH)` (latched running once throttle $> 5\%$), `ALWAYS ON` (continuous stopwatch), and switch conditions `SA^` through `SDv`.
   - **Arm Switch Integration**: Disarming unlatches and pauses the timer (freezing final flight time for post-landing review). Re-arming automatically resets the timer back to its configured duration and clears elapsed seconds for the next flight pack.
