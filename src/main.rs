@@ -256,6 +256,7 @@ impl BackgroundIdleManager {
     }
 
     /// Background idle execution tick: manages timers, power save, bind key gestures, Flash saves, and display frames.
+    #[inline(never)]
     fn tick(
         &mut self,
         now: u32,
@@ -697,8 +698,8 @@ fn main() -> ! {
     watchdog::feed();
 
     // 9. Load persistent radio storage and 20-model configuration
-    let mut storage = storage::RadioStorage::empty();
-    storage::load_storage_into(&mut storage);
+    let storage = storage::get_storage();
+    storage::load_storage_into(storage);
     input::apply_calibration(&storage.radio);
     buzzer.enabled = storage.radio.audio_enabled != 0;
     buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
@@ -879,7 +880,7 @@ fn main() -> ! {
 
     // Initialize execution tiers
     let init_state = input::poll();
-    let mut pipeline = FlightPipeline::new(&storage, &init_state);
+    let mut pipeline = FlightPipeline::new(storage, &init_state);
     let mut idle_manager = BackgroundIdleManager::new(&init_state, bind_on_boot);
     let mut dashboard = ui::dashboard::DashboardController::new();
     let mut last_tick_ms: u32 = 0;
@@ -902,7 +903,7 @@ fn main() -> ! {
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();
 
         // Tier 1: High-Rate Flight Pipeline Tick (multi-kHz)
-        let flight_snapshot = pipeline.tick(now, &storage, &trims, menu_active, &mut buzzer);
+        let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, &mut buzzer);
 
         // Tier 2: Background Idle & UI Tick (30 Hz rate-governed)
         idle_manager.tick(
@@ -911,7 +912,7 @@ fn main() -> ! {
             keys,
             &flight_snapshot,
             &mut pipeline,
-            &mut storage,
+            storage,
             &mut trims,
             &mut lcd,
             &mut buzzer,

@@ -345,6 +345,15 @@ const _: () = assert!(core::mem::size_of::<RadioConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<ModelConfig>() == 128);
 const _: () = assert!(core::mem::size_of::<RadioStorage>() == 2688);
 
+static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
+
+/// Get global mutable reference to persistent RadioStorage.
+/// Stored in static RAM to avoid allocating 2,688 bytes on the main stack.
+#[allow(static_mut_refs)]
+pub fn get_storage() -> &'static mut RadioStorage {
+    unsafe { &mut GLOBAL_STORAGE }
+}
+
 pub const FLASH_STORAGE_ADDR: usize = 0x0801_E000; // Page 60 start (8 KB storage across Pages 60..63)
 pub const FLASH_STORAGE_END: usize = 0x0802_0000;  // Page 63 end
 #[allow(dead_code)]
@@ -661,6 +670,7 @@ fn format_and_save_all(storage: &RadioStorage) {
 }
 
 /// Load complete storage from Flash into caller-supplied memory (0 stack allocation for storage).
+#[inline(never)]
 pub fn load_storage_into(storage: &mut RadioStorage) {
     let mut map = sequential_storage::map::MapStorage::new(
         Stm32Flash,
@@ -781,8 +791,8 @@ pub fn save_storage(storage: &RadioStorage) -> bool {
 
 /// Convenience helper to load current RadioConfig directly from Flash (only 128 bytes, 0 stack bloat).
 pub fn load_config() -> RadioConfig {
-    let mut storage = RadioStorage::empty();
-    load_storage_into(&mut storage);
+    let storage = get_storage();
+    load_storage_into(storage);
     storage.radio
 }
 

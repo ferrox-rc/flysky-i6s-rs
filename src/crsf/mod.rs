@@ -70,11 +70,12 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
     }
 }
 
-pub const MAX_PARAMS: usize = 255;
-pub const MAX_FOLDER_ITEMS: usize = 64;
-pub const STRING_POOL_SIZE: usize = 3584;
+pub const MAX_PARAMS: usize = 64;
+pub const MAX_FOLDER_ITEMS: usize = 32;
+pub const STRING_POOL_SIZE: usize = 1024;
+pub const CHUNK_BUF_SIZE: usize = 256;
 
-static mut CHUNK_BUF: [u8; 320] = [0; 320];
+static mut CHUNK_BUF: [u8; CHUNK_BUF_SIZE] = [0; CHUNK_BUF_SIZE];
 static mut CHUNK_LEN: usize = 0;
 static mut CHUNK_PARAM_ID: u8 = 0;
 
@@ -980,7 +981,7 @@ mod tests {
             RX_BUF = [0; 64];
             RX_LEN = 0;
             LAST_RX_BYTE_MS = 0;
-            CHUNK_BUF = [0; 320];
+            CHUNK_BUF = [0; CHUNK_BUF_SIZE];
             CHUNK_LEN = 0;
             CHUNK_PARAM_ID = 0;
             CONFIG_ENGINE = ElrsConfigEngine::new();
@@ -1910,10 +1911,10 @@ mod tests {
     }
 
     #[test]
-    fn test_unified_255_parameter_pool_and_capacity() {
+    fn test_unified_parameter_pool_and_capacity() {
         reset_state();
         unsafe {
-            for i in 1..=255 {
+            for i in 1..=MAX_PARAMS {
                 let id = i as u8;
                 let opt = if id % 2 == 0 { "Low;Med;High" } else { "" };
                 add_test_param(id, 0, protocol::CRSF_TYPE_SELECT, "Param", 1, 2, opt);
@@ -1921,9 +1922,9 @@ mod tests {
         }
 
         let engine = get_config_engine();
-        assert_eq!(engine.params_len, 255, "Must successfully allocate all 255 parameters");
+        assert_eq!(engine.params_len, MAX_PARAMS, "Must successfully allocate all parameters up to capacity");
         assert_eq!(engine.params[0].id, 1);
-        assert_eq!(engine.params[254].id, 255);
+        assert_eq!(engine.params[MAX_PARAMS - 1].id, MAX_PARAMS as u8);
 
         let mut buf = [0u8; 24];
         assert_eq!(engine.params[0].name(&engine.string_pool), "Param");

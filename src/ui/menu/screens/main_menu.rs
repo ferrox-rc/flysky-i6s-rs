@@ -6,6 +6,7 @@ use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::storage::{RadioStorage, NUM_MODELS};
 
+#[inline(never)]
 pub fn update(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -14,7 +15,7 @@ pub fn update(
     buzzer: &mut Buzzer,
 ) {
     const ITEM_COUNT: usize = 13;
-    let items = [
+    const ITEMS: [&str; ITEM_COUNT] = [
         "1. Model Select",
         "2. Model Setup",
         "3. Dual Rate/Expo",
@@ -130,7 +131,7 @@ pub fn update(
             break;
         }
         let is_selected = idx == ctrl.selected_item;
-        widgets::draw_list_row(lcd, slot, is_selected, items[idx], None, 0);
+        widgets::draw_list_row(lcd, slot, is_selected, ITEMS[idx], None, 0);
     }
 
     // Render Footer

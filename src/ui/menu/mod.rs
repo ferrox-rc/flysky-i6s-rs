@@ -123,6 +123,7 @@ impl MenuController {
     }
 
     /// Process navigation keys, update menu state, and render display.
+    #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,

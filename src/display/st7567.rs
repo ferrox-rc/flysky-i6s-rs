@@ -7,6 +7,7 @@ use embedded_graphics::{
     pixelcolor::BinaryColor,
     Pixel,
 };
+#[cfg(not(test))]
 use stm32f0xx_hal::pac;
 
 pub const WIDTH: usize = 128;
@@ -21,21 +22,24 @@ pub struct St7567 {
 impl St7567 {
     /// Initialize GPIO pins and the ST7567 display controller.
     pub fn new() -> Self {
+        #[allow(unused_mut)]
         let mut display = Self {
             framebuffer: [0u8; BUFFER_SIZE],
         };
-        display.init_hardware();
-        display.init_controller();
-        display.init_backlight_pwm();
-        // Clear framebuffer and push clean frame to controller BEFORE turning backlight on!
-        display.clear_buffer();
-        display.flush();
-        display.set_backlight_level(100);
-
+        #[cfg(not(test))]
+        {
+            display.init_hardware();
+            display.init_controller();
+            display.init_backlight_pwm();
+            display.clear_buffer();
+            display.flush();
+            display.set_backlight_level(100);
+        }
         display
     }
 
     /// Configure MCU GPIO ports for parallel LCD interface and backlight.
+    #[cfg(not(test))]
     fn init_hardware(&self) {
         let rcc = unsafe { &*pac::RCC::ptr() };
         let gpiob = unsafe { &*pac::GPIOB::ptr() };
@@ -87,6 +91,7 @@ impl St7567 {
     }
 
     /// Initialize TIM3_CH4 PWM on PC9 (AF0) for optional hardware backlight dimming mod.
+    #[cfg(not(test))]
     fn init_backlight_pwm(&self) {
         let rcc = unsafe { &*pac::RCC::ptr() };
         let gpioc = unsafe { &*pac::GPIOC::ptr() };
@@ -131,23 +136,28 @@ impl St7567 {
     /// Set Backlight brightness level (0..100%).
     /// Supports both stock factory backlight (PF3 on/off) and modded hardware (PC9 PWM dimming).
     pub fn set_backlight_level(&self, pct: u8) {
-        let gpiof = unsafe { &*pac::GPIOF::ptr() };
-        let tim3 = unsafe { &*pac::TIM3::ptr() };
+        #[cfg(not(test))]
+        {
+            let gpiof = unsafe { &*pac::GPIOF::ptr() };
+            let tim3 = unsafe { &*pac::TIM3::ptr() };
 
-        unsafe {
-            if pct == 0 {
-                // Stock backlight OFF
-                gpiof.bsrr.write(|w| w.bits(1 << (3 + 16)));
-                // PC9 PWM duty 0
-                tim3.ccr4.write(|w| w.bits(0));
-            } else {
-                // Stock backlight ON
-                gpiof.bsrr.write(|w| w.bits(1 << 3));
-                // PC9 PWM duty (0..999)
-                let duty = (pct.min(100) as u32 * 999) / 100;
-                tim3.ccr4.write(|w| w.bits(duty));
+            unsafe {
+                if pct == 0 {
+                    // Stock backlight OFF
+                    gpiof.bsrr.write(|w| w.bits(1 << (3 + 16)));
+                    // PC9 PWM duty 0
+                    tim3.ccr4.write(|w| w.bits(0));
+                } else {
+                    // Stock backlight ON
+                    gpiof.bsrr.write(|w| w.bits(1 << 3));
+                    // PC9 PWM duty (0..999)
+                    let duty = (pct.min(100) as u32 * 999) / 100;
+                    tim3.ccr4.write(|w| w.bits(duty));
+                }
             }
         }
+        #[cfg(test)]
+        let _ = pct;
     }
 
     /// Convenience helper for binary ON/OFF control.
@@ -156,6 +166,7 @@ impl St7567 {
         self.set_backlight_level(if on { 100 } else { 0 });
     }
 
+    #[cfg(not(test))]
     #[inline(always)]
     fn delay_cycles(&self, count: u32) {
         for _ in 0..count {
@@ -167,27 +178,34 @@ impl St7567 {
     /// Put byte on PE0..PE7, then pulse RD (PD7) High -> Low.
     #[inline(always)]
     fn write_byte(&self, byte: u8, is_data: bool) {
-        let gpiob = unsafe { &*pac::GPIOB::ptr() };
-        let gpiod = unsafe { &*pac::GPIOD::ptr() };
-        let gpioe = unsafe { &*pac::GPIOE::ptr() };
+        #[cfg(not(test))]
+        {
+            let gpiob = unsafe { &*pac::GPIOB::ptr() };
+            let gpiod = unsafe { &*pac::GPIOD::ptr() };
+            let gpioe = unsafe { &*pac::GPIOE::ptr() };
 
-        unsafe {
-            // Set RS: PB3 (1 for Data, 0 for Command)
-            if is_data {
-                gpiob.bsrr.write(|w| w.bits(1 << 3));
-            } else {
-                gpiob.bsrr.write(|w| w.bits(1 << (3 + 16)));
+            unsafe {
+                // Set RS: PB3 (1 for Data, 0 for Command)
+                if is_data {
+                    gpiob.bsrr.write(|w| w.bits(1 << 3));
+                } else {
+                    gpiob.bsrr.write(|w| w.bits(1 << (3 + 16)));
+                }
+
+                // Put byte on PE0..PE7 (low 8 bits of GPIOE_ODR)
+                gpioe.odr.modify(|r, w| {
+                    w.bits((r.bits() & !0xFF) | (byte as u32))
+                });
+
+                // Strobe RD (PD7): High then Low latches data (OpenI6X timing)
+                gpiod.bsrr.write(|w| w.bits(1 << 7)); // RD High
+                cortex_m::asm::nop();
+                gpiod.bsrr.write(|w| w.bits(1 << (7 + 16))); // RD Low
             }
-
-            // Put byte on PE0..PE7 (low 8 bits of GPIOE_ODR)
-            gpioe.odr.modify(|r, w| {
-                w.bits((r.bits() & !0xFF) | (byte as u32))
-            });
-
-            // Strobe RD (PD7): High then Low latches data (OpenI6X timing)
-            gpiod.bsrr.write(|w| w.bits(1 << 7)); // RD High
-            cortex_m::asm::nop();
-            gpiod.bsrr.write(|w| w.bits(1 << (7 + 16))); // RD Low
+        }
+        #[cfg(test)]
+        {
+            let _ = (byte, is_data);
         }
     }
 
@@ -210,6 +228,7 @@ impl St7567 {
     }
 
     /// Hardware reset and send OpenI6X-matched ST7567 initialization sequence.
+    #[cfg(not(test))]
     fn init_controller(&self) {
         let gpiob = unsafe { &*pac::GPIOB::ptr() };
 
@@ -246,41 +265,44 @@ impl St7567 {
     /// Uses OpenI6X direct 8-bit parallel bus strobing: RS set once per page,
     /// direct 8-bit STRB to GPIOE_ODR, and single-cycle RD pulses.
     pub fn flush(&self) {
-        let gpiob = unsafe { &*pac::GPIOB::ptr() };
-        let gpiod = unsafe { &*pac::GPIOD::ptr() };
+        #[cfg(not(test))]
+        {
+            let gpiob = unsafe { &*pac::GPIOB::ptr() };
+            let gpiod = unsafe { &*pac::GPIOD::ptr() };
 
-        unsafe {
-            // Low byte of GPIOE ODR register (offset 0x14 from GPIOE base)
-            let data_odr_u8 = (pac::GPIOE::ptr() as *mut u8).add(0x14);
+            unsafe {
+                // Low byte of GPIOE ODR register (offset 0x14 from GPIOE base)
+                let data_odr_u8 = (pac::GPIOE::ptr() as *mut u8).add(0x14);
 
-            for page in 0..8 {
-                // Command mode: PB3 Low
-                gpiob.bsrr.write(|w| w.bits(1 << (3 + 16)));
+                for page in 0..8 {
+                    // Command mode: PB3 Low
+                    gpiob.bsrr.write(|w| w.bits(1 << (3 + 16)));
 
-                // Page selection (0xB0..0xB7)
-                core::ptr::write_volatile(data_odr_u8, 0xB0 | page as u8);
-                gpiod.bsrr.write(|w| w.bits(1 << 7));
-                gpiod.bsrr.write(|w| w.bits(1 << (7 + 16)));
-
-                // Column low nibble = 4 (controller is 132 col, LCD is 128)
-                core::ptr::write_volatile(data_odr_u8, 0x04);
-                gpiod.bsrr.write(|w| w.bits(1 << 7));
-                gpiod.bsrr.write(|w| w.bits(1 << (7 + 16)));
-
-                // Column high nibble = 0 (0x10)
-                core::ptr::write_volatile(data_odr_u8, 0x10);
-                gpiod.bsrr.write(|w| w.bits(1 << 7));
-                gpiod.bsrr.write(|w| w.bits(1 << (7 + 16)));
-
-                // Data mode: PB3 High (set ONCE for the entire 128-byte page!)
-                gpiob.bsrr.write(|w| w.bits(1 << 3));
-
-                let start = page * WIDTH;
-                let end = start + WIDTH;
-                for &byte in &self.framebuffer[start..end] {
-                    core::ptr::write_volatile(data_odr_u8, byte);
+                    // Page selection (0xB0..0xB7)
+                    core::ptr::write_volatile(data_odr_u8, 0xB0 | page as u8);
                     gpiod.bsrr.write(|w| w.bits(1 << 7));
                     gpiod.bsrr.write(|w| w.bits(1 << (7 + 16)));
+
+                    // Column low nibble = 4 (controller is 132 col, LCD is 128)
+                    core::ptr::write_volatile(data_odr_u8, 0x04);
+                    gpiod.bsrr.write(|w| w.bits(1 << 7));
+                    gpiod.bsrr.write(|w| w.bits(1 << (7 + 16)));
+
+                    // Column high nibble = 0 (0x10)
+                    core::ptr::write_volatile(data_odr_u8, 0x10);
+                    gpiod.bsrr.write(|w| w.bits(1 << 7));
+                    gpiod.bsrr.write(|w| w.bits(1 << (7 + 16)));
+
+                    // Data mode: PB3 High (set ONCE for the entire 128-byte page!)
+                    gpiob.bsrr.write(|w| w.bits(1 << 3));
+
+                    let start = page * WIDTH;
+                    let end = start + WIDTH;
+                    for &byte in &self.framebuffer[start..end] {
+                        core::ptr::write_volatile(data_odr_u8, byte);
+                        gpiod.bsrr.write(|w| w.bits(1 << 7));
+                        gpiod.bsrr.write(|w| w.bits(1 << (7 + 16)));
+                    }
                 }
             }
         }
