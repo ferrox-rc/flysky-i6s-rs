@@ -661,7 +661,7 @@ fn format_and_save_all(storage: &RadioStorage) {
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 128];
+    let mut buf = [0u8; 256];
     let _ = block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio));
     for idx in 0..NUM_MODELS {
         let key = KEY_MODEL_BASE + idx as u8;
@@ -677,7 +677,7 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 128];
+    let mut buf = [0u8; 256];
 
     // 1. Try reading RadioConfig from sequential-storage log
     let radio_res: Result<Option<RadioConfig>, _> = block_on(map.fetch_item(&mut buf, &KEY_RADIO));
@@ -762,7 +762,7 @@ pub fn save_active_model(storage: &RadioStorage) -> bool {
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 128];
+    let mut buf = [0u8; 256];
     let idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
     let key = KEY_MODEL_BASE + idx as u8;
     block_on(map.store_item(&mut buf, &key, &storage.models[idx])).is_ok()
@@ -775,7 +775,7 @@ pub fn save_radio_config(storage: &RadioStorage) -> bool {
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 128];
+    let mut buf = [0u8; 256];
     block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio)).is_ok()
 }
 
@@ -801,7 +801,7 @@ pub fn load_saved_rx_id() -> Option<u32> {
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 128];
+    let mut buf = [0u8; 256];
     if let Ok(Some(radio)) = block_on(map.fetch_item::<RadioConfig>(&mut buf, &KEY_RADIO)) {
         let active_idx = (radio.active_model as usize).min(NUM_MODELS - 1);
         let key = KEY_MODEL_BASE + active_idx as u8;
@@ -873,5 +873,37 @@ mod tests {
             assert_eq!(m.name[6], expected_digit1);
             assert_eq!(m.name[7], expected_digit2);
         }
+    }
+
+    #[test]
+    fn test_storage_buffer_capacity_for_sequential_storage() {
+        use sequential_storage::map::Value;
+
+        let model = ModelConfig::default_for_index(0);
+        let radio = RadioConfig::default_factory();
+        let key = 10u8;
+
+        // In sequential_storage, buffer holds key + value.
+        // A 128-byte buffer fails because key takes >= 1 byte, leaving < 128 bytes for ModelConfig!
+        let mut buf_128 = [0u8; 128];
+        let key_len = key.serialize_into(&mut buf_128).unwrap();
+        let err = model.serialize_into(&mut buf_128[key_len..]);
+        assert!(err.is_err(), "128-byte buffer must fail because ModelConfig is 128 bytes and key needs space");
+
+        // A 256-byte buffer succeeds with plenty of room for key + ModelConfig / RadioConfig
+        let mut buf_256 = [0u8; 256];
+        let key_len = key.serialize_into(&mut buf_256).unwrap();
+        let val_len = model.serialize_into(&mut buf_256[key_len..]).unwrap();
+        assert_eq!(val_len, 128);
+        assert!(key_len + val_len <= 256);
+
+        let (deserialized_model, d_len) = ModelConfig::deserialize_from(&buf_256[key_len..][..val_len]).unwrap();
+        assert_eq!(d_len, 128);
+        assert_eq!(deserialized_model.name, model.name);
+
+        let key_radio_len = KEY_RADIO.serialize_into(&mut buf_256).unwrap();
+        let radio_len = radio.serialize_into(&mut buf_256[key_radio_len..]).unwrap();
+        assert_eq!(radio_len, 128);
+        assert!(key_radio_len + radio_len <= 256);
     }
 }
