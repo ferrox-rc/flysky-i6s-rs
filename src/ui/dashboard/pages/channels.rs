@@ -4,7 +4,7 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Line, PrimitiveStyle, Rectangle},
+    primitives::Rectangle,
     text::Text,
 };
 
@@ -13,9 +13,9 @@ use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS
 use crate::ui::format::{ascii_as_str, u16_to_dec_4};
 use crate::ui::widgets;
 
+#[inline(never)]
 pub fn render(lcd: &mut St7567, rf_chs: &[u16; NUM_CHANNELS], is_binding: bool) {
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-    let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
     // Col 0 (CH 1..9) at x = 2..62, Col 1 (CH 10..18) at x = 66..126
     for col in 0..2 {
@@ -61,10 +61,7 @@ pub fn render(lcd: &mut St7567, rf_chs: &[u16; NUM_CHANNELS], is_binding: bool) 
     }
 
     // Vertical divider line between columns
-    Line::new(Point::new(64, 11), Point::new(64, 54))
-        .into_styled(sep_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_vline(64, 11, 44, true);
 
     // Standardized Footer (y = 55..63)
     if is_binding {

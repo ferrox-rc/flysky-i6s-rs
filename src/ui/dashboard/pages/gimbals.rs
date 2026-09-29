@@ -14,6 +14,7 @@ use crate::trim::{self, TrimController};
 use crate::ui::format::{ascii_as_str, format_percent, format_throttle_percent, format_trim};
 use crate::ui::widgets;
 
+#[inline(never)]
 pub fn render(
     lcd: &mut St7567,
     state: &InputState,

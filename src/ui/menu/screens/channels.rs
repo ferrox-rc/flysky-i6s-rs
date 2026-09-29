@@ -10,7 +10,7 @@ use embedded_graphics::{
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-use crate::menu::format::{u16_to_dec_4, SOURCE_NAMES};
+use crate::menu::format::{ascii_as_str, u16_to_dec_4, SOURCE_NAMES};
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS};
@@ -37,6 +37,7 @@ const CH_NAMES: [&str; 18] = [
     "CH18     ",
 ];
 
+#[inline(never)]
 pub fn update_aux_channels(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -109,7 +110,7 @@ pub fn update_aux_channels(
             ch_buf[2] = b'0' + ch_num as u8;
             ch_buf[3] = b' ';
         }
-        let ch_label = core::str::from_utf8(&ch_buf).unwrap_or("CH??: ");
+        let ch_label = ascii_as_str(&ch_buf);
 
         let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(10);
         widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(SOURCE_NAMES[src_idx]), 48);
@@ -123,6 +124,7 @@ pub fn update_aux_channels(
     widgets::draw_footer(lcd, footer);
 }
 
+#[inline(never)]
 pub fn update_channel_reverse(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -174,6 +176,7 @@ pub fn update_channel_reverse(
     widgets::draw_footer(lcd, "[OK] Toggle   [ESC] Back");
 }
 
+#[inline(never)]
 pub fn update_channel_monitor(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -234,7 +237,7 @@ pub fn update_channel_monitor(
 
         let mut val_buf = [0u8; 4];
         u16_to_dec_4(us, &mut val_buf);
-        let val_str = core::str::from_utf8(&val_buf).unwrap_or("1500");
+        let val_str = ascii_as_str(&val_buf);
         Text::new(val_str, Point::new(90, y + 5), text_style_small)
             .draw(lcd)
             .ok();

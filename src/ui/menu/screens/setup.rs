@@ -9,12 +9,13 @@ use embedded_graphics::{
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-use crate::menu::format::{ascii_as_str, u32_to_hex};
+use crate::menu::format::{ascii_as_str, format_deci_volt, format_pct_3, format_u8_2, u32_to_hex};
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::storage::{self, RadioStorage};
 use crate::trim::TrimController;
 
+#[inline(never)]
 pub fn update_radio_setup(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -155,31 +156,19 @@ pub fn update_radio_setup(
                 widgets::draw_list_row(lcd, slot, is_sel, "BL Timer:", Some(timer_str), 62);
             }
             4 => {
-                let mut b_buf = *b"   %";
+                let mut b_buf = [0u8; 4];
                 let pct = (storage.radio.backlight_brightness * 10).min(100);
-                if pct == 100 {
-                    b_buf = *b"100%";
-                } else {
-                    b_buf[0] = b' ';
-                    b_buf[1] = b'0' + (pct / 10);
-                    b_buf[2] = b'0';
-                    b_buf[3] = b'%';
-                }
-                let b_str = core::str::from_utf8(&b_buf).unwrap_or("100%");
+                let b_str = format_pct_3(pct, &mut b_buf);
                 widgets::draw_list_row(lcd, slot, is_sel, "BL Level:", Some(b_str), 62);
             }
             5 => {
-                let mut c_buf = *b"00";
-                c_buf[0] = b'0' + (storage.radio.lcd_contrast / 10);
-                c_buf[1] = b'0' + (storage.radio.lcd_contrast % 10);
-                let c_str = core::str::from_utf8(&c_buf).unwrap_or("37");
+                let mut c_buf = [0u8; 2];
+                let c_str = format_u8_2(storage.radio.lcd_contrast, &mut c_buf);
                 widgets::draw_list_row(lcd, slot, is_sel, "Contrast:", Some(c_str), 62);
             }
             6 => {
-                let mut v_buf = *b"0.0V";
-                v_buf[0] = b'0' + (storage.radio.vbat_warn_deci / 10);
-                v_buf[2] = b'0' + (storage.radio.vbat_warn_deci % 10);
-                let v_str = core::str::from_utf8(&v_buf).unwrap_or("4.4V");
+                let mut v_buf = [0u8; 4];
+                let v_str = format_deci_volt(storage.radio.vbat_warn_deci, &mut v_buf);
                 widgets::draw_list_row(lcd, slot, is_sel, "Bat Warn:", Some(v_str), 62);
             }
             7 => {
@@ -202,6 +191,7 @@ pub fn update_radio_setup(
     widgets::draw_footer(lcd, "[OK] Toggle/Cycle   [ESC] Back");
 }
 
+#[inline(never)]
 pub fn update_rx_setup(
     ctrl: &mut MenuController,
     lcd: &mut St7567,

@@ -33,6 +33,7 @@ fn exit_to_parent_menu(ctrl: &mut MenuController, buzzer: &mut Buzzer) {
     buzzer.click();
 }
 
+#[inline(never)]
 pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzzer: &mut Buzzer) {
     let engine = crsf::get_config_engine();
 

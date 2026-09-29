@@ -4,7 +4,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Line, PrimitiveStyle},
     text::Text,
 };
 
@@ -14,6 +13,7 @@ use crate::rf::afhds2a::TelemetryData;
 use crate::ui::format::{ascii_as_str, format_vbat, u32_to_dec_5};
 use crate::ui::widgets;
 
+#[inline(never)]
 #[allow(clippy::too_many_arguments)]
 pub fn render(
     lcd: &mut St7567,
@@ -26,7 +26,6 @@ pub fn render(
     is_binding: bool,
 ) {
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
     if is_crsf {
         let ct = crsf::get_telemetry();
@@ -77,10 +76,7 @@ pub fn render(
         Text::new(ant_str, Point::new(2, 51), text_style).draw(lcd).ok();
 
         // Vertical divider line between columns
-        Line::new(Point::new(64, 12), Point::new(64, 53))
-            .into_styled(sep_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_vline(64, 12, 42, true);
 
         // Right Column (x = 66..126)
         // Row 1 (y = 21): TX Power (mW)
@@ -171,10 +167,7 @@ pub fn render(
         Text::new(rx_p_str, Point::new(24, 51), text_style).draw(lcd).ok();
 
         // Vertical divider line between columns
-        Line::new(Point::new(64, 12), Point::new(64, 53))
-            .into_styled(sep_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_vline(64, 12, 42, true);
 
         // Right Column (x = 66..126)
         // Row 1 (y = 21): RX Battery Voltage

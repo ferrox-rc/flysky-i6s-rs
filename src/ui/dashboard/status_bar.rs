@@ -4,7 +4,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Line, PrimitiveStyle, Rectangle},
     text::Text,
 };
 
@@ -17,6 +16,7 @@ use crate::usb;
 
 const HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
 
+#[inline(never)]
 #[allow(clippy::too_many_arguments)]
 pub fn render(
     lcd: &mut St7567,
@@ -34,7 +34,6 @@ pub fn render(
     telem_seen: &mut bool,
 ) {
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
     let is_crsf = storage.active_model().rf_protocol == 1;
 
     // --- Model Name (x = 2..60, y = 9) ---
@@ -91,10 +90,7 @@ pub fn render(
         }
 
         if (blink_phase & 0x10) != 0 {
-            Rectangle::new(Point::new(97, 0), Size::new(31, 10))
-                .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
-                .draw(lcd)
-                .ok();
+            lcd.fill_rect(97, 0, 31, 10, true);
             let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
             Text::new(vbat_str, Point::new(98, 9), inv_style).draw(lcd).ok();
         } else {
@@ -144,5 +140,5 @@ pub fn render(
     }
 
     // Header divider line (y = 11)
-    Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(sep_style).draw(lcd).ok();
+    lcd.draw_hline(0, 11, 128, true);
 }

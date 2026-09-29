@@ -9,7 +9,6 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Line, PrimitiveStyle, Rectangle},
     text::Text,
 };
 
@@ -73,7 +72,7 @@ impl FlightPipeline {
     /// High-rate flight pipeline execution tick (multi-kHz execution speed).
     /// Polls physical sticks, evaluates throttle curves, computes matrix mixer,
     /// checks arm status, and publishes channels to RF (AFHDS 2A / CRSF) and USB.
-    #[inline(always)]
+    #[inline(never)]
     fn tick(
         &mut self,
         now: u32,
@@ -513,6 +512,37 @@ impl BackgroundIdleManager {
         }
         self.last_display_ms = now;
 
+        self.render_display_frame(
+            lcd,
+            keys,
+            dt_ms,
+            flight,
+            storage,
+            trims,
+            buzzer,
+            dashboard,
+            menu_controller,
+            calib_wizard,
+            rf_ok,
+        );
+    }
+
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn render_display_frame(
+        &mut self,
+        lcd: &mut St7567,
+        keys: u16,
+        dt_ms: u16,
+        flight: &FlightSnapshot,
+        storage: &mut storage::RadioStorage,
+        trims: &mut trim::TrimController,
+        buzzer: &mut buzzer::Buzzer,
+        dashboard: &mut ui::dashboard::DashboardController,
+        menu_controller: &mut menu::MenuController,
+        calib_wizard: &mut calib::CalibWizard,
+        rf_ok: bool,
+    ) {
         if menu_controller.is_active() {
             menu_controller.update(
                 lcd,
@@ -541,6 +571,7 @@ impl BackgroundIdleManager {
             calib_wizard.update(lcd, storage, &flight.state.raw, keys, dt_ms.max(20), buzzer);
             lcd.flush();
         } else {
+            let model = storage.active_model();
             let mut timer_buf = [0u8; 8];
             let timer_display = if model.timer_source != 0 {
                 let (disp_secs, expired) = if model.timer_secs > 0 {
@@ -589,17 +620,133 @@ impl BackgroundIdleManager {
     }
 }
 
+/// Pre-flight safety check: verifies throttle at idle and switches in safe UP positions.
+#[inline(never)]
+fn run_preflight_check(
+    storage: &storage::RadioStorage,
+    buzzer: &mut buzzer::Buzzer,
+    lcd: &mut St7567,
+    calib_wizard: &calib::CalibWizard,
+    was_watchdog_reset: bool,
+) {
+    if calib_wizard.is_active() || was_watchdog_reset {
+        return;
+    }
+
+    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+
+    let mut preflight_beep_timer: u32 = 0;
+    let mut preflight_last_render: u32 = 0;
+    let mut warned = false;
+
+    loop {
+        watchdog::feed();
+
+        let now = time::millis();
+        let state = input::poll();
+        let keys = boot::scan_keys();
+
+        let is_calibrated = storage.radio.sticks[2].min > 200;
+        let thr_unsafe = if is_calibrated {
+            state.sticks.throttle > -900
+        } else {
+            state.raw[2] > 1400
+        };
+
+        let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
+        let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
+        let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
+        let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
+        let sw_unsafe = sa_unsafe || sb_unsafe || sc_unsafe || sd_unsafe;
+
+        let cancel_pressed = (keys & (1 << 11)) != 0;
+
+        if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
+            if warned {
+                buzzer.play_tone(2200, 40);
+            }
+            break;
+        }
+        warned = true;
+
+        // Lock RF transmission to safe idle/failsafe during warning
+        rf::set_channels(&SAFE_IDLE_CHANNELS);
+        usb::poll(
+            now,
+            &SAFE_IDLE_CHANNELS,
+            &state.switches,
+            &rf::get_telemetry(),
+            state.battery_mv,
+        );
+
+        if now.wrapping_sub(preflight_beep_timer) >= 800 {
+            preflight_beep_timer = now;
+            buzzer.warn_preflight();
+        }
+
+        if now.wrapping_sub(preflight_last_render) >= 33 {
+            let dt = (now.wrapping_sub(preflight_last_render)).min(100) as u16;
+            preflight_last_render = now;
+            buzzer.tick(dt);
+
+            lcd.clear(BinaryColor::Off).ok();
+            Text::new("SAFETY WARNING!", Point::new(16, 9), text_style)
+                .draw(lcd)
+                .ok();
+            lcd.draw_hline(0, 11, 128, true);
+
+            if thr_unsafe {
+                Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style)
+                    .draw(lcd)
+                    .ok();
+            }
+
+            if sw_unsafe {
+                Text::new("SWITCH WARNING:", Point::new(2, 34), text_style)
+                    .draw(lcd)
+                    .ok();
+                let mut sw_warn = [b' '; 20];
+                let mut col = 0;
+                for &(unsafe_flag, label) in &[
+                    (sa_unsafe, b"[SA]"),
+                    (sb_unsafe, b"[SB]"),
+                    (sc_unsafe, b"[SC]"),
+                    (sd_unsafe, b"[SD]"),
+                ] {
+                    if unsafe_flag && col + 4 <= sw_warn.len() {
+                        sw_warn[col..col + 4].copy_from_slice(label);
+                        col += 4;
+                        if col < sw_warn.len() {
+                            sw_warn[col] = b' ';
+                            col += 1;
+                        }
+                    }
+                }
+                let sw_str =
+                    ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
+                Text::new(sw_str, Point::new(2, 44), text_style)
+                    .draw(lcd)
+                    .ok();
+            }
+
+            lcd.draw_hline(0, 55, 128, true);
+            Text::new(
+                "Lower Thr/Safe SW  [ESC]Skip",
+                Point::new(2, 62),
+                text_style_small,
+            )
+            .draw(lcd)
+            .ok();
+            lcd.flush();
+        }
+    }
+}
+
 /// Draw centered modal overlay for timer reset hold progress or completion confirmation.
 fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
-    let bg_rect = Rectangle::new(Point::new(18, 19), Size::new(92, 26));
-    bg_rect
-        .into_styled(PrimitiveStyle::with_fill(BinaryColor::Off))
-        .draw(lcd)
-        .ok();
-    bg_rect
-        .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-        .draw(lcd)
-        .ok();
+    lcd.fill_rect(18, 19, 92, 26, false);
+    lcd.draw_rect(18, 19, 92, 26, true);
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
 
@@ -613,18 +760,12 @@ fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
             .ok();
 
         // Progress bar container: 74 x 6, positioned at (27, 33)
-        Rectangle::new(Point::new(27, 33), Size::new(74, 6))
-            .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-            .draw(lcd)
-            .ok();
+        lcd.draw_rect(27, 33, 74, 6, true);
 
         // Progress fill: up to 70px wide
         let fill_w = ((progress_pct as u32 * 70) / 100).min(70);
         if fill_w > 0 {
-            Rectangle::new(Point::new(29, 35), Size::new(fill_w, 2))
-                .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
-                .draw(lcd)
-                .ok();
+            lcd.fill_rect(29, 35, fill_w, 2, true);
         }
     }
 }
@@ -733,129 +874,9 @@ fn main() -> ! {
     }
     watchdog::feed();
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-    let sep_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-
     // 10. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     // Bypassed on watchdog reset to immediately resume RF control in flight
-    if !calib_wizard.is_active() && !was_watchdog_reset {
-        let mut preflight_beep_timer: u32 = 0;
-        let mut preflight_last_render: u32 = 0;
-        let mut warned = false;
-
-        loop {
-            watchdog::feed();
-
-            let now = time::millis();
-            let state = input::poll();
-            let keys = boot::scan_keys();
-
-            // Adaptive throttle idle check:
-            // When calibrated, state.sticks.throttle is normalized (-1000..+1000). Idle is < -900.
-            // When uncalibrated (default factory endpoints min <= 200), check raw ADC channel 2 (Throttle vertical).
-            // FlySky gimbals rest at idle below ~1400 ADC counts (ADC range 0..4095).
-            let is_calibrated = storage.radio.sticks[2].min > 200;
-            let thr_unsafe = if is_calibrated {
-                state.sticks.throttle > -900
-            } else {
-                state.raw[2] > 1400
-            };
-
-            let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
-            let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
-            let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
-            let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
-            let sw_unsafe = sa_unsafe || sb_unsafe || sc_unsafe || sd_unsafe;
-
-            let cancel_pressed = (keys & (1 << 11)) != 0;
-
-            if (!thr_unsafe && !sw_unsafe) || cancel_pressed {
-                if warned {
-                    buzzer.play_tone(2200, 40);
-                }
-                break;
-            }
-            warned = true;
-
-            // Lock RF transmission to safe idle/failsafe during warning
-            rf::set_channels(&SAFE_IDLE_CHANNELS);
-            usb::poll(
-                now,
-                &SAFE_IDLE_CHANNELS,
-                &state.switches,
-                &rf::get_telemetry(),
-                state.battery_mv,
-            );
-
-            if now.wrapping_sub(preflight_beep_timer) >= 800 {
-                preflight_beep_timer = now;
-                buzzer.warn_preflight();
-            }
-
-            if now.wrapping_sub(preflight_last_render) >= 33 {
-                let dt = (now.wrapping_sub(preflight_last_render)).min(100) as u16;
-                preflight_last_render = now;
-                buzzer.tick(dt);
-
-                lcd.clear(BinaryColor::Off).ok();
-                Text::new("SAFETY WARNING!", Point::new(16, 9), text_style)
-                    .draw(&mut lcd)
-                    .ok();
-                Line::new(Point::new(0, 11), Point::new(127, 11))
-                    .into_styled(sep_style)
-                    .draw(&mut lcd)
-                    .ok();
-
-                if thr_unsafe {
-                    Text::new("THROTTLE NOT AT IDLE!", Point::new(2, 23), text_style)
-                        .draw(&mut lcd)
-                        .ok();
-                }
-
-                if sw_unsafe {
-                    Text::new("SWITCH WARNING:", Point::new(2, 34), text_style)
-                        .draw(&mut lcd)
-                        .ok();
-                    let mut sw_warn = [b' '; 20];
-                    let mut col = 0;
-                    for &(unsafe_flag, label) in &[
-                        (sa_unsafe, b"[SA]"),
-                        (sb_unsafe, b"[SB]"),
-                        (sc_unsafe, b"[SC]"),
-                        (sd_unsafe, b"[SD]"),
-                    ] {
-                        if unsafe_flag && col + 4 <= sw_warn.len() {
-                            sw_warn[col..col + 4].copy_from_slice(label);
-                            col += 4;
-                            if col < sw_warn.len() {
-                                sw_warn[col] = b' ';
-                                col += 1;
-                            }
-                        }
-                    }
-                    let sw_str =
-                        ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
-                    Text::new(sw_str, Point::new(2, 44), text_style)
-                        .draw(&mut lcd)
-                        .ok();
-                }
-
-                Line::new(Point::new(0, 55), Point::new(127, 55))
-                    .into_styled(sep_style)
-                    .draw(&mut lcd)
-                    .ok();
-                Text::new(
-                    "Lower Thr/Safe SW  [ESC]Skip",
-                    Point::new(2, 62),
-                    text_style_small,
-                )
-                .draw(&mut lcd)
-                .ok();
-                lcd.flush();
-            }
-        }
-    }
+    run_preflight_check(storage, &mut buzzer, &mut lcd, &calib_wizard, was_watchdog_reset);
 
     // Initialize execution tiers
     let init_state = input::poll();
