@@ -10,7 +10,7 @@ use embedded_graphics::{
 
 use crate::display::St7567;
 use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS};
-use crate::ui::format::u16_to_dec_4;
+use crate::ui::format::{ascii_as_str, u16_to_dec_4};
 use crate::ui::widgets;
 
 pub fn render(
@@ -39,7 +39,7 @@ pub fn render(
                 lbl_buf[0] = b' ';
                 lbl_buf[1] = b'1' + ch as u8;
             }
-            let lbl_str = core::str::from_utf8(&lbl_buf).unwrap_or("??:");
+            let lbl_str = ascii_as_str(&lbl_buf);
             Text::new(lbl_str, Point::new(col_x, y + 5), text_style_small).draw(lcd).ok();
 
             // Bar gauge (width 22, height 5) using shared widget
@@ -54,7 +54,7 @@ pub fn render(
             // Value: "1500"
             let mut val_buf = [0u8; 4];
             u16_to_dec_4(us, &mut val_buf);
-            let val_str = core::str::from_utf8(&val_buf).unwrap_or("1500");
+            let val_str = ascii_as_str(&val_buf);
             Text::new(val_str, Point::new(col_x + 37, y + 5), text_style_small).draw(lcd).ok();
         }
     }

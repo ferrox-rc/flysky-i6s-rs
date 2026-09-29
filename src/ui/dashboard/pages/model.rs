@@ -10,7 +10,7 @@ use embedded_graphics::{
 use crate::display::St7567;
 use crate::rf::afhds2a::TelemetryData;
 use crate::storage::RadioStorage;
-use crate::ui::format::{format_vbat, u32_to_hex};
+use crate::ui::format::{ascii_as_str, format_vbat, u32_to_hex};
 use crate::ui::widgets;
 
 pub fn render(
@@ -24,7 +24,7 @@ pub fn render(
     let is_crsf = active.rf_protocol == 1;
 
     // Line 1 (y = 21): Model Name & Type
-    let m_name = core::str::from_utf8(&active.name).unwrap_or("MODEL");
+    let m_name = ascii_as_str(&active.name);
     Text::new(m_name, Point::new(2, 21), text_style).draw(lcd).ok();
 
     let type_str = match active.model_type {
@@ -38,7 +38,7 @@ pub fn render(
     // Line 2 (y = 31): Receiver ID
     let mut rx_buf = [b'0'; 8];
     u32_to_hex(active.rx_id, &mut rx_buf);
-    let rx_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
+    let rx_str = ascii_as_str(&rx_buf);
     Text::new("RxID:", Point::new(2, 31), text_style).draw(lcd).ok();
     Text::new(rx_str, Point::new(36, 31), text_style).draw(lcd).ok();
 
@@ -65,7 +65,7 @@ pub fn render(
             r_buf[5] = b' ';
             r_buf[6] = b'0' + r;
         }
-        let r_str = core::str::from_utf8(&r_buf).unwrap_or("RSSI:--%");
+        let r_str = ascii_as_str(&r_buf);
         Text::new(r_str, Point::new(64, 51), text_style).draw(lcd).ok();
     } else if is_crsf {
         Text::new("CRSF: DISCONNECTED", Point::new(2, 51), text_style).draw(lcd).ok();

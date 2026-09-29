@@ -130,6 +130,17 @@ pub fn is_switch_active(condition: u8, switches: &Switches) -> bool {
     }
 }
 
+/// Evaluate arm switch condition with bounds validation.
+/// Returns false if arm_switch is 0 (unassigned) or out of range.
+#[inline]
+pub fn eval_arm_switch(arm_switch: u8, switches: &Switches) -> bool {
+    if arm_switch > 0 && arm_switch <= 10 {
+        is_switch_active(arm_switch, switches)
+    } else {
+        false
+    }
+}
+
 /// Determine whether High Rates (true) or Low Rates (false) are active.
 pub fn is_dr_high(dr_switch: u8, switches: &Switches) -> bool {
     match dr_switch {

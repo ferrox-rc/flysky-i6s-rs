@@ -12,7 +12,7 @@ use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::rf::{self, afhds2a::TelemetryData};
 use crate::storage::RadioStorage;
-use crate::ui::format::format_vbat;
+use crate::ui::format::{ascii_as_str, format_vbat, write_dec2};
 use crate::usb;
 
 const HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
@@ -39,11 +39,10 @@ pub fn render(
 
     // --- Model Name (x = 2..60, y = 9) ---
     let act_idx = storage.radio.active_model as usize;
-    let raw_name = core::str::from_utf8(&storage.active_model().name).unwrap_or("").trim();
+    let raw_name = ascii_as_str(&storage.active_model().name).trim();
     let mut m_buf = *b"M00";
-    m_buf[1] = b'0' + ((act_idx + 1) / 10) as u8;
-    m_buf[2] = b'0' + ((act_idx + 1) % 10) as u8;
-    let m_fallback = core::str::from_utf8(&m_buf).unwrap_or("M01");
+    write_dec2((act_idx + 1) as u8, &mut m_buf[1..3]);
+    let m_fallback = ascii_as_str(&m_buf);
     let m_display = if raw_name.is_empty() { m_fallback } else { raw_name };
     Text::new(m_display, Point::new(2, 9), text_style).draw(lcd).ok();
 
@@ -53,7 +52,7 @@ pub fn render(
         let mut err_buf = *b"E:00";
         err_buf[2] = HEX_CHARS[((id >> 4) & 0x0F) as usize];
         err_buf[3] = HEX_CHARS[(id & 0x0F) as usize];
-        let err_str = core::str::from_utf8(&err_buf).unwrap_or("E:??");
+        let err_str = ascii_as_str(&err_buf);
         Text::new(err_str, Point::new(68, 9), text_style).draw(lcd).ok();
     } else if is_binding {
         Text::new("BIND", Point::new(68, 9), text_style).draw(lcd).ok();
@@ -65,9 +64,8 @@ pub fn render(
         if r >= 100 {
             Text::new("R:100", Point::new(65, 9), text_style).draw(lcd).ok();
         } else {
-            rssi_buf[2] = b'0' + (r / 10);
-            rssi_buf[3] = b'0' + (r % 10);
-            let r_str = core::str::from_utf8(&rssi_buf).unwrap_or("R:--%");
+            write_dec2(r, &mut rssi_buf[2..4]);
+            let r_str = ascii_as_str(&rssi_buf);
             Text::new(r_str, Point::new(65, 9), text_style).draw(lcd).ok();
         }
     } else if is_crsf {

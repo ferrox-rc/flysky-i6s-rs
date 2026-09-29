@@ -40,10 +40,9 @@ pub enum ToneStyle {
 
 impl ToneStyle {
     pub const fn from_u8(val: u8) -> Self {
-        if val == 0 {
-            ToneStyle::Simple
-        } else {
-            ToneStyle::Rich
+        match val {
+            0 => ToneStyle::Simple,
+            _ => ToneStyle::Rich,
         }
     }
 }
@@ -282,7 +281,7 @@ impl Buzzer {
     /// Power-on welcome chime: pleasant 4-note ascending fanfare (C6 -> E6 -> G6 -> C7).
     pub fn chime_welcome(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 4] = [
+            static MELODY: [Note; 4] = [
                 Note::new(1046, 110, 25), // C6
                 Note::new(1318, 110, 25), // E6
                 Note::new(1568, 120, 30), // G6
@@ -297,7 +296,7 @@ impl Buzzer {
     /// Arming confirmation: crisp 2-note rising chirp.
     pub fn chime_armed(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 2] = [
+            static MELODY: [Note; 2] = [
                 Note::new(1800, 45, 10),
                 Note::new(2600, 75, 0),
             ];
@@ -310,7 +309,7 @@ impl Buzzer {
     /// Disarming confirmation: crisp 2-note falling chirp.
     pub fn chime_disarmed(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 2] = [
+            static MELODY: [Note; 2] = [
                 Note::new(2600, 45, 10),
                 Note::new(1800, 75, 0),
             ];
@@ -329,7 +328,7 @@ impl Buzzer {
     /// Trim center reference confirmed. Higher pitch distinct tone.
     pub fn trim_center(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 2] = [
+            static MELODY: [Note; 2] = [
                 Note::new(2400, 30, 10),
                 Note::new(3000, 50, 0),
             ];
@@ -342,7 +341,7 @@ impl Buzzer {
     /// Trim limit reached (cannot increment/decrement further).
     pub fn trim_limit(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 2] = [
+            static MELODY: [Note; 2] = [
                 Note::new(1100, 40, 15),
                 Note::new(900, 60, 0),
             ];
@@ -355,7 +354,7 @@ impl Buzzer {
     /// Low battery warning alert: melodic 3-tone escalating chirp.
     pub fn warn_battery(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 3] = [
+            static MELODY: [Note; 3] = [
                 Note::new(2000, 60, 30),
                 Note::new(2300, 60, 30),
                 Note::new(2600, 90, 0),
@@ -369,7 +368,7 @@ impl Buzzer {
     /// Critical battery / failsafe urgent 2-tone siren.
     pub fn warn_critical(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 4] = [
+            static MELODY: [Note; 4] = [
                 Note::new(2800, 70, 20),
                 Note::new(1800, 70, 20),
                 Note::new(2800, 70, 20),
@@ -384,7 +383,7 @@ impl Buzzer {
     /// Pre-flight throttle / switch startup safety alarm (urgent alert).
     pub fn warn_preflight(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 3] = [
+            static MELODY: [Note; 3] = [
                 Note::new(2600, 70, 25),
                 Note::new(2600, 70, 25),
                 Note::new(2900, 90, 0),
@@ -398,7 +397,7 @@ impl Buzzer {
     /// Radio inactivity idle alarm (gentle reminder chirp).
     pub fn warn_inactivity(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 2] = [
+            static MELODY: [Note; 2] = [
                 Note::new(1600, 70, 30),
                 Note::new(2000, 100, 0),
             ];
@@ -411,7 +410,7 @@ impl Buzzer {
     /// Telemetry RSSI low warning alert (range warning < 40%).
     pub fn warn_rssi_low(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 2] = [
+            static MELODY: [Note; 2] = [
                 Note::new(1900, 50, 20),
                 Note::new(1700, 70, 0),
             ];
@@ -424,7 +423,7 @@ impl Buzzer {
     /// Telemetry RSSI critical alarm (range critical < 20%).
     pub fn warn_rssi_critical(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 4] = [
+            static MELODY: [Note; 4] = [
                 Note::new(2600, 40, 20),
                 Note::new(1800, 40, 20),
                 Note::new(2600, 40, 20),
@@ -439,7 +438,7 @@ impl Buzzer {
     /// Calibration wizard start confirmation chirp.
     pub fn chime_calib_start(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 2] = [
+            static MELODY: [Note; 2] = [
                 Note::new(2000, 50, 15),
                 Note::new(2500, 80, 0),
             ];
@@ -452,7 +451,7 @@ impl Buzzer {
     /// Calibration wizard success fanfare.
     pub fn chime_calib_success(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 3] = [
+            static MELODY: [Note; 3] = [
                 Note::new(2000, 40, 15),
                 Note::new(2500, 40, 15),
                 Note::new(3100, 100, 0),
@@ -471,7 +470,7 @@ impl Buzzer {
     /// Flight timer 1-minute alert: distinctive dual-tone chirp.
     pub fn timer_minute_beep(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            const MELODY: [Note; 2] = [
+            static MELODY: [Note; 2] = [
                 Note::new(2200, 40, 15),
                 Note::new(2800, 60, 0),
             ];

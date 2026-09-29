@@ -5,9 +5,7 @@ use crate::chip::{self, McuProfile};
 
 #[inline(always)]
 fn delay_cycles(n: u32) {
-    for _ in 0..n {
-        cortex_m::asm::nop();
-    }
+    cortex_m::asm::delay(n);
 }
 
 /// Initialize GPIO clocks and pins for keys and trims.

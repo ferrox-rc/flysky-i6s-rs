@@ -199,119 +199,110 @@ impl SerialHandler {
         let mut buf = [0u8; 320];
         let mut pos = 0;
 
-        macro_rules! append {
-            ($bytes:expr) => {
-                let slice = $bytes;
-                if pos + slice.len() <= buf.len() {
-                    buf[pos..pos + slice.len()].copy_from_slice(slice);
-                    pos += slice.len();
-                }
-            };
-        }
-
-        macro_rules! append_u32 {
-            ($val:expr) => {
-                let mut num_buf = [0u8; 10];
-                let mut n: u32 = $val;
-                let mut idx = 10;
-                if n == 0 {
-                    append!(b"0");
-                } else {
-                    while n > 0 {
-                        idx -= 1;
-                        num_buf[idx] = b'0' + (n % 10) as u8;
-                        n /= 10;
-                    }
-                    append!(&num_buf[idx..]);
-                }
-            };
-        }
-
-        macro_rules! append_i32 {
-            ($val:expr) => {
-                let v: i32 = $val as i32;
-                if v < 0 {
-                    append!(b"-");
-                    append_u32!((-v) as u32);
-                } else {
-                    append_u32!(v as u32);
-                }
-            };
-        }
-
-        macro_rules! append_volt {
-            ($mv:expr) => {
-                let v = ($mv / 1000) as u32;
-                let rem = ($mv % 1000) as u32;
-                let d1 = (rem / 100) as u8;
-                let d2 = ((rem % 100) / 10) as u8;
-                if v >= 10 {
-                    let mut v_buf = [b'0'; 5];
-                    v_buf[0] = b'0' + ((v / 10) % 10) as u8;
-                    v_buf[1] = b'0' + (v % 10) as u8;
-                    v_buf[2] = b'.';
-                    v_buf[3] = b'0' + d1;
-                    v_buf[4] = b'0' + d2;
-                    append!(&v_buf);
-                } else {
-                    let mut v_buf = [b'0'; 4];
-                    v_buf[0] = b'0' + (v as u8);
-                    v_buf[1] = b'.';
-                    v_buf[2] = b'0' + d1;
-                    v_buf[3] = b'0' + d2;
-                    append!(&v_buf);
-                }
-            };
-        }
-
-        append!(b"{\"vbat\":");
-        append_volt!(battery_mv);
-        append!(b",\"rssi\":");
-        append_u32!(telem.rssi as u32);
-        append!(b",\"rx_v\":");
-        append_volt!(telem.rx_voltage_mv);
-        append!(b",\"tx\":");
-        append_u32!(telem.packets_sent);
-        append!(b",\"rx\":");
-        append_u32!(telem.packets_received);
-        append!(b",\"err\":");
-        append_u32!(telem.packets_sent.saturating_sub(telem.packets_received));
+        append_bytes(&mut buf, &mut pos, b"{\"vbat\":");
+        append_volt(&mut buf, &mut pos, battery_mv);
+        append_bytes(&mut buf, &mut pos, b",\"rssi\":");
+        append_u32(&mut buf, &mut pos, telem.rssi as u32);
+        append_bytes(&mut buf, &mut pos, b",\"rx_v\":");
+        append_volt(&mut buf, &mut pos, telem.rx_voltage_mv);
+        append_bytes(&mut buf, &mut pos, b",\"tx\":");
+        append_u32(&mut buf, &mut pos, telem.packets_sent);
+        append_bytes(&mut buf, &mut pos, b",\"rx\":");
+        append_u32(&mut buf, &mut pos, telem.packets_received);
+        append_bytes(&mut buf, &mut pos, b",\"err\":");
+        append_u32(&mut buf, &mut pos, telem.packets_sent.saturating_sub(telem.packets_received));
         if crate::crsf::is_enabled() {
             let crsf = crate::crsf::get_telemetry();
-            append!(b",\"crsf\":{\"conn\":");
+            append_bytes(&mut buf, &mut pos, b",\"crsf\":{\"conn\":");
             if crsf.connected {
-                append!(b"true");
+                append_bytes(&mut buf, &mut pos, b"true");
             } else {
-                append!(b"false");
+                append_bytes(&mut buf, &mut pos, b"false");
             }
-            append!(b",\"lq\":");
-            append_u32!(crsf.uplink_link_quality as u32);
-            append!(b",\"rssi_dbm\":");
-            append_i32!(crsf.uplink_rssi_1);
-            append!(b",\"snr_db\":");
-            append_i32!(crsf.uplink_snr);
-            append!(b",\"ant\":");
-            append_u32!(crsf.active_antenna as u32);
-            append!(b",\"pwr_mw\":");
-            append_u32!(crsf.tx_power_mw as u32);
-            append!(b",\"rf_rate\":\"");
-            append!(crate::crsf::protocol::rf_mode_to_str(crsf.rf_mode).as_bytes());
-            append!(b"\",\"rx_vbat_mv\":");
-            append_u32!(crsf.rx_battery_mv as u32);
-            append!(b",\"rx_cap_mah\":");
-            append_u32!(crsf.rx_capacity_mah);
-            append!(b"}");
+            append_bytes(&mut buf, &mut pos, b",\"lq\":");
+            append_u32(&mut buf, &mut pos, crsf.uplink_link_quality as u32);
+            append_bytes(&mut buf, &mut pos, b",\"rssi_dbm\":");
+            append_i32(&mut buf, &mut pos, crsf.uplink_rssi_1 as i32);
+            append_bytes(&mut buf, &mut pos, b",\"snr_db\":");
+            append_i32(&mut buf, &mut pos, crsf.uplink_snr as i32);
+            append_bytes(&mut buf, &mut pos, b",\"ant\":");
+            append_u32(&mut buf, &mut pos, crsf.active_antenna as u32);
+            append_bytes(&mut buf, &mut pos, b",\"pwr_mw\":");
+            append_u32(&mut buf, &mut pos, crsf.tx_power_mw as u32);
+            append_bytes(&mut buf, &mut pos, b",\"rf_rate\":\"");
+            append_bytes(&mut buf, &mut pos, crate::crsf::protocol::rf_mode_to_str(crsf.rf_mode).as_bytes());
+            append_bytes(&mut buf, &mut pos, b"\",\"rx_vbat_mv\":");
+            append_u32(&mut buf, &mut pos, crsf.rx_battery_mv as u32);
+            append_bytes(&mut buf, &mut pos, b",\"rx_cap_mah\":");
+            append_u32(&mut buf, &mut pos, crsf.rx_capacity_mah);
+            append_bytes(&mut buf, &mut pos, b"}");
         }
-        append!(b",\"ch\":[");
+        append_bytes(&mut buf, &mut pos, b",\"ch\":[");
         for (i, &ch) in rf_chs.iter().enumerate() {
             if i > 0 {
-                append!(b",");
+                append_bytes(&mut buf, &mut pos, b",");
             }
-            append_u32!(ch as u32);
+            append_u32(&mut buf, &mut pos, ch as u32);
         }
-        append!(b"]}\r\n");
+        append_bytes(&mut buf, &mut pos, b"]}\r\n");
 
         write_all(serial, &buf[..pos]);
     }
 }
 
+#[inline]
+fn append_bytes(buf: &mut [u8], pos: &mut usize, slice: &[u8]) {
+    if *pos + slice.len() <= buf.len() {
+        buf[*pos..*pos + slice.len()].copy_from_slice(slice);
+        *pos += slice.len();
+    }
+}
+
+fn append_u32(buf: &mut [u8], pos: &mut usize, mut n: u32) {
+    if n == 0 {
+        append_bytes(buf, pos, b"0");
+    } else {
+        let mut num_buf = [0u8; 10];
+        let mut idx = 10;
+        while n > 0 {
+            idx -= 1;
+            num_buf[idx] = b'0' + (n % 10) as u8;
+            n /= 10;
+        }
+        append_bytes(buf, pos, &num_buf[idx..]);
+    }
+}
+
+fn append_i32(buf: &mut [u8], pos: &mut usize, v: i32) {
+    if v < 0 {
+        append_bytes(buf, pos, b"-");
+        append_u32(buf, pos, (-v) as u32);
+    } else {
+        append_u32(buf, pos, v as u32);
+    }
+}
+
+fn append_volt(buf: &mut [u8], pos: &mut usize, mv: u16) {
+    let v = (mv / 1000) as u32;
+    let rem = (mv % 1000) as u32;
+    let d1 = (rem / 100) as u8;
+    let d2 = ((rem % 100) / 10) as u8;
+    if v >= 10 {
+        let v_buf = [
+            b'0' + ((v / 10) % 10) as u8,
+            b'0' + (v % 10) as u8,
+            b'.',
+            b'0' + d1,
+            b'0' + d2,
+        ];
+        append_bytes(buf, pos, &v_buf);
+    } else {
+        let v_buf = [
+            b'0' + (v as u8),
+            b'.',
+            b'0' + d1,
+            b'0' + d2,
+        ];
+        append_bytes(buf, pos, &v_buf);
+    }
+}

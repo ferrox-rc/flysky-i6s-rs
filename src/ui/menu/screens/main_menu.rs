@@ -6,6 +6,23 @@ use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::storage::{RadioStorage, NUM_MODELS};
 
+const ITEM_COUNT: usize = 13;
+const ITEMS: [&str; ITEM_COUNT] = [
+    "1. Model Select",
+    "2. Model Setup",
+    "3. Dual Rate/Expo",
+    "4. Thr Curve",
+    "5. Wing/Mixer",
+    "6. Aux Channels",
+    "7. Ch Reverse",
+    "8. Radio Setup",
+    "9. Protocol Setup",
+    "10. Channel Monitor",
+    "11. Calibration",
+    "12. Analog Diag",
+    "13. System Info",
+];
+
 #[inline(never)]
 pub fn update(
     ctrl: &mut MenuController,
@@ -14,22 +31,6 @@ pub fn update(
     storage: &mut RadioStorage,
     buzzer: &mut Buzzer,
 ) {
-    const ITEM_COUNT: usize = 13;
-    const ITEMS: [&str; ITEM_COUNT] = [
-        "1. Model Select",
-        "2. Model Setup",
-        "3. Dual Rate/Expo",
-        "4. Thr Curve",
-        "5. Wing/Mixer",
-        "6. Aux Channels",
-        "7. Ch Reverse",
-        "8. Radio Setup",
-        "9. Protocol Setup",
-        "10. Channel Monitor",
-        "11. Calibration",
-        "12. Analog Diag",
-        "13. System Info",
-    ];
 
     if keys.cancel {
         ctrl.state = MenuState::Closed;

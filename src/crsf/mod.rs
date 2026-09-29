@@ -70,9 +70,11 @@ pub fn update_channels(now_ms: u32, channels: &[u16; 14]) {
     }
 }
 
-pub const MAX_PARAMS: usize = 64;
+pub const MAX_PARAMS: usize = 32;
+pub const MAX_ACTIVE_FOLDER_PARAMS: usize = 32;
 pub const MAX_FOLDER_ITEMS: usize = 32;
 pub const STRING_POOL_SIZE: usize = 1024;
+pub const FOLDER_STRING_POOL_SIZE: usize = 1024;
 pub const CHUNK_BUF_SIZE: usize = 256;
 
 static mut CHUNK_BUF: [u8; CHUNK_BUF_SIZE] = [0; CHUNK_BUF_SIZE];
@@ -276,6 +278,12 @@ pub struct ElrsConfigEngine {
     pub current_chunk: u8,
     pub expect_chunks_remain: u8,
     pub retry_count: u8,
+    pub folder_stack: [u8; 6],
+    pub folder_stack_len: usize,
+    pub current_folder: u8,
+    pub folder_loading: bool,
+    pub folder_name: [u8; 16],
+    pub folder_name_len: u8,
 }
 
 impl ElrsConfigEngine {
@@ -297,8 +305,14 @@ impl ElrsConfigEngine {
             last_req_ms: 0,
             next_req_ms: 0,
             current_chunk: 0,
-            expect_chunks_remain: 0xFF,
+            expect_chunks_remain: 0,
             retry_count: 0,
+            folder_stack: [0; 6],
+            folder_stack_len: 0,
+            current_folder: 0,
+            folder_loading: false,
+            folder_name: [0; 16],
+            folder_name_len: 0,
         }
     }
 }
@@ -520,50 +534,53 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
         }
     }
 
-    let mut found = false;
-    for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
-        if p.id == param_id {
-            p.value = val;
-            p.status = status;
-            p.max_value = max_val;
-            found = true;
-            break;
+    // Only store parameters belonging to current active folder!
+    if parent == CONFIG_ENGINE.current_folder {
+        let mut found = false;
+        for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+            if p.id == param_id {
+                p.value = val;
+                p.status = status;
+                p.max_value = max_val;
+                found = true;
+                break;
+            }
         }
-    }
-    if !found && CONFIG_ENGINE.params_len < MAX_PARAMS {
-        // Append name to string_pool
-        let name_offset = CONFIG_ENGINE.string_pool_len as u16;
-        let pool_avail_name = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
-        let actual_name_len = (name_len as usize).min(pool_avail_name);
-        if actual_name_len > 0 {
-            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_name_len]
-                .copy_from_slice(&chunk[2..2 + actual_name_len]);
-            CONFIG_ENGINE.string_pool_len += actual_name_len;
-        }
+        if !found && CONFIG_ENGINE.params_len < MAX_PARAMS {
+            // Append name to string_pool
+            let name_offset = CONFIG_ENGINE.string_pool_len as u16;
+            let pool_avail_name = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
+            let actual_name_len = (name_len as usize).min(pool_avail_name);
+            if actual_name_len > 0 {
+                CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_name_len]
+                    .copy_from_slice(&chunk[2..2 + actual_name_len]);
+                CONFIG_ENGINE.string_pool_len += actual_name_len;
+            }
 
-        // Append options to string_pool
-        let opt_offset = CONFIG_ENGINE.string_pool_len as u16;
-        let pool_avail_opt = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
-        let actual_opt_len = opt_slice_len.min(pool_avail_opt);
-        if actual_opt_len > 0 {
-            CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_opt_len]
-                .copy_from_slice(&chunk[rest_start..rest_start + actual_opt_len]);
-            CONFIG_ENGINE.string_pool_len += actual_opt_len;
-        }
+            // Append options to string_pool
+            let opt_offset = CONFIG_ENGINE.string_pool_len as u16;
+            let pool_avail_opt = STRING_POOL_SIZE.saturating_sub(CONFIG_ENGINE.string_pool_len);
+            let actual_opt_len = opt_slice_len.min(pool_avail_opt);
+            if actual_opt_len > 0 {
+                CONFIG_ENGINE.string_pool[CONFIG_ENGINE.string_pool_len..CONFIG_ENGINE.string_pool_len + actual_opt_len]
+                    .copy_from_slice(&chunk[rest_start..rest_start + actual_opt_len]);
+                CONFIG_ENGINE.string_pool_len += actual_opt_len;
+            }
 
-        CONFIG_ENGINE.params[CONFIG_ENGINE.params_len] = Parameter {
-            id: param_id,
-            parent,
-            param_type: raw_type,
-            value: val,
-            max_value: max_val,
-            status,
-            name_offset,
-            name_len: actual_name_len as u8,
-            options_offset: opt_offset,
-            options_len: actual_opt_len as u8,
-        };
-        CONFIG_ENGINE.params_len += 1;
+            CONFIG_ENGINE.params[CONFIG_ENGINE.params_len] = Parameter {
+                id: param_id,
+                parent,
+                param_type: raw_type,
+                value: val,
+                max_value: max_val,
+                status,
+                name_offset,
+                name_len: actual_name_len as u8,
+                options_offset: opt_offset,
+                options_len: actual_opt_len as u8,
+            };
+            CONFIG_ENGINE.params_len += 1;
+        }
     }
 }
 
@@ -589,7 +606,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     }
 
     // Sequence check: if expecting specific chunks_remain, discard duplicates / out-of-order
-    if CONFIG_ENGINE.expect_chunks_remain != 0xFF
+    if CONFIG_ENGINE.current_chunk > 0
         && chunks_remain != CONFIG_ENGINE.expect_chunks_remain
     {
         return;
@@ -630,7 +647,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     // Parameter stream complete! Parse reassembled payload
     let chunk = &CHUNK_BUF[..CHUNK_LEN];
     CONFIG_ENGINE.current_chunk = 0;
-    CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+    CONFIG_ENGINE.expect_chunks_remain = 0;
     CONFIG_ENGINE.retry_count = 0;
 
     parse_and_store_parameter(chunk, param_id, now_ms);
@@ -638,11 +655,11 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     // Only advance loading sequence if engine was actively in initial loading phase
     if let ElrsConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
         if param_id == loading_id {
-            if param_id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
+            if param_id < CONFIG_ENGINE.param_count {
                 let next_id = param_id + 1;
                 CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
                 CONFIG_ENGINE.current_chunk = 0;
-                CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+                CONFIG_ENGINE.expect_chunks_remain = 0;
                 CONFIG_ENGINE.retry_count = 0;
                 CHUNK_LEN = 0;
                 CHUNK_PARAM_ID = 0;
@@ -656,6 +673,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                 send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
             } else {
                 CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                CONFIG_ENGINE.folder_loading = false;
             }
         }
     }
@@ -672,9 +690,7 @@ unsafe fn elrs_tick(now_ms: u32) {
                 let mut i = 0;
                 while i < CONFIG_ENGINE.devices_len {
                     if now_ms.wrapping_sub(CONFIG_ENGINE.devices[i].last_seen_ms) > 3000 {
-                        for j in i..(CONFIG_ENGINE.devices_len - 1) {
-                            CONFIG_ENGINE.devices[j] = CONFIG_ENGINE.devices[j + 1];
-                        }
+                        CONFIG_ENGINE.devices.copy_within(i + 1..CONFIG_ENGINE.devices_len, i);
                         CONFIG_ENGINE.devices_len -= 1;
                     } else {
                         i += 1;
@@ -707,10 +723,10 @@ unsafe fn elrs_tick(now_ms: u32) {
                     // Advance to next parameter immediately to avoid freezing UI permanently.
                     CONFIG_ENGINE.retry_count = 0;
                     CONFIG_ENGINE.current_chunk = 0;
-                    CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+                    CONFIG_ENGINE.expect_chunks_remain = 0;
                     CHUNK_LEN = 0;
                     CHUNK_PARAM_ID = 0;
-                    if id < CONFIG_ENGINE.param_count && CONFIG_ENGINE.params_len < MAX_PARAMS {
+                    if id < CONFIG_ENGINE.param_count {
                         let next_id = id + 1;
                         CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
                         CONFIG_ENGINE.last_req_ms = now_ms;
@@ -718,6 +734,7 @@ unsafe fn elrs_tick(now_ms: u32) {
                         send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
                     } else {
                         CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                        CONFIG_ENGINE.folder_loading = false;
                     }
                 }
             }
@@ -765,8 +782,13 @@ pub fn start_config() {
         CONFIG_ENGINE.last_req_ms = now;
         CONFIG_ENGINE.next_req_ms = now.wrapping_add(1000);
         CONFIG_ENGINE.current_chunk = 0;
-        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CONFIG_ENGINE.expect_chunks_remain = 0;
         CONFIG_ENGINE.retry_count = 0;
+        CONFIG_ENGINE.folder_stack_len = 0;
+        CONFIG_ENGINE.current_folder = 0;
+        CONFIG_ENGINE.folder_loading = false;
+        CONFIG_ENGINE.folder_name = [0; 16];
+        CONFIG_ENGINE.folder_name_len = 0;
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
@@ -792,8 +814,13 @@ pub fn select_device(idx: usize) -> bool {
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.string_pool_len = 0;
         CONFIG_ENGINE.current_chunk = 0;
-        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CONFIG_ENGINE.expect_chunks_remain = 0;
         CONFIG_ENGINE.retry_count = 0;
+        CONFIG_ENGINE.folder_stack_len = 0;
+        CONFIG_ENGINE.current_folder = 0;
+        CONFIG_ENGINE.folder_loading = false;
+        CONFIG_ENGINE.folder_name = [0; 16];
+        CONFIG_ENGINE.folder_name_len = 0;
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.last_req_ms = now;
@@ -835,13 +862,99 @@ pub fn return_to_device_list() {
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.string_pool_len = 0;
         CONFIG_ENGINE.current_chunk = 0;
-        CONFIG_ENGINE.expect_chunks_remain = 0xFF;
+        CONFIG_ENGINE.expect_chunks_remain = 0;
+        CONFIG_ENGINE.folder_stack_len = 0;
+        CONFIG_ENGINE.current_folder = 0;
+        CONFIG_ENGINE.folder_loading = false;
+        CONFIG_ENGINE.folder_name = [0; 16];
+        CONFIG_ENGINE.folder_name_len = 0;
         CHUNK_LEN = 0;
         CHUNK_PARAM_ID = 0;
         CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
         CONFIG_ENGINE.last_req_ms = now;
         CONFIG_ENGINE.next_req_ms = now.wrapping_add(1000);
         send_ping();
+    }
+}
+
+/// Enter a subfolder by ID and display name, streaming its items on demand.
+pub fn enter_folder(folder_id: u8, name: &str) {
+    unsafe {
+        if CONFIG_ENGINE.folder_stack_len < CONFIG_ENGINE.folder_stack.len() {
+            CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len] = CONFIG_ENGINE.current_folder;
+            CONFIG_ENGINE.folder_stack_len += 1;
+        }
+        CONFIG_ENGINE.current_folder = folder_id;
+        CONFIG_ENGINE.folder_name = [0; 16];
+        let n_len = name.len().min(16);
+        CONFIG_ENGINE.folder_name[..n_len].copy_from_slice(&name.as_bytes()[..n_len]);
+        CONFIG_ENGINE.folder_name_len = n_len as u8;
+
+        CONFIG_ENGINE.params_len = 0;
+        CONFIG_ENGINE.string_pool_len = 0;
+        CONFIG_ENGINE.current_chunk = 0;
+        CONFIG_ENGINE.expect_chunks_remain = 0;
+        CONFIG_ENGINE.retry_count = 0;
+        CHUNK_LEN = 0;
+        CHUNK_PARAM_ID = 0;
+
+        if CONFIG_ENGINE.param_count > 0 {
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.folder_loading = true;
+            let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                1000
+            } else {
+                500
+            };
+            let now = crate::time::millis();
+            CONFIG_ENGINE.last_req_ms = now;
+            CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
+            send_param_read(CONFIG_ENGINE.device_id, 1, 0);
+        } else {
+            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            CONFIG_ENGINE.folder_loading = false;
+        }
+    }
+}
+
+/// Exit current subfolder to parent. Returns true if stepped up, or false if already at root.
+pub fn exit_current_folder() -> bool {
+    unsafe {
+        if CONFIG_ENGINE.folder_stack_len > 0 {
+            CONFIG_ENGINE.folder_stack_len -= 1;
+            let parent_id = CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len];
+            CONFIG_ENGINE.current_folder = parent_id;
+            CONFIG_ENGINE.folder_name = [0; 16];
+            CONFIG_ENGINE.folder_name_len = 0;
+
+            CONFIG_ENGINE.params_len = 0;
+            CONFIG_ENGINE.string_pool_len = 0;
+            CONFIG_ENGINE.current_chunk = 0;
+            CONFIG_ENGINE.expect_chunks_remain = 0;
+            CONFIG_ENGINE.retry_count = 0;
+            CHUNK_LEN = 0;
+            CHUNK_PARAM_ID = 0;
+
+            if CONFIG_ENGINE.param_count > 0 {
+                CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+                CONFIG_ENGINE.folder_loading = true;
+                let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                    1000
+                } else {
+                    500
+                };
+                let now = crate::time::millis();
+                CONFIG_ENGINE.last_req_ms = now;
+                CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
+                send_param_read(CONFIG_ENGINE.device_id, 1, 0);
+            } else {
+                CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                CONFIG_ENGINE.folder_loading = false;
+            }
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -878,24 +991,34 @@ pub fn get_folder_params(folder_id: u8, out_indices: &mut [u8; MAX_FOLDER_ITEMS]
 /// Find parent folder ID of a given folder ID. Returns 0 if root or not found.
 pub fn get_parent_folder(folder_id: u8) -> u8 {
     unsafe {
-        for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
-            if p.id == folder_id {
-                return p.parent;
+        if CONFIG_ENGINE.folder_stack_len > 0 {
+            CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len - 1]
+        } else {
+            for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+                if p.id == folder_id {
+                    return p.parent;
+                }
             }
+            0
         }
-        0
     }
 }
 
 /// Find display name of a folder by ID.
-pub fn get_folder_name<'a>(folder_id: u8, _buf: &'a mut [u8; 16]) -> &'a str {
+pub fn get_folder_name<'a>(folder_id: u8, buf: &'a mut [u8; 16]) -> &'a str {
     unsafe {
-        for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
-            if p.id == folder_id {
-                return p.name(&CONFIG_ENGINE.string_pool);
+        if folder_id == CONFIG_ENGINE.current_folder && CONFIG_ENGINE.folder_name_len > 0 {
+            let len = (CONFIG_ENGINE.folder_name_len as usize).min(16);
+            buf[..len].copy_from_slice(&CONFIG_ENGINE.folder_name[..len]);
+            core::str::from_utf8(&buf[..len]).unwrap_or("Folder")
+        } else {
+            for p in &CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
+                if p.id == folder_id {
+                    return p.name(&CONFIG_ENGINE.string_pool);
+                }
             }
+            "Folder"
         }
-        "Folder"
     }
 }
 
@@ -1847,6 +1970,70 @@ mod tests {
         let mut name_buf = [0u8; 16];
         let fname = get_folder_name(2, &mut name_buf);
         assert_eq!(fname, "VTX Admin");
+    }
+
+    #[test]
+    fn test_on_demand_folder_paging_lifecycle() {
+        reset_state();
+        unsafe {
+            CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
+            CONFIG_ENGINE.param_count = 4;
+            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+        }
+
+        // 1. Simulate feeding root parameters (current_folder == 0)
+        // Param 1: parent 0 (Packet Rate)
+        let chunk_p1 = [0x00, protocol::CRSF_TYPE_SELECT, b'R', b'a', b't', b'e', 0x00, b'5', b'0', b';', b'1', b'0', b'0', 0x00, 0x01];
+        unsafe { parse_and_store_parameter(&chunk_p1, 1, 100); }
+        // Param 2: parent 0 (VTX Admin folder)
+        let chunk_p2 = [0x00, protocol::CRSF_TYPE_FOLDER, b'V', b'T', b'X', 0x00];
+        unsafe { parse_and_store_parameter(&chunk_p2, 2, 100); }
+        // Param 3: parent 2 (Band - child of VTX Admin) -> must be filtered out while in root!
+        let chunk_p3 = [0x02, protocol::CRSF_TYPE_SELECT, b'B', b'a', b'n', b'd', 0x00, b'A', b';', b'B', 0x00, 0x00];
+        unsafe { parse_and_store_parameter(&chunk_p3, 3, 100); }
+
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 2, "Only root items (parent 0) must be stored in root folder");
+        assert_eq!(engine.params[0].id, 1);
+        assert_eq!(engine.params[1].id, 2);
+
+        // 2. Drill down into VTX Admin subfolder (folder ID = 2)
+        enter_folder(2, "VTX Admin");
+        let engine = get_config_engine();
+        assert_eq!(engine.current_folder, 2);
+        assert_eq!(engine.folder_stack_len, 1);
+        assert_eq!(engine.folder_stack[0], 0);
+        assert!(engine.folder_loading);
+        assert_eq!(engine.params_len, 0, "Entering folder must flush active parameters");
+        assert_eq!(engine.string_pool_len, 0, "Entering folder must flush active string pool");
+
+        // 3. Feed parameters while in subfolder 2
+        // Param 1 (parent 0) -> must be filtered out while in subfolder 2!
+        unsafe { parse_and_store_parameter(&chunk_p1, 1, 200); }
+        assert_eq!(get_config_engine().params_len, 0);
+
+        // Param 3 (parent 2) -> belongs to subfolder 2, must be stored!
+        unsafe { parse_and_store_parameter(&chunk_p3, 3, 200); }
+        let engine = get_config_engine();
+        assert_eq!(engine.params_len, 1);
+        assert_eq!(engine.params[0].id, 3);
+        assert_eq!(engine.params[0].name(&engine.string_pool), "Band");
+
+        // Check folder and parent names
+        let mut nbuf = [0u8; 16];
+        assert_eq!(get_folder_name(2, &mut nbuf), "VTX Admin");
+        assert_eq!(get_parent_folder(2), 0);
+
+        // 4. Step back to root folder via exit_current_folder
+        assert!(exit_current_folder(), "Stepping back from subfolder must return true");
+        let engine = get_config_engine();
+        assert_eq!(engine.current_folder, 0, "Must be back at root folder");
+        assert_eq!(engine.folder_stack_len, 0);
+        assert!(engine.folder_loading);
+        assert_eq!(engine.params_len, 0, "Exiting folder flushes active params for root re-stream");
+
+        // 5. Exiting from root folder must return false (signaling return to device list)
+        assert!(!exit_current_folder(), "Exiting from root folder must return false");
     }
 
     #[test]

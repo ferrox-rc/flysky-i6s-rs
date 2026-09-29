@@ -9,7 +9,7 @@ use embedded_graphics::{
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-use crate::menu::format::u32_to_hex;
+use crate::menu::format::{ascii_as_str, u32_to_hex};
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::storage::{self, RadioStorage};
@@ -314,41 +314,43 @@ pub fn update_rx_setup(
 
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let current_proto = storage.models[active_idx].rf_protocol;
+    let mut line_buf = [b' '; 26];
 
     if current_proto == 0 {
         // AFHDS 2A Display
         let sel_proto = ctrl.selected_item == 0;
         let sel_bind = ctrl.selected_item == 1;
 
-        let p_arrow = if sel_proto { ">" } else { " " };
-        let b_arrow = if sel_bind { ">" } else { " " };
+        let p_arrow = if sel_proto { b'>' } else { b' ' };
+        let b_arrow = if sel_bind { b'>' } else { b' ' };
 
         let proto_val = if ctrl.editing && sel_proto { "[AFHDS 2A]" } else { "AFHDS 2A" };
-        let mut p_buf = [b' '; 22];
-        p_buf[0] = p_arrow.as_bytes()[0];
-        p_buf[1..8].copy_from_slice(b"Proto: ");
+        line_buf[0] = p_arrow;
+        line_buf[1..8].copy_from_slice(b"Proto: ");
         let pv_bytes = proto_val.as_bytes();
-        p_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
-        let p_str = core::str::from_utf8(&p_buf[..8 + pv_bytes.len()]).unwrap_or(" Proto: AFHDS 2A");
+        line_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
+        let p_str = ascii_as_str(&line_buf[..8 + pv_bytes.len()]);
         Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
 
-        let mut name_buf = *b" M00: ";
-        name_buf[2] = b'0' + ((active_idx + 1) / 10) as u8;
-        name_buf[3] = b'0' + ((active_idx + 1) % 10) as u8;
-        let pre_str = core::str::from_utf8(&name_buf).unwrap_or(" M??: ");
+        line_buf[0] = b' ';
+        line_buf[1] = b'M';
+        line_buf[2] = b'0' + ((active_idx + 1) / 10) as u8;
+        line_buf[3] = b'0' + ((active_idx + 1) % 10) as u8;
+        line_buf[4] = b':';
+        line_buf[5] = b' ';
+        let pre_str = ascii_as_str(&line_buf[..6]);
         Text::new(pre_str, Point::new(2, 32), text_style).draw(lcd).ok();
-        let m_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("MODEL");
+        let m_str = ascii_as_str(&storage.models[active_idx].name);
         Text::new(m_str, Point::new(38, 32), text_style).draw(lcd).ok();
 
         let mut rx_buf = [b'0'; 8];
         u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
-        let rx_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
-        let mut b_buf = [b' '; 22];
-        b_buf[0] = b_arrow.as_bytes()[0];
-        b_buf[1..8].copy_from_slice(b"[Bind: ");
-        b_buf[8..16].copy_from_slice(rx_str.as_bytes());
-        b_buf[16] = b']';
-        let b_str = core::str::from_utf8(&b_buf[..17]).unwrap_or(" [Bind Receiver]");
+        let rx_str = ascii_as_str(&rx_buf);
+        line_buf[0] = b_arrow;
+        line_buf[1..8].copy_from_slice(b"[Bind: ");
+        line_buf[8..16].copy_from_slice(rx_str.as_bytes());
+        line_buf[16] = b']';
+        let b_str = ascii_as_str(&line_buf[..17]);
         Text::new(b_str, Point::new(2, 42), text_style).draw(lcd).ok();
 
         let footer = if ctrl.editing {
@@ -365,17 +367,16 @@ pub fn update_rx_setup(
         let sel_baud = ctrl.selected_item == 1;
         let sel_cfg = ctrl.selected_item == 2;
 
-        let p_arrow = if sel_proto { ">" } else { " " };
-        let b_arrow = if sel_baud { ">" } else { " " };
-        let c_arrow = if sel_cfg { ">" } else { " " };
+        let p_arrow = if sel_proto { b'>' } else { b' ' };
+        let b_arrow = if sel_baud { b'>' } else { b' ' };
+        let c_arrow = if sel_cfg { b'>' } else { b' ' };
 
         let proto_val = if ctrl.editing && sel_proto { "[CRSF/ELRS]" } else { "CRSF/ELRS" };
-        let mut p_buf = [b' '; 22];
-        p_buf[0] = p_arrow.as_bytes()[0];
-        p_buf[1..8].copy_from_slice(b"Proto: ");
+        line_buf[0] = p_arrow;
+        line_buf[1..8].copy_from_slice(b"Proto: ");
         let pv_bytes = proto_val.as_bytes();
-        p_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
-        let p_str = core::str::from_utf8(&p_buf[..8 + pv_bytes.len()]).unwrap_or(" Proto: CRSF/ELRS");
+        line_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
+        let p_str = ascii_as_str(&line_buf[..8 + pv_bytes.len()]);
         Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
 
         let baud_val = match storage.models[active_idx].crsf_baud {
@@ -385,26 +386,24 @@ pub fn update_rx_setup(
             3 => "921.6k (Fast)",
             _ => "420k (ELRS)",
         };
-        let mut b_buf = [b' '; 24];
-        b_buf[0] = b_arrow.as_bytes()[0];
-        b_buf[1..7].copy_from_slice(b"Baud: ");
+        line_buf[0] = b_arrow;
+        line_buf[1..7].copy_from_slice(b"Baud: ");
         let bv_bytes = baud_val.as_bytes();
         let b_start = if ctrl.editing && sel_baud {
-            b_buf[7] = b'[';
-            b_buf[8..8 + bv_bytes.len()].copy_from_slice(bv_bytes);
-            b_buf[8 + bv_bytes.len()] = b']';
+            line_buf[7] = b'[';
+            line_buf[8..8 + bv_bytes.len()].copy_from_slice(bv_bytes);
+            line_buf[8 + bv_bytes.len()] = b']';
             9 + bv_bytes.len()
         } else {
-            b_buf[7..7 + bv_bytes.len()].copy_from_slice(bv_bytes);
+            line_buf[7..7 + bv_bytes.len()].copy_from_slice(bv_bytes);
             7 + bv_bytes.len()
         };
-        let full_b_str = core::str::from_utf8(&b_buf[..b_start]).unwrap_or(" Baud: 420k");
+        let full_b_str = ascii_as_str(&line_buf[..b_start]);
         Text::new(full_b_str, Point::new(2, 32), text_style).draw(lcd).ok();
 
-        let mut c_buf = [b' '; 22];
-        c_buf[0] = c_arrow.as_bytes()[0];
-        c_buf[1..19].copy_from_slice(b"[Configure Module]");
-        let full_c_str = core::str::from_utf8(&c_buf[..19]).unwrap_or(" [Configure Module]");
+        line_buf[0] = c_arrow;
+        line_buf[1..19].copy_from_slice(b"[Configure Module]");
+        let full_c_str = ascii_as_str(&line_buf[..19]);
         Text::new(full_c_str, Point::new(2, 42), text_style).draw(lcd).ok();
 
         let footer = if ctrl.editing {

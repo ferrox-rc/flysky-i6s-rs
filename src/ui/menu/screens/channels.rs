@@ -16,6 +16,13 @@ use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS};
 use crate::storage::{self, RadioStorage};
 
+const CH_NAMES: [&str; 14] = [
+    "CH1 (AIL)", "CH2 (ELE)", "CH3 (THR)", "CH4 (RUD)",
+    "CH5 (SA) ", "CH6 (SB) ", "CH7 (VR1)", "CH8 (VR2)",
+    "CH9 (SC) ", "CH10(SD) ", "CH11     ", "CH12     ",
+    "CH13     ", "CH14     ",
+];
+
 pub fn update_aux_channels(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -131,13 +138,6 @@ pub fn update_channel_reverse(
 
     widgets::draw_header(lcd, "CHANNEL REVERSE");
 
-    let ch_names = [
-        "CH1 (AIL)", "CH2 (ELE)", "CH3 (THR)", "CH4 (RUD)",
-        "CH5 (SA) ", "CH6 (SB) ", "CH7 (VR1)", "CH8 (VR2)",
-        "CH9 (SC) ", "CH10(SD) ", "CH11     ", "CH12     ",
-        "CH13     ", "CH14     ",
-    ];
-
     for slot in 0..4 {
         let ch = ctrl.scroll_offset + slot;
         if ch >= CH_COUNT {
@@ -147,7 +147,7 @@ pub fn update_channel_reverse(
         let is_rev = (storage.models[active_idx].channel_reverse & (1 << ch)) != 0;
         let status_str = if is_rev { "REVERSE" } else { "NORMAL " };
 
-        widgets::draw_list_row(lcd, slot, is_sel, ch_names[ch], Some(status_str), 76);
+        widgets::draw_list_row(lcd, slot, is_sel, CH_NAMES[ch], Some(status_str), 76);
     }
 
     widgets::draw_footer(lcd, "[OK] Toggle   [ESC] Back");

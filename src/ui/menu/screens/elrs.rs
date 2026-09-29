@@ -132,8 +132,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     };
 
                     let dev = &engine.devices[idx];
-                    let d_name = core::str::from_utf8(&dev.name[..dev.name_len as usize])
-                        .unwrap_or("Device");
+                    let d_name = crate::ui::format::ascii_as_str(&dev.name[..dev.name_len as usize]);
                     let role = crsf::protocol::device_role_str(dev.address);
 
                     // Left: Device Name
@@ -146,7 +145,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     let r_len = r_bytes.len().min(2);
                     tag_buf[1..1 + r_len].copy_from_slice(&r_bytes[..r_len]);
                     tag_buf[1 + r_len] = b']';
-                    let tag_str = core::str::from_utf8(&tag_buf[..2 + r_len]).unwrap_or("[--]");
+                    let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..2 + r_len]);
                     Text::new(tag_str, Point::new(102, y + 7), style).draw(lcd).ok();
                 }
 
@@ -154,8 +153,8 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             }
         }
 
-        // --- State: Loading Parameters for Selected Device ---
-        ElrsConfigState::Connected | ElrsConfigState::LoadingParam(_) => {
+        // --- State: Loading Parameters for Selected Device (Initial Connection) ---
+        ElrsConfigState::Connected | ElrsConfigState::LoadingParam(_) if !engine.folder_loading => {
             if keys.cancel {
                 // Abort loading and return to device list
                 crsf::return_to_device_list();
@@ -180,7 +179,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                 pbuf[8..12].copy_from_slice(b" of ");
                 pbuf[12] = b'0' + ((engine.param_count / 10) % 10);
                 pbuf[13] = b'0' + (engine.param_count % 10);
-                let p_str = core::str::from_utf8(&pbuf[..14]).unwrap_or("Loading...");
+                let p_str = crate::ui::format::ascii_as_str(&pbuf[..14]);
                 Text::new(p_str, Point::new(4, 38), text_style_small)
                     .draw(lcd)
                     .ok();
@@ -189,14 +188,38 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             widgets::draw_footer(lcd, "Please wait...  [ESC] Abort");
         }
 
-        // --- State: Ready / Interactive Parameter Navigation ---
-        ElrsConfigState::Ready => {
-            let current_folder = ctrl.page_idx as u8;
+        // --- State: Ready / Interactive Parameter Navigation & On-Demand Folder Paging ---
+        ElrsConfigState::Ready | ElrsConfigState::LoadingParam(_) | ElrsConfigState::Connected => {
+            let current_folder = engine.current_folder;
             let mut folder_indices = [0u8; crsf::MAX_FOLDER_ITEMS];
             let count = crsf::get_folder_params(current_folder, &mut folder_indices);
 
             if count == 0 {
                 if engine.params_len == 0 {
+                    if engine.folder_loading {
+                        widgets::draw_header(lcd, "[Loading...]");
+                        Text::new("Loading items...", Point::new(12, 28), text_style)
+                            .draw(lcd)
+                            .ok();
+                        widgets::draw_footer(lcd, "Loading...    [ESC] Back");
+                        if keys.cancel {
+                            if crsf::exit_current_folder() {
+                                ctrl.page_idx = engine.current_folder as usize;
+                                ctrl.selected_item = 0;
+                                ctrl.scroll_offset = 0;
+                                buzzer.click();
+                                return;
+                            } else {
+                                crsf::return_to_device_list();
+                                ctrl.page_idx = 0;
+                                ctrl.selected_item = 0;
+                                ctrl.scroll_offset = 0;
+                                buzzer.click();
+                                return;
+                            }
+                        }
+                        return;
+                    }
                     // No parameters found for this device at all
                     if keys.ok {
                         ctrl.waiting_release = true;
@@ -217,11 +240,20 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                 } else {
                     // Empty subfolder
                     if keys.cancel {
-                        ctrl.page_idx = crsf::get_parent_folder(current_folder) as usize;
-                        ctrl.selected_item = 0;
-                        ctrl.scroll_offset = 0;
-                        buzzer.click();
-                        return;
+                        if crsf::exit_current_folder() {
+                            ctrl.page_idx = engine.current_folder as usize;
+                            ctrl.selected_item = 0;
+                            ctrl.scroll_offset = 0;
+                            buzzer.click();
+                            return;
+                        } else {
+                            crsf::return_to_device_list();
+                            ctrl.page_idx = 0;
+                            ctrl.selected_item = 0;
+                            ctrl.scroll_offset = 0;
+                            buzzer.click();
+                            return;
+                        }
                     }
                     let mut fbuf = [0u8; 16];
                     let fname = crsf::get_folder_name(current_folder, &mut fbuf);
@@ -285,6 +317,8 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
 
                             if p_type == crsf::protocol::CRSF_TYPE_FOLDER {
                                 // Drill down into subfolder
+                                let f_name = p.name(&engine.string_pool);
+                                crsf::enter_folder(p.id, f_name);
                                 ctrl.page_idx = p.id as usize;
                                 ctrl.selected_item = 0;
                                 ctrl.scroll_offset = 0;
@@ -299,9 +333,8 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                                 buzzer.play_tone(2400, 80);
                             }
                         } else if keys.cancel {
-                            if current_folder > 0 {
-                                // Step back to parent folder
-                                ctrl.page_idx = crsf::get_parent_folder(current_folder) as usize;
+                            if crsf::exit_current_folder() {
+                                ctrl.page_idx = engine.current_folder as usize;
                                 ctrl.selected_item = 0;
                                 ctrl.scroll_offset = 0;
                                 buzzer.click();
@@ -309,6 +342,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             } else {
                                 // Step back from root folder to Device List
                                 crsf::return_to_device_list();
+                                ctrl.page_idx = 0;
                                 ctrl.selected_item = 0;
                                 ctrl.scroll_offset = 0;
                                 ctrl.editing = false;
@@ -319,17 +353,18 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     }
                 }
 
-                // Header title: subfolder name or device name
-                if current_folder > 0 {
+                // Header title: subfolder name, device name, or [Loading...] indicator
+                if engine.folder_loading {
+                    widgets::draw_header(lcd, "[Loading...]");
+                } else if current_folder > 0 {
                     let mut fbuf = [0u8; 16];
                     let fname = crsf::get_folder_name(current_folder, &mut fbuf);
                     widgets::draw_header(lcd, fname);
                 } else {
                     let dev_name = if engine.device_name_len > 0 {
-                        core::str::from_utf8(
+                        crate::ui::format::ascii_as_str(
                             &engine.device_name[..engine.device_name_len as usize],
                         )
-                        .unwrap_or("CRSF SETUP")
                     } else {
                         "CRSF SETUP"
                     };
@@ -373,7 +408,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             p.current_option_str(&engine.string_pool, &mut opt_buf)
                         };
 
-                        // If option has parenthetical suffix e.g. "250Hz(-108dBm)", and total line is cramped,
+                        // If option has parenthetical hint e.g. "250Hz(-108dBm)", and total line is cramped,
                         // strip the parenthetical hint so the value is cleanly readable
                         let mut opt_clean_len = raw_opt.len();
                         if let Some(pos) = raw_opt.find('(') {
@@ -392,8 +427,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             ed_buf[2..2 + o_len].copy_from_slice(&opt_clean.as_bytes()[..o_len]);
                             ed_buf[2 + o_len] = b' ';
                             ed_buf[3 + o_len] = b'>';
-                            let ed_str =
-                                core::str::from_utf8(&ed_buf[..4 + o_len]).unwrap_or("< >");
+                            let ed_str = crate::ui::format::ascii_as_str(&ed_buf[..4 + o_len]);
 
                             let val_x = 124i32.saturating_sub((ed_str.len() as i32) * 6);
                             let max_name_chars = 20usize.saturating_sub(ed_str.len() + 1).max(5);
@@ -426,8 +460,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                             let n_len = n_bytes.len().min(18);
                             cmd_buf[1..1 + n_len].copy_from_slice(&n_bytes[..n_len]);
                             cmd_buf[1 + n_len] = b']';
-                            let c_str =
-                                core::str::from_utf8(&cmd_buf[..2 + n_len]).unwrap_or("[Cmd]");
+                            let c_str = crate::ui::format::ascii_as_str(&cmd_buf[..2 + n_len]);
                             Text::new(c_str, Point::new(14, y + 7), style)
                                 .draw(lcd)
                                 .ok();
@@ -463,7 +496,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     q_buf[6..6 + n_len].copy_from_slice(&p_name.as_bytes()[..n_len]);
                     q_buf[6 + n_len] = b']';
                     q_buf[7 + n_len] = b'?';
-                    let q_str = core::str::from_utf8(&q_buf[..8 + n_len]).unwrap_or("Execute?");
+                    let q_str = crate::ui::format::ascii_as_str(&q_buf[..8 + n_len]);
                     Text::new(q_str, Point::new(18, 28), text_style)
                         .draw(lcd)
                         .ok();
@@ -472,6 +505,8 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         .ok();
 
                     widgets::draw_footer(lcd, "[OK] Confirm   [ESC] Cancel");
+                } else if engine.folder_loading {
+                    widgets::draw_footer(lcd, "Loading...    [ESC] Back");
                 } else if ctrl.editing {
                     widgets::draw_footer(lcd, "[OK] Confirm   [ESC] Cancel");
                 } else if current_folder > 0 {

@@ -1,5 +1,21 @@
 //! Numeric and string formatters for zero-allocation menu display rendering.
 
+/// Convert a byte buffer known to contain only valid ASCII bytes to a &str without runtime UTF-8 validation overhead.
+///
+/// # Safety
+/// The caller must ensure that `buf` contains only valid UTF-8 sequences (ASCII is a subset of UTF-8).
+#[inline(always)]
+pub fn ascii_as_str(buf: &[u8]) -> &str {
+    unsafe { core::str::from_utf8_unchecked(buf) }
+}
+
+/// Format an integer in 0..99 as two ASCII decimal digits into buf[0..2].
+#[inline(always)]
+pub fn write_dec2(val: u8, buf: &mut [u8]) {
+    buf[0] = b'0' + (val / 10);
+    buf[1] = b'0' + (val % 10);
+}
+
 const HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
 
 pub fn u32_to_hex(val: u32, buf: &mut [u8; 8]) {
@@ -81,7 +97,7 @@ pub fn i8_to_dec(val: i8, buf: &mut [u8; 6]) -> &str {
     i += 1;
     buf[i] = b'%';
     i += 1;
-    core::str::from_utf8(&buf[..i]).unwrap_or("+0%")
+    ascii_as_str(&buf[..i])
 }
 
 pub fn u8_to_dec(val: u8, buf: &mut [u8; 5]) -> &str {
@@ -98,7 +114,7 @@ pub fn u8_to_dec(val: u8, buf: &mut [u8; 5]) -> &str {
     i += 1;
     buf[i] = b'%';
     i += 1;
-    core::str::from_utf8(&buf[..i]).unwrap_or("0%")
+    ascii_as_str(&buf[..i])
 }
 
 pub fn u32_to_dec_5(val: u32, buf: &mut [u8; 5]) {
@@ -124,14 +140,14 @@ pub fn format_vbat(mv: u16, buf: &mut [u8; 6]) -> &str {
         buf[3] = b'0' + (d1 as u8);
         buf[4] = b'0' + (d2 as u8);
         buf[5] = b'V';
-        core::str::from_utf8(buf).unwrap_or("0.00V")
+        ascii_as_str(buf)
     } else {
         buf[0] = b'0' + (v as u8);
         buf[1] = b'.';
         buf[2] = b'0' + (d1 as u8);
         buf[3] = b'0' + (d2 as u8);
         buf[4] = b'V';
-        core::str::from_utf8(&buf[0..5]).unwrap_or("0.00V")
+        ascii_as_str(&buf[0..5])
     }
 }
 
@@ -154,7 +170,7 @@ pub fn format_timer(secs: u16, expired: bool, buf: &mut [u8; 8]) -> &str {
     i += 1;
     buf[i] = b'0' + (sec % 10);
     i += 1;
-    core::str::from_utf8(&buf[..i]).unwrap_or("00:00")
+    ascii_as_str(&buf[..i])
 }
 
 /// Format stick value (-1000..+1000) to percentage string "-100%" .. "+100%"
@@ -175,19 +191,19 @@ pub fn format_percent(val: i16, buf: &mut [u8; 5]) -> &str {
         buf[2] = b'0';
         buf[3] = b'0';
         buf[4] = b'%';
-        core::str::from_utf8(buf).unwrap_or(" 0%")
+        ascii_as_str(buf)
     } else if abs_pct >= 10 {
         buf[1] = b' ';
         buf[2] = b'0' + ((abs_pct / 10) as u8);
         buf[3] = b'0' + ((abs_pct % 10) as u8);
         buf[4] = b'%';
-        core::str::from_utf8(&buf[0..5]).unwrap_or(" 0%")
+        ascii_as_str(&buf[0..5])
     } else {
         buf[1] = b' ';
         buf[2] = b' ';
         buf[3] = b'0' + (abs_pct as u8);
         buf[4] = b'%';
-        core::str::from_utf8(&buf[0..5]).unwrap_or(" 0%")
+        ascii_as_str(&buf[0..5])
     }
 }
 
@@ -200,19 +216,19 @@ pub fn format_throttle_percent(val: i16, buf: &mut [u8; 5]) -> &str {
         buf[1] = b'0';
         buf[2] = b'0';
         buf[3] = b'%';
-        core::str::from_utf8(&buf[0..4]).unwrap_or("100%")
+        ascii_as_str(&buf[0..4])
     } else if pct >= 10 {
         buf[0] = b' ';
         buf[1] = b'0' + (pct / 10);
         buf[2] = b'0' + (pct % 10);
         buf[3] = b'%';
-        core::str::from_utf8(&buf[0..4]).unwrap_or(" 0%")
+        ascii_as_str(&buf[0..4])
     } else {
         buf[0] = b' ';
         buf[1] = b' ';
         buf[2] = b'0' + pct;
         buf[3] = b'%';
-        core::str::from_utf8(&buf[0..4]).unwrap_or(" 0%")
+        ascii_as_str(&buf[0..4])
     }
 }
 
@@ -235,5 +251,5 @@ pub fn format_trim(axis: crate::trim::ActiveTrim, val: i8, buf: &mut [u8; 9]) ->
     let abs = val.unsigned_abs();
     buf[7] = b'0' + (abs / 10);
     buf[8] = b'0' + (abs % 10);
-    core::str::from_utf8(buf).unwrap_or("TRIM")
+    ascii_as_str(buf)
 }

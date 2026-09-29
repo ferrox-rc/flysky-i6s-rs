@@ -122,41 +122,18 @@ impl TrimController {
 
     /// Process a single trim click for a given key index (0..7).
     fn process_trim_key(&mut self, key: u8, buzzer: &mut Buzzer) {
-        match key {
-            0 => {
-                // Roll R (+1)
-                self.step_trim(ActiveTrim::Roll, 1, buzzer);
-            }
-            1 => {
-                // Roll L (-1)
-                self.step_trim(ActiveTrim::Roll, -1, buzzer);
-            }
-            2 => {
-                // Pitch U (+1)
-                self.step_trim(ActiveTrim::Pitch, 1, buzzer);
-            }
-            3 => {
-                // Pitch D (-1)
-                self.step_trim(ActiveTrim::Pitch, -1, buzzer);
-            }
-            4 => {
-                // Throttle U (+1)
-                self.step_trim(ActiveTrim::Throttle, 1, buzzer);
-            }
-            5 => {
-                // Throttle D (-1)
-                self.step_trim(ActiveTrim::Throttle, -1, buzzer);
-            }
-            6 => {
-                // Yaw R (+1)
-                self.step_trim(ActiveTrim::Yaw, 1, buzzer);
-            }
-            7 => {
-                // Yaw L (-1)
-                self.step_trim(ActiveTrim::Yaw, -1, buzzer);
-            }
-            _ => {}
-        }
+        let (axis, delta) = match key {
+            0 => (ActiveTrim::Roll, 1),
+            1 => (ActiveTrim::Roll, -1),
+            2 => (ActiveTrim::Pitch, 1),
+            3 => (ActiveTrim::Pitch, -1),
+            4 => (ActiveTrim::Throttle, 1),
+            5 => (ActiveTrim::Throttle, -1),
+            6 => (ActiveTrim::Yaw, 1),
+            7 => (ActiveTrim::Yaw, -1),
+            _ => return,
+        };
+        self.step_trim(axis, delta, buzzer);
     }
 
     /// Step a specific trim axis by delta (+1 or -1) and produce appropriate audio.

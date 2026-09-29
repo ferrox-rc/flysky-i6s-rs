@@ -11,7 +11,7 @@ use embedded_graphics::{
 use crate::crsf;
 use crate::display::St7567;
 use crate::rf::afhds2a::TelemetryData;
-use crate::ui::format::{format_vbat, u32_to_dec_5};
+use crate::ui::format::{ascii_as_str, format_vbat, u32_to_dec_5};
 use crate::ui::widgets;
 
 #[allow(clippy::too_many_arguments)]
@@ -46,7 +46,7 @@ pub fn render(
             lq_buf[4] = b' ';
             lq_buf[5] = b'0' + lq;
         }
-        let lq_str = if ct.connected { core::str::from_utf8(&lq_buf).unwrap_or("LQ:---%") } else { "LQ: ---%" };
+        let lq_str = if ct.connected { ascii_as_str(&lq_buf) } else { "LQ: ---%" };
         Text::new(lq_str, Point::new(2, 21), text_style).draw(lcd).ok();
 
         // Row 2 (y = 31): Uplink RSSI 1 (dBm)
@@ -55,7 +55,7 @@ pub fn render(
         rssi_buf[5] = b'0' + (rssi_val / 100);
         rssi_buf[6] = b'0' + ((rssi_val / 10) % 10);
         rssi_buf[7] = b'0' + (rssi_val % 10);
-        let rssi_str = if ct.connected { core::str::from_utf8(&rssi_buf).unwrap_or("RS:---dB") } else { "RS: ---dB" };
+        let rssi_str = if ct.connected { ascii_as_str(&rssi_buf) } else { "RS: ---dB" };
         Text::new(rssi_str, Point::new(2, 31), text_style).draw(lcd).ok();
 
         // Row 3 (y = 41): Uplink SNR (dB)
@@ -65,7 +65,7 @@ pub fn render(
         snr_buf[4] = snr_sign;
         snr_buf[5] = b'0' + ((snr_mag / 10) % 10);
         snr_buf[6] = b'0' + (snr_mag % 10);
-        let snr_str = if ct.connected { core::str::from_utf8(&snr_buf).unwrap_or("SNR:--dB") } else { "SNR: --dB" };
+        let snr_str = if ct.connected { ascii_as_str(&snr_buf) } else { "SNR: --dB" };
         Text::new(snr_str, Point::new(2, 41), text_style).draw(lcd).ok();
 
         // Row 4 (y = 51): Active Antenna
@@ -102,7 +102,7 @@ pub fn render(
             pwr_buf[6] = b'0' + ((p / 10) as u8);
             pwr_buf[7] = b'0' + ((p % 10) as u8);
         }
-        let pwr_str = if ct.connected && ct.tx_power_mw > 0 { core::str::from_utf8(&pwr_buf).unwrap_or("PWR:---mW") } else { "PWR: ---" };
+        let pwr_str = if ct.connected && ct.tx_power_mw > 0 { ascii_as_str(&pwr_buf) } else { "PWR: ---" };
         Text::new(pwr_str, Point::new(66, 21), text_style).draw(lcd).ok();
 
         // Row 2 (y = 31): RF Mode / Packet Rate
@@ -125,7 +125,7 @@ pub fn render(
         if ct.connected && ct.rx_capacity_mah > 0 {
             let mut cap_buf = [b' '; 5];
             u32_to_dec_5(ct.rx_capacity_mah.min(99999), &mut cap_buf);
-            let cap_str = core::str::from_utf8(&cap_buf).unwrap_or("    0");
+            let cap_str = ascii_as_str(&cap_buf);
             Text::new(cap_str, Point::new(92, 51), text_style).draw(lcd).ok();
         } else {
             Text::new("----", Point::new(92, 51), text_style).draw(lcd).ok();
@@ -146,7 +146,7 @@ pub fn render(
                 r_buf[5] = b' ';
                 r_buf[6] = b'0' + r;
             }
-            let r_str = core::str::from_utf8(&r_buf).unwrap_or("RSSI:--%");
+            let r_str = ascii_as_str(&r_buf);
             Text::new(r_str, Point::new(2, 21), text_style).draw(lcd).ok();
         } else {
             Text::new("RSSI: --%", Point::new(2, 21), text_style).draw(lcd).ok();
@@ -159,14 +159,14 @@ pub fn render(
         // Row 3 (y = 41): Packets Sent
         let mut tx_p_buf = [b' '; 5];
         u32_to_dec_5(telem.packets_sent, &mut tx_p_buf);
-        let tx_p_str = core::str::from_utf8(&tx_p_buf).unwrap_or("    0");
+        let tx_p_str = ascii_as_str(&tx_p_buf);
         Text::new("TX:", Point::new(2, 41), text_style).draw(lcd).ok();
         Text::new(tx_p_str, Point::new(24, 41), text_style).draw(lcd).ok();
 
         // Row 4 (y = 51): Packets Received
         let mut rx_p_buf = [b' '; 5];
         u32_to_dec_5(telem.packets_received, &mut rx_p_buf);
-        let rx_p_str = core::str::from_utf8(&rx_p_buf).unwrap_or("    0");
+        let rx_p_str = ascii_as_str(&rx_p_buf);
         Text::new("RX:", Point::new(2, 51), text_style).draw(lcd).ok();
         Text::new(rx_p_str, Point::new(24, 51), text_style).draw(lcd).ok();
 
@@ -211,7 +211,7 @@ pub fn render(
                 mr_buf[2] = b'0' + r;
                 mr_buf[3] = b'%';
             }
-            let mr_str = core::str::from_utf8(&mr_buf).unwrap_or(" --%");
+            let mr_str = ascii_as_str(&mr_buf);
             Text::new(mr_str, Point::new(98, 41), text_style).draw(lcd).ok();
         } else {
             Text::new(" --%", Point::new(98, 41), text_style).draw(lcd).ok();

@@ -11,7 +11,7 @@ use crate::display::St7567;
 use crate::input::InputState;
 use crate::storage::RadioStorage;
 use crate::trim::{self, TrimController};
-use crate::ui::format::{format_percent, format_throttle_percent, format_trim};
+use crate::ui::format::{ascii_as_str, format_percent, format_throttle_percent, format_trim};
 use crate::ui::widgets;
 
 pub fn render(
@@ -58,7 +58,7 @@ pub fn render(
     sw_buf[6] = state.switches.sb.as_char() as u8;
     sw_buf[10] = state.switches.sc.as_char() as u8;
     sw_buf[14] = state.switches.sd.as_char() as u8;
-    let sw_str = core::str::from_utf8(&sw_buf).unwrap_or("SW");
+    let sw_str = ascii_as_str(&sw_buf);
     Text::new(sw_str, Point::new(2, 53), text_style).draw(lcd).ok();
 
     // Pots: V1 / V2 on right (scaled 0..9 across full turn)
@@ -67,7 +67,7 @@ pub fn render(
     let p2_val = (((state.pots.vr2 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
     pot_buf[2] = b'0' + p1_val;
     pot_buf[4] = b'0' + p2_val;
-    let pot_str = core::str::from_utf8(&pot_buf).unwrap_or("V:0/0");
+    let pot_str = ascii_as_str(&pot_buf);
     Text::new(pot_str, Point::new(96, 53), text_style).draw(lcd).ok();
 
     // Standardized Footer (y = 55..63)

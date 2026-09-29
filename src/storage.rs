@@ -661,7 +661,7 @@ fn format_and_save_all(storage: &RadioStorage) {
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 128];
     let _ = block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio));
     for idx in 0..NUM_MODELS {
         let key = KEY_MODEL_BASE + idx as u8;
@@ -677,7 +677,7 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 128];
 
     // 1. Try reading RadioConfig from sequential-storage log
     let radio_res: Result<Option<RadioConfig>, _> = block_on(map.fetch_item(&mut buf, &KEY_RADIO));
@@ -756,28 +756,26 @@ pub fn load_storage() -> RadioStorage {
 }
 
 /// Save only the active model configuration via append-only log (~2.8 ms, 0 page erase).
-#[inline(always)]
 pub fn save_active_model(storage: &RadioStorage) -> bool {
     let mut map = sequential_storage::map::MapStorage::new(
         Stm32Flash,
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 128];
     let idx = (storage.radio.active_model as usize).min(NUM_MODELS - 1);
     let key = KEY_MODEL_BASE + idx as u8;
     block_on(map.store_item(&mut buf, &key, &storage.models[idx])).is_ok()
 }
 
 /// Save only the system radio configuration via append-only log (~2.8 ms, 0 page erase).
-#[inline(always)]
 pub fn save_radio_config(storage: &RadioStorage) -> bool {
     let mut map = sequential_storage::map::MapStorage::new(
         Stm32Flash,
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 128];
     block_on(map.store_item(&mut buf, &KEY_RADIO, &storage.radio)).is_ok()
 }
 
@@ -803,7 +801,7 @@ pub fn load_saved_rx_id() -> Option<u32> {
         storage_config(),
         sequential_storage::cache::Cache::new_uncached(),
     );
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 128];
     if let Ok(Some(radio)) = block_on(map.fetch_item::<RadioConfig>(&mut buf, &KEY_RADIO)) {
         let active_idx = (radio.active_model as usize).min(NUM_MODELS - 1);
         let key = KEY_MODEL_BASE + active_idx as u8;

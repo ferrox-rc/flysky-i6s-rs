@@ -163,66 +163,58 @@ pub fn set_channels(channels: &[u16; NUM_CHANNELS]) {
     CHANNEL_BUFFER.write(channels);
 }
 
-/// Enter or exit binding mode.
-pub fn set_bind_mode(enable: bool) {
+#[inline]
+fn with_driver<T, F: FnOnce(&afhds2a::Afhds2a) -> T>(f: F) -> Option<T> {
+    cortex_m::interrupt::free(|_| {
+        let driver = unsafe { &*RF_DRIVER.0.get() };
+        driver.as_ref().map(f)
+    })
+}
+
+#[inline]
+fn with_driver_mut<T, F: FnOnce(&mut afhds2a::Afhds2a) -> T>(f: F) -> Option<T> {
     cortex_m::interrupt::free(|_| {
         let driver = unsafe { &mut *RF_DRIVER.0.get() };
-        if let Some(ref mut d) = driver {
-            d.set_bind_mode(enable);
-        }
-    });
+        driver.as_mut().map(f)
+    })
+}
+
+/// Enter or exit binding mode.
+pub fn set_bind_mode(enable: bool) {
+    with_driver_mut(|d| d.set_bind_mode(enable));
 }
 
 /// Dynamically update receiver ID in the RF driver (e.g. on model switch).
 pub fn set_rx_id(rx_id: u32) {
-    cortex_m::interrupt::free(|_| {
-        let driver = unsafe { &mut *RF_DRIVER.0.get() };
-        if let Some(ref mut d) = driver {
-            d.set_rx_id(rx_id);
-        }
-    });
+    with_driver_mut(|d| d.set_rx_id(rx_id));
 }
 
 /// Query whether binding has completed.
 pub fn is_bound() -> bool {
-    cortex_m::interrupt::free(|_| {
-        let driver = unsafe { &*RF_DRIVER.0.get() };
-        driver
-            .as_ref()
-            .map(|d| d.bind_done || (d.rx_id != 0 && d.rx_id != 0xFFFF_FFFF))
-            .unwrap_or(false)
-    })
+    with_driver(|d| d.bind_done || (d.rx_id != 0 && d.rx_id != 0xFFFF_FFFF)).unwrap_or(false)
 }
 
 /// Query whether the radio is currently in binding mode.
 pub fn is_binding() -> bool {
-    cortex_m::interrupt::free(|_| {
-        let driver = unsafe { &*RF_DRIVER.0.get() };
-        driver.as_ref().map(|d| d.mode == afhds2a::RadioMode::Binding).unwrap_or(false)
-    })
+    with_driver(|d| d.mode == afhds2a::RadioMode::Binding).unwrap_or(false)
 }
 
 /// Check if a newly captured/bound RX ID needs to be persisted to Flash, and return it.
 pub fn take_pending_rx_save() -> Option<u32> {
-    cortex_m::interrupt::free(|_| {
-        let driver = unsafe { &mut *RF_DRIVER.0.get() };
-        if let Some(ref mut d) = driver {
-            if d.rx_id_needs_save {
-                d.rx_id_needs_save = false;
-                return Some(d.rx_id);
-            }
+    with_driver_mut(|d| {
+        if d.rx_id_needs_save {
+            d.rx_id_needs_save = false;
+            Some(d.rx_id)
+        } else {
+            None
         }
-        None
-    })
+    }).flatten()
 }
 
 /// Get currently active receiver ID.
 #[allow(dead_code)]
 pub fn get_rx_id() -> u32 {
-    cortex_m::interrupt::free(|_| {
-        let driver = unsafe { &*RF_DRIVER.0.get() };
-        driver.as_ref().map(|d| d.rx_id).unwrap_or(0xFFFF_FFFF)
-    })
+    with_driver(|d| d.rx_id).unwrap_or(0xFFFF_FFFF)
 }
 
 /// Get latest downlink telemetry from the receiver.

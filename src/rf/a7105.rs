@@ -59,7 +59,7 @@ pub const HIGH_POWER: u8 = POWER_100MW;
 
 /// A7105 Register Initialization Table for AFHDS 2A (500 kbps GFSK)
 /// Entries matching 0xFF are skipped (unmodified).
-const AFHDS2A_A7105_REGS: [u8; 50] = [
+static AFHDS2A_A7105_REGS: [u8; 50] = [
     0xFF,
     0xC2 | (1 << 5), // 01: Mode Control (Enable FIFO mode + FCRC)
     0x00,            // 02: Calc

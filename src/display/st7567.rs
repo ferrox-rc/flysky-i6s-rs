@@ -169,14 +169,12 @@ impl St7567 {
     #[cfg(not(test))]
     #[inline(always)]
     fn delay_cycles(&self, count: u32) {
-        for _ in 0..count {
-            cortex_m::asm::nop();
-        }
+        cortex_m::asm::delay(count);
     }
 
     /// Send byte to ST7567 using 6800-series parallel strobe:
     /// Put byte on PE0..PE7, then pulse RD (PD7) High -> Low.
-    #[inline(always)]
+    #[inline]
     fn write_byte(&self, byte: u8, is_data: bool) {
         #[cfg(not(test))]
         {
@@ -209,13 +207,13 @@ impl St7567 {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn write_cmd(&self, cmd: u8) {
         self.write_byte(cmd, false);
     }
 
     #[allow(dead_code)]
-    #[inline(always)]
+    #[inline]
     pub fn write_data(&self, data: u8) {
         self.write_byte(data, true);
     }

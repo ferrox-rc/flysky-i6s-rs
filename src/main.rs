@@ -59,11 +59,7 @@ struct FlightPipeline {
 impl FlightPipeline {
     fn new(storage: &storage::RadioStorage, init_state: &input::InputState) -> Self {
         let active = storage.active_model();
-        let prev_armed = if active.arm_switch > 0 && active.arm_switch <= 10 {
-            mixer::is_switch_active(active.arm_switch, &init_state.switches)
-        } else {
-            false
-        };
+        let prev_armed = mixer::eval_arm_switch(active.arm_switch, &init_state.switches);
         Self {
             prev_armed,
             prev_active_model: storage.radio.active_model,
@@ -89,20 +85,16 @@ impl FlightPipeline {
         // 2. Resynchronize arm state when active model changes or when exiting settings menu
         if storage.radio.active_model != self.prev_active_model {
             self.prev_active_model = storage.radio.active_model;
-            self.prev_armed = if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
-                mixer::is_switch_active(active_model.arm_switch, &state.switches)
-            } else {
-                false
-            };
+            self.prev_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
         }
 
         // 3. Check configured Arm Switch condition and play Armed/Disarmed chimes
         let mut just_armed = false;
         let mut just_disarmed = false;
-        let is_armed = if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
-            let armed = mixer::is_switch_active(active_model.arm_switch, &state.switches);
-            if armed != self.prev_armed {
-                if armed {
+        let is_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
+        if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
+            if is_armed != self.prev_armed {
+                if is_armed {
                     just_armed = true;
                     if !menu_active {
                         buzzer.chime_armed();
@@ -113,12 +105,9 @@ impl FlightPipeline {
                         buzzer.chime_disarmed();
                     }
                 }
-                self.prev_armed = armed;
+                self.prev_armed = is_armed;
             }
-            armed
-        } else {
-            false
-        };
+        }
 
         // 4. Evaluate active model throttle curve (normalized 0..MIXER_MAX)
         let thr_input = ((state.sticks.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
@@ -278,22 +267,16 @@ impl BackgroundIdleManager {
         // 1. Resynchronize arm tracking when exiting settings menu
         if self.menu_was_active && !menu_active {
             let active = storage.active_model();
-            pipeline.prev_armed = if active.arm_switch > 0 && active.arm_switch <= 10 {
-                mixer::is_switch_active(active.arm_switch, &flight.state.switches)
-            } else {
-                false
-            };
+            pipeline.prev_armed = mixer::eval_arm_switch(active.arm_switch, &flight.state.switches);
         }
         self.menu_was_active = menu_active;
 
         // Pot Center Crossing Haptic/Audio Feedback (VR1 & VR2)
         // Detect transitions across deadband ±25 from outside (|prev| >= 25 && |curr| < 25)
-        for (i, (&curr, prev)) in [flight.state.pots.vr1, flight.state.pots.vr2]
+        for (&curr, prev) in [flight.state.pots.vr1, flight.state.pots.vr2]
             .iter()
             .zip(self.prev_pots.iter_mut())
-            .enumerate()
         {
-            let _ = i;
             if prev.abs() >= 25 && curr.abs() < 25 {
                 buzzer.pot_center_click();
             }
@@ -825,38 +808,24 @@ fn main() -> ! {
                     Text::new("SWITCH WARNING:", Point::new(2, 34), text_style)
                         .draw(&mut lcd)
                         .ok();
-                    let mut sw_warn = *b"                ";
+                    let mut sw_warn = [b' '; 20];
                     let mut col = 0;
-                    if sa_unsafe && col + 4 <= 16 {
-                        sw_warn[col..col + 4].copy_from_slice(b"[SA]");
-                        col += 4;
-                        if col < 16 {
-                            sw_warn[col] = b' ';
-                            col += 1;
+                    for &(unsafe_flag, label) in &[
+                        (sa_unsafe, b"[SA]"),
+                        (sb_unsafe, b"[SB]"),
+                        (sc_unsafe, b"[SC]"),
+                        (sd_unsafe, b"[SD]"),
+                    ] {
+                        if unsafe_flag && col + 4 <= sw_warn.len() {
+                            sw_warn[col..col + 4].copy_from_slice(label);
+                            col += 4;
+                            if col < sw_warn.len() {
+                                sw_warn[col] = b' ';
+                                col += 1;
+                            }
                         }
                     }
-                    if sb_unsafe && col + 4 <= 16 {
-                        sw_warn[col..col + 4].copy_from_slice(b"[SB]");
-                        col += 4;
-                        if col < 16 {
-                            sw_warn[col] = b' ';
-                            col += 1;
-                        }
-                    }
-                    if sc_unsafe && col + 4 <= 16 {
-                        sw_warn[col..col + 4].copy_from_slice(b"[SC]");
-                        col += 4;
-                        if col < 16 {
-                            sw_warn[col] = b' ';
-                            col += 1;
-                        }
-                    }
-                    if sd_unsafe && col + 4 <= 16 {
-                        sw_warn[col..col + 4].copy_from_slice(b"[SD]");
-                        col += 4;
-                    }
-                    let sw_str =
-                        core::str::from_utf8(&sw_warn[..col.min(16)]).unwrap_or("CHECK SWITCHES");
+                    let sw_str = ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
                     Text::new(sw_str, Point::new(2, 44), text_style)
                         .draw(&mut lcd)
                         .ok();

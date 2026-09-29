@@ -54,19 +54,27 @@ const NVIC_IPR7: *mut u32 = 0xE000_E41C as *mut u32;
 #[cfg(not(test))]
 use stm32f0xx_hal::pac::interrupt;
 
+use core::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(test))]
+use core::sync::atomic::AtomicUsize;
+
 #[cfg(not(test))]
 static mut RX_RING: [u8; 128] = [0; 128];
 #[cfg(not(test))]
-static mut RX_HEAD: usize = 0;
+static RX_HEAD: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(test))]
-static mut RX_TAIL: usize = 0;
+static RX_TAIL: AtomicUsize = AtomicUsize::new(0);
 
-static mut ACTIVE_HIGH: bool = true;
-static mut POWER_ON: bool = false;
+static ACTIVE_HIGH: AtomicBool = AtomicBool::new(true);
+static POWER_ON: AtomicBool = AtomicBool::new(false);
 
 /// Apply current PC13 pin state based on power state and active polarity.
 unsafe fn apply_power_pin() {
-    let pin_high = if ACTIVE_HIGH { POWER_ON } else { !POWER_ON };
+    let pin_high = if ACTIVE_HIGH.load(Ordering::Relaxed) {
+        POWER_ON.load(Ordering::Relaxed)
+    } else {
+        !POWER_ON.load(Ordering::Relaxed)
+    };
     if pin_high {
         ptr::write_volatile(GPIOC_BSRR, 1 << 13); // High
     } else {
@@ -121,8 +129,8 @@ pub mod mock {
 pub fn init(active_high: bool) {
     #[cfg(not(test))]
     unsafe {
-        ACTIVE_HIGH = active_high;
-        POWER_ON = false;
+        ACTIVE_HIGH.store(active_high, Ordering::Relaxed);
+        POWER_ON.store(false, Ordering::Relaxed);
 
         // Enable GPIOA (bit 17), GPIOC (bit 19), GPIOD (bit 20) clocks
         let ahb = ptr::read_volatile(RCC_AHBENR);
@@ -143,7 +151,7 @@ pub fn init(active_high: bool) {
 pub fn set_power_polarity(active_high: bool) {
     #[cfg(not(test))]
     unsafe {
-        ACTIVE_HIGH = active_high;
+        ACTIVE_HIGH.store(active_high, Ordering::Relaxed);
         apply_power_pin();
     }
     #[cfg(test)]
@@ -154,7 +162,7 @@ pub fn set_power_polarity(active_high: bool) {
 pub fn set_module_power(power_on: bool) {
     #[cfg(not(test))]
     unsafe {
-        POWER_ON = power_on;
+        POWER_ON.store(power_on, Ordering::Relaxed);
         apply_power_pin();
     }
     #[cfg(test)]
@@ -210,8 +218,8 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             ptr::write_volatile(USART2_ICR, 0xFFFF_FFFF);
 
             // Reset RX ring buffer indices
-            ptr::write_volatile(&mut RX_HEAD, 0);
-            ptr::write_volatile(&mut RX_TAIL, 0);
+            RX_HEAD.store(0, Ordering::Relaxed);
+            RX_TAIL.store(0, Ordering::Relaxed);
 
             // Configure NVIC for USART2 (IRQ 28)
             ptr::write_volatile(NVIC_ICPR, 1 << 28);
@@ -229,8 +237,8 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             ptr::write_volatile(USART2_CR1, 0);
 
             // Reset RX ring buffer indices
-            ptr::write_volatile(&mut RX_HEAD, 0);
-            ptr::write_volatile(&mut RX_TAIL, 0);
+            RX_HEAD.store(0, Ordering::Relaxed);
+            RX_TAIL.store(0, Ordering::Relaxed);
 
             // Disable USART2 clock in RCC_APB1ENR (bit 17)
             let apb1 = ptr::read_volatile(RCC_APB1ENR);
@@ -279,12 +287,12 @@ pub fn read_byte() -> Option<u8> {
         mock::pop_rx_byte()
     }
     #[cfg(not(test))]
-    unsafe {
-        let head = ptr::read_volatile(&RX_HEAD);
-        let tail = ptr::read_volatile(&RX_TAIL);
+    {
+        let head = RX_HEAD.load(Ordering::Acquire);
+        let tail = RX_TAIL.load(Ordering::Relaxed);
         if head != tail {
-            let b = RX_RING[tail];
-            ptr::write_volatile(&mut RX_TAIL, (tail + 1) & (RX_RING.len() - 1));
+            let b = unsafe { RX_RING[tail] };
+            RX_TAIL.store((tail + 1) & (unsafe { RX_RING.len() } - 1), Ordering::Release);
             Some(b)
         } else {
             None
@@ -304,12 +312,12 @@ fn USART2() {
 
         if (isr & USART_ISR_RXNE) != 0 {
             let b = (ptr::read_volatile(USART2_RDR) & 0xFF) as u8;
-            let head = ptr::read_volatile(&RX_HEAD);
-            let tail = ptr::read_volatile(&RX_TAIL);
+            let head = RX_HEAD.load(Ordering::Relaxed);
+            let tail = RX_TAIL.load(Ordering::Acquire);
             let next_head = (head + 1) & (RX_RING.len() - 1);
             if next_head != tail {
                 RX_RING[head] = b;
-                ptr::write_volatile(&mut RX_HEAD, next_head);
+                RX_HEAD.store(next_head, Ordering::Release);
             }
         }
     }

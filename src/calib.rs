@@ -301,89 +301,16 @@ impl CalibWizard {
                 // Pot scaling: pots swing ~800..1300 counts around center. 900 counts fills 16 pixels.
                 let pot_target = 900u32;
 
-                // Render VRA (Pot 1) on upper right (x = 92..126)
-                let pot1_span_neg = self.centers[4].saturating_sub(self.mins[4]);
-                let pot1_span_pos = self.maxs[4].saturating_sub(self.centers[4]);
-                let pot1_moved = (pot1_span_neg + pot1_span_pos) >= 400;
-                let pot1_txt = if pot1_moved { "V1 OK" } else { "V1 --" };
-                Text::new(pot1_txt, Point::new(92, 19), text_style).draw(lcd).ok();
-                Rectangle::new(Point::new(92, 21), Size::new(35, 7))
-                    .into_styled(border_style)
-                    .draw(lcd)
-                    .ok();
-                Line::new(Point::new(109, 21), Point::new(109, 27))
-                    .into_styled(border_style)
-                    .draw(lcd)
-                    .ok();
-
-                // VRA extent fill lines
-                let p1_left_w = ((pot1_span_neg as u32 * 16) / pot_target).min(16) as i32;
-                if p1_left_w > 0 {
-                    Line::new(Point::new(109 - p1_left_w, 24), Point::new(109, 24))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
-                }
-                let p1_right_w = ((pot1_span_pos as u32 * 16) / pot_target).min(16) as i32;
-                if p1_right_w > 0 {
-                    Line::new(Point::new(109, 24), Point::new(109 + p1_right_w, 24))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
-                }
-
-                let p1_delta = current_raw[4] as i32 - self.centers[4] as i32;
-                let p1_x = if p1_delta < 0 {
-                    109 - ((p1_delta.unsigned_abs() * 16) / pot_target).min(16) as i32
-                } else {
-                    109 + ((p1_delta as u32 * 16) / pot_target).min(16) as i32
-                };
-                Line::new(Point::new(p1_x, 22), Point::new(p1_x, 26))
-                    .into_styled(border_style)
-                    .draw(lcd)
-                    .ok();
-
-                // Render VRB (Pot 2) on lower right (x = 92..126)
-                let pot2_span_neg = self.centers[5].saturating_sub(self.mins[5]);
-                let pot2_span_pos = self.maxs[5].saturating_sub(self.centers[5]);
-                let pot2_moved = (pot2_span_neg + pot2_span_pos) >= 400;
-                let pot2_txt = if pot2_moved { "V2 OK" } else { "V2 --" };
-                Text::new(pot2_txt, Point::new(92, 35), text_style).draw(lcd).ok();
-                Rectangle::new(Point::new(92, 37), Size::new(35, 7))
-                    .into_styled(border_style)
-                    .draw(lcd)
-                    .ok();
-                Line::new(Point::new(109, 37), Point::new(109, 43))
-                    .into_styled(border_style)
-                    .draw(lcd)
-                    .ok();
-
-                // VRB extent fill lines
-                let p2_left_w = ((pot2_span_neg as u32 * 16) / pot_target).min(16) as i32;
-                if p2_left_w > 0 {
-                    Line::new(Point::new(109 - p2_left_w, 40), Point::new(109, 40))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
-                }
-                let p2_right_w = ((pot2_span_pos as u32 * 16) / pot_target).min(16) as i32;
-                if p2_right_w > 0 {
-                    Line::new(Point::new(109, 40), Point::new(109 + p2_right_w, 40))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
-                }
-
-                let p2_delta = current_raw[5] as i32 - self.centers[5] as i32;
-                let p2_x = if p2_delta < 0 {
-                    109 - ((p2_delta.unsigned_abs() * 16) / pot_target).min(16) as i32
-                } else {
-                    109 + ((p2_delta as u32 * 16) / pot_target).min(16) as i32
-                };
-                Line::new(Point::new(p2_x, 38), Point::new(p2_x, 42))
-                    .into_styled(border_style)
-                    .draw(lcd)
-                    .ok();
+                draw_pot_gauge(
+                    lcd, "V1 OK", "V1 --", 19, 21,
+                    self.centers[4], self.mins[4], self.maxs[4], current_raw[4],
+                    pot_target, text_style, border_style,
+                );
+                draw_pot_gauge(
+                    lcd, "V2 OK", "V2 --", 35, 37,
+                    self.centers[5], self.mins[5], self.maxs[5], current_raw[5],
+                    pot_target, text_style, border_style,
+                );
 
                 Line::new(Point::new(0, 48), Point::new(127, 48)).into_styled(border_style).draw(lcd).ok();
                 if self.waiting_release {
@@ -408,4 +335,60 @@ impl CalibWizard {
             }
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_pot_gauge(
+    lcd: &mut St7567,
+    label_ok: &'static str,
+    label_wait: &'static str,
+    text_y: i32,
+    box_y: i32,
+    center: u16,
+    min: u16,
+    max: u16,
+    current: u16,
+    pot_target: u32,
+    text_style: MonoTextStyle<'_, BinaryColor>,
+    border_style: PrimitiveStyle<BinaryColor>,
+) {
+    let span_neg = center.saturating_sub(min);
+    let span_pos = max.saturating_sub(center);
+    let moved = (span_neg + span_pos) >= 400;
+    let txt = if moved { label_ok } else { label_wait };
+    Text::new(txt, Point::new(92, text_y), text_style).draw(lcd).ok();
+    Rectangle::new(Point::new(92, box_y), Size::new(35, 7))
+        .into_styled(border_style)
+        .draw(lcd)
+        .ok();
+    Line::new(Point::new(109, box_y), Point::new(109, box_y + 6))
+        .into_styled(border_style)
+        .draw(lcd)
+        .ok();
+
+    let left_w = ((span_neg as u32 * 16) / pot_target).min(16) as i32;
+    if left_w > 0 {
+        Line::new(Point::new(109 - left_w, box_y + 3), Point::new(109, box_y + 3))
+            .into_styled(border_style)
+            .draw(lcd)
+            .ok();
+    }
+    let right_w = ((span_pos as u32 * 16) / pot_target).min(16) as i32;
+    if right_w > 0 {
+        Line::new(Point::new(109, box_y + 3), Point::new(109 + right_w, box_y + 3))
+            .into_styled(border_style)
+            .draw(lcd)
+            .ok();
+    }
+
+    let delta = current as i32 - center as i32;
+    let mark_x = if delta < 0 {
+        109 - ((delta.unsigned_abs() * 16) / pot_target).min(16) as i32
+    } else {
+        109 + ((delta as u32 * 16) / pot_target).min(16) as i32
+    };
+    Line::new(Point::new(mark_x, box_y + 1), Point::new(mark_x, box_y + 5))
+        .into_styled(border_style)
+        .draw(lcd)
+        .ok();
 }
