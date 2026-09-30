@@ -372,7 +372,7 @@ pub fn build_param_read_frame(target: u8, param_id: u8, chunk: u8, out_frame: &m
     )
 }
 
-/// Build a Parameter Write frame (0x2D) updating `param_id` value or command status.
+/// Build a Parameter Write frame (0x2D) updating `param_id` value or command status (single byte).
 #[inline]
 pub fn build_param_write_frame(target: u8, param_id: u8, value: u8, out_frame: &mut [u8]) -> usize {
     build_param_ext_frame(
@@ -382,6 +382,25 @@ pub fn build_param_write_frame(target: u8, param_id: u8, value: u8, out_frame: &
         value,
         out_frame,
     )
+}
+
+/// Build a Parameter Write frame (0x2D) with arbitrary payload (e.g. multi-byte integers).
+pub fn build_param_write_frame_multi(
+    target: u8,
+    param_id: u8,
+    payload: &[u8],
+    out_frame: &mut [u8],
+) -> usize {
+    out_frame[0] = CRSF_SYNC_BYTE;
+    out_frame[1] = (5 + payload.len()) as u8; // Type (1) + Dest (1) + Orig (1) + Param (1) + Payload (len) + CRC (1)
+    out_frame[2] = CRSF_FRAMETYPE_PARAMETER_WRITE;
+    out_frame[3] = target;
+    out_frame[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;
+    out_frame[5] = param_id;
+    let end = 6 + payload.len();
+    out_frame[6..end].copy_from_slice(payload);
+    out_frame[end] = crc8(&out_frame[2..end]);
+    end + 1
 }
 
 #[cfg(test)]

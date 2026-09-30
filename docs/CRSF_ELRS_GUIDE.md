@@ -109,15 +109,22 @@ Radio (FS-i6X)                               External ELRS TX Module
 - Parameters are grouped logically in folders per the module's firmware (e.g. `VTX Admin >`, `Wi-Fi Options >`).
 - Folders display with a trailing chevron indicator (`>`).
 - Press **`[OK]`** on a folder to drill down into its sub-parameters. The header updates to show the active folder name.
-- Press **`[ESC]`** inside any subfolder to ascend back up one level.
+- When navigating deeply nested subfolders (up to 6 levels), the full folder stack preserves each folder's display name. Pressing **`[ESC]`** ascends back to the parent folder and restores the parent's actual title in the header (never generic `"Folder"`).
 - Press **`[ESC]`** at the root parameter level to return to the **`CRSF DEVICES`** picker to switch devices.
 
-#### Step 3: In-Place Modal Parameter Editing
-- Highlight any selection setting (such as `Packet Rate` or `Power`) and press **`[OK]`**.
-- The field enters **Edit Mode**, displayed with selection brackets: `< 250Hz >`.
-- Press **`[UP]`** or **`[DOWN]`** to preview and cycle through options locally on screen without emitting premature serial commands.
-- Press **`[OK]`** to commit your choice: the radio transmits the `0x2D Param Write` frame over USART2 to the module and exits Edit Mode.
-- Press **`[ESC]`** to cancel editing without saving.
+#### Step 3: In-Place Modal Parameter Editing (Select & Integer)
+- **Selection Parameters** (e.g., `Packet Rate`, `Power`):
+  - Highlight the setting and press **`[OK]`** (footer displays `[OK] Edit`).
+  - The field enters **Edit Mode**, displayed with selection brackets: `< 250Hz >`.
+  - Press **`[UP]`** or **`[DOWN]`** to preview and cycle through options locally on screen without emitting premature serial commands.
+  - Press **`[OK]`** to commit your choice: the radio transmits the `0x2D Param Write` frame over USART2 to the module and exits Edit Mode.
+  - Press **`[ESC]`** to cancel editing without saving.
+- **Integer Parameters** (e.g., receiver PWM channel output mapping `Output 1`, `Output 2`, offsets, trims):
+  - Values and their unit strings (e.g., `4 ch`, `100 %`, `250 mW`, `0 us`) are rendered clearly on the right.
+  - Press **`[OK]`** to enter modal editing: displays `< 4 ch >`.
+  - Press **`[UP]`** / **`[DOWN]`** to increment or decrement the numeric value, automatically clamped within the device's allowable `[min, max]` limits.
+  - Press **`[OK]`** to transmit the write frame (1-byte for `UINT8`/`INT8`, 2-byte big-endian for `UINT16`/`INT16`) to the receiver or transmitter module.
+  - Press **`[ESC]`** to cancel without altering the setting.
 
 #### Step 4: Triggering Command Actions
 - Highlight an action command (such as `[Bind]` or `[Wi-Fi Mode]`) and press **`[OK]`**.

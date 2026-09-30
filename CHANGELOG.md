@@ -5,6 +5,26 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **CRSF / ELRS Integer Parameter Support ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/crsf/protocol.rs`](src/crsf/protocol.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:
+  - Full decoding and parsing for CRSF integer parameters: `CRSF_TYPE_UINT8` (0), `CRSF_TYPE_INT8` (1), `CRSF_TYPE_UINT16` (2), and `CRSF_TYPE_INT16` (3).
+  - Captures value, min, max, default bounds, and unit strings (e.g., `ch`, `%`, `mW`, `us`).
+  - Added in-place modal editing (`[OK]` to edit, `[UP]`/`[DOWN]` clamped to `[min, max]`, `[OK]` to commit write, `[ESC]` to cancel).
+  - Multi-byte parameter write frame builder (`build_param_write_frame_multi`) supporting 1-byte and 2-byte big-endian writes.
+  - Implemented `i32_to_dec` formatting helper supporting negative, zero, and positive decimal numbers without 64-bit division.
+- **Configurator Buffer Unification & Expansion**:
+  - Unified parameter capacity to `MAX_PARAMS = 48` per folder (removing the obsolete 26-param limit).
+  - Expanded device-wide parent mapping to `MAX_PARAM_MAP = 96`.
+  - Unified string pool to `STRING_POOL_SIZE = 1280` bytes (1.25 KB) for parameter names, options, and units.
+  - Replaced magic numbers with `MAX_FOLDER_NAME_LEN = 32` and `MAX_FOLDER_DEPTH = 6`.
+
+### Fixed
+- **Nested Subfolder Navigation Header Title ([`src/crsf/mod.rs`](src/crsf/mod.rs))**:
+  - Fixed issue where ascending from a sub-subfolder to a subfolder reverted the top header title to `"Folder"`.
+  - Introduced `FolderStackItem` storing both folder ID and folder name buffer on the navigation stack, restoring parent titles accurately across up to 6 levels of nesting.
+
 ## [0.18.0] - 2026-09-29
 
 ### Summary

@@ -310,6 +310,36 @@ pub fn format_trim(axis: crate::trim::ActiveTrim, val: i8, buf: &mut [u8; 9]) ->
     ascii_as_str(buf)
 }
 
+/// Format an i32 to decimal ASCII representation in buf. Returns bytes written.
+pub fn i32_to_dec(val: i32, buf: &mut [u8]) -> usize {
+    if buf.is_empty() {
+        return 0;
+    }
+    if val == 0 {
+        buf[0] = b'0';
+        return 1;
+    }
+    let mut i = 0;
+    let (mut n, is_neg) = if val < 0 {
+        (val.unsigned_abs(), true)
+    } else {
+        (val as u32, false)
+    };
+    if is_neg && i < buf.len() {
+        buf[i] = b'-';
+        i += 1;
+    }
+    let start_digit = i;
+    while n > 0 && i < buf.len() {
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        i += 1;
+    }
+    // Reverse digits
+    buf[start_digit..i].reverse();
+    i
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,5 +360,15 @@ mod tests {
         assert_eq!(format_deci_volt(44, &mut b4), "4.4V");
         assert_eq!(format_deci_volt(50, &mut b4), "5.0V");
         assert_eq!(format_deci_volt(38, &mut b4), "3.8V");
+
+        let mut b16 = [0u8; 16];
+        let len0 = i32_to_dec(0, &mut b16);
+        assert_eq!(ascii_as_str(&b16[..len0]), "0");
+
+        let len_pos = i32_to_dec(1234, &mut b16);
+        assert_eq!(ascii_as_str(&b16[..len_pos]), "1234");
+
+        let len_neg = i32_to_dec(-987, &mut b16);
+        assert_eq!(ascii_as_str(&b16[..len_neg]), "-987");
     }
 }
