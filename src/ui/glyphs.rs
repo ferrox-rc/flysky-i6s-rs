@@ -58,10 +58,6 @@ pub const GLYPH_INFORMATION_OUTLINE: [u8; 18] = [
     0, 0, 15, 12, 67, 32, 2, 36, 64, 98, 36, 70, 4, 194, 48, 240, 0, 0,
 ];
 
-pub const GLYPH_BATTERY: [u8; 18] = [
-    0, 0, 0, 0, 192, 127, 254, 231, 127, 254, 231, 127, 252, 7, 0, 0, 0, 0,
-];
-
 pub const MENU_GLYPHS: [&[u8; 18]; 13] = [
     &GLYPH_AIRPLANE,
     &GLYPH_AIRPLANE_COG,
@@ -121,5 +117,28 @@ pub fn draw_switch_arrow(lcd: &mut St7567, x: i32, y: i32, pos: SwitchPos) {
             lcd.draw_hline(x + 1, y + 5, 3, true);
             lcd.set_pixel(x + 2, y + 6, true);
         }
+    }
+}
+
+/// Draw a horizontal battery gauge with outline and up to 3 discrete charge bars.
+/// - Dimensions: 11x7 px (tip at x, body at x+1..x+10, y..y+6).
+/// - `bars`: 0 (empty outline), 1, 2, or 3 bars filled left-to-right.
+#[inline]
+pub fn draw_battery_gauge(lcd: &mut St7567, x: i32, y: i32, bars: u8) {
+    // Battery terminal tip on left (x, y + 2, h = 3)
+    lcd.draw_vline(x, y + 2, 3, true);
+
+    // Battery body outline (x + 1, y, w = 10, h = 7)
+    lcd.draw_rect(x + 1, y, 10, 7, true);
+
+    // Charge level bars (left-to-right inside body: x = x+2..x+9, y = y+1..y+5)
+    if bars >= 1 {
+        lcd.fill_rect(x + 2, y + 1, 2, 5, true);
+    }
+    if bars >= 2 {
+        lcd.fill_rect(x + 5, y + 1, 2, 5, true);
+    }
+    if bars >= 3 {
+        lcd.fill_rect(x + 8, y + 1, 2, 5, true);
     }
 }
