@@ -190,6 +190,12 @@ pub fn set_rx_id(rx_id: u32) {
     with_driver_mut(|d| d.set_rx_id(rx_id));
 }
 
+/// Configure receiver settings: servo frequency (50..400 Hz), output mode (0: PWM, 1: PPM),
+/// and serial protocol (0: i-BUS, 1: S.BUS).
+pub fn set_rx_settings(rate: u16, out_mode: u8, serial_proto: u8) {
+    with_driver_mut(|d| d.set_rx_settings(rate, out_mode, serial_proto));
+}
+
 /// Query whether binding has completed.
 pub fn is_bound() -> bool {
     with_driver(|d| d.bind_done || (d.rx_id != 0 && d.rx_id != 0xFFFF_FFFF)).unwrap_or(false)

@@ -68,6 +68,27 @@ pub fn format_deci_volt(deci: u8, buf: &mut [u8; 4]) -> &str {
     ascii_as_str(buf)
 }
 
+/// Format servo frequency (50..400 Hz) into buf[0..8] as "50 Hz" .. "400 Hz"
+pub fn format_servo_hz(hz: u16, buf: &mut [u8; 8]) -> &str {
+    let mut i = 0;
+    let clamped = hz.clamp(50, 400);
+    if clamped >= 100 {
+        buf[i] = b'0' + ((clamped / 100) % 10) as u8;
+        i += 1;
+    }
+    buf[i] = b'0' + ((clamped / 10) % 10) as u8;
+    i += 1;
+    buf[i] = b'0' + (clamped % 10) as u8;
+    i += 1;
+    buf[i] = b' ';
+    i += 1;
+    buf[i] = b'H';
+    i += 1;
+    buf[i] = b'z';
+    i += 1;
+    ascii_as_str(&buf[..i])
+}
+
 pub fn next_ascii(c: u8) -> u8 {
     match c {
         b' ' => b'A',
@@ -360,6 +381,14 @@ mod tests {
         assert_eq!(format_deci_volt(44, &mut b4), "4.4V");
         assert_eq!(format_deci_volt(50, &mut b4), "5.0V");
         assert_eq!(format_deci_volt(38, &mut b4), "3.8V");
+
+        let mut b8 = [0u8; 8];
+        assert_eq!(format_servo_hz(50, &mut b8), "50 Hz");
+        assert_eq!(format_servo_hz(60, &mut b8), "60 Hz");
+        assert_eq!(format_servo_hz(100, &mut b8), "100 Hz");
+        assert_eq!(format_servo_hz(400, &mut b8), "400 Hz");
+        assert_eq!(format_servo_hz(30, &mut b8), "50 Hz"); // clamped
+        assert_eq!(format_servo_hz(500, &mut b8), "400 Hz"); // clamped
 
         let mut b16 = [0u8; 16];
         let len0 = i32_to_dec(0, &mut b16);

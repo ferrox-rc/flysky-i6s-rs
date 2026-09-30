@@ -89,6 +89,9 @@ pub struct Afhds2a {
     pub channels: [u16; NUM_CHANNELS],
     pub telemetry: TelemetryData,
     loss_counter: u16,
+    pub servo_rate_hz: u16,
+    pub rx_out_mode: u8,
+    pub rx_serial_proto: u8,
 }
 
 impl Afhds2a {
@@ -111,6 +114,9 @@ impl Afhds2a {
             channels: [CHANNEL_CENTER_US; NUM_CHANNELS], // All centered CHANNEL_CENTER_US µs
             telemetry: TelemetryData::new(),
             loss_counter: 0,
+            servo_rate_hz: 50,
+            rx_out_mode: 0,
+            rx_serial_proto: 0,
         }
     }
 
@@ -150,6 +156,17 @@ impl Afhds2a {
         self.bind_done = rx_id != 0 && rx_id != 0xFFFF_FFFF;
         self.loss_counter = 0;
         self.telemetry.connected = false;
+    }
+
+    /// Configure receiver servo refresh rate (clamped 50..400 Hz), output mode (0: PWM, 1: PPM),
+    /// and serial output protocol (0: i-BUS, 1: S.BUS).
+    ///
+    /// Immediately enqueues a `PacketType::Settings` frame to transmit new configuration over the air.
+    pub fn set_rx_settings(&mut self, rate: u16, out_mode: u8, serial_proto: u8) {
+        self.servo_rate_hz = rate.clamp(50, 400);
+        self.rx_out_mode = out_mode;
+        self.rx_serial_proto = serial_proto;
+        self.next_packet_type = PacketType::Settings;
     }
 
     /// Periodic timer callback (called every 3.85 ms from TIM16 ISR).
@@ -314,16 +331,16 @@ impl Afhds2a {
         out[5..9].copy_from_slice(&self.rx_id.to_le_bytes());
         out[9] = 0xFD;
         out[10] = 0xFF;
-        out[11] = 0x90; // 400 Hz servo refresh rate (low byte: 400 = 0x0190)
-        out[12] = 0x01; // high byte
-        out[13] = 0x00; // PWM output enabled (0x00 = PWM, 0x01 = PPM)
+        let rate = self.servo_rate_hz.clamp(50, 400);
+        out[11..13].copy_from_slice(&rate.to_le_bytes());
+        out[13] = if self.rx_out_mode == 1 { 0x01 } else { 0x00 }; // 0x00 = PWM, 0x01 = PPM
         out[14] = 0x00;
         out[15..37].fill(0xFF);
         let center_bytes = CHANNEL_CENTER_US.to_be_bytes();
         out[18] = center_bytes[0];
         out[19] = center_bytes[1]; // 1500 µs center pulse
         out[20] = 0x05;
-        out[21] = 0xDE; // i-BUS serial output enabled (0xDE = i-BUS, 0xDD = SBUS)
+        out[21] = if self.rx_serial_proto == 1 { 0xDD } else { 0xDE }; // 0xDE = i-BUS, 0xDD = SBUS
         out[37] = 0x00;
     }
 
@@ -656,5 +673,54 @@ mod tests {
         }
 
         assert_eq!(packet[37], 0x00);
+    }
+
+    #[test]
+    fn test_build_settings_packet_configurable() {
+        let mut radio = Afhds2a::new(0x1122_3344);
+        radio.rx_id = 0x5566_7788;
+
+        // 1. Safe Factory Default: 50 Hz, PWM (0x00), i-BUS (0xDE)
+        let mut packet = [0u8; TX_PACKET_SIZE];
+        radio.build_settings_packet(&mut packet);
+
+        assert_eq!(packet[0], PACKET_SETTINGS); // 0xAA
+        assert_eq!(&packet[1..5], &0x1122_3344u32.to_le_bytes());
+        assert_eq!(&packet[5..9], &0x5566_7788u32.to_le_bytes());
+        assert_eq!(packet[9], 0xFD);
+        assert_eq!(packet[10], 0xFF);
+        // 50 Hz little-endian: 50 = 0x0032 -> [0x32, 0x00]
+        assert_eq!(&packet[11..13], &[0x32, 0x00]);
+        // PWM output: 0x00
+        assert_eq!(packet[13], 0x00);
+        // Center pulse: 1500 us (0x05DC big-endian -> [0x05, 0xDC])
+        assert_eq!(packet[18], 0x05);
+        assert_eq!(packet[19], 0xDC);
+        // Serial out: i-BUS (0xDE)
+        assert_eq!(packet[21], 0xDE);
+        assert_eq!(packet[37], 0x00);
+
+        // 2. High performance digital servos: 400 Hz, PPM (0x01), S.BUS (0xDD)
+        radio.set_rx_settings(400, 1, 1);
+        assert_eq!(radio.next_packet_type, PacketType::Settings);
+        radio.build_settings_packet(&mut packet);
+
+        // 400 Hz little-endian: 400 = 0x0190 -> [0x90, 0x01]
+        assert_eq!(&packet[11..13], &[0x90, 0x01]);
+        // PPM output: 0x01
+        assert_eq!(packet[13], 0x01);
+        // Serial out: S.BUS (0xDD)
+        assert_eq!(packet[21], 0xDD);
+
+        // 3. Safety Clamping: out-of-range low (30 Hz -> 50 Hz) and high (500 Hz -> 400 Hz)
+        radio.set_rx_settings(30, 0, 0);
+        assert_eq!(radio.servo_rate_hz, 50);
+        radio.build_settings_packet(&mut packet);
+        assert_eq!(&packet[11..13], &[0x32, 0x00]);
+
+        radio.set_rx_settings(500, 0, 0);
+        assert_eq!(radio.servo_rate_hz, 400);
+        radio.build_settings_packet(&mut packet);
+        assert_eq!(&packet[11..13], &[0x90, 0x01]);
     }
 }

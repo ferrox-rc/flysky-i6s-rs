@@ -9,7 +9,9 @@ use embedded_graphics::{
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-use crate::menu::format::{ascii_as_str, format_deci_volt, format_pct_3, format_u8_2, u32_to_hex};
+use crate::menu::format::{
+    ascii_as_str, format_deci_volt, format_pct_3, format_servo_hz, format_u8_2, u32_to_hex,
+};
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::storage::{self, RadioStorage};
@@ -32,7 +34,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 9;
+    const SETUP_ITEMS: usize = 12;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -116,6 +118,46 @@ pub fn update_radio_setup(
                 crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
                 storage::save_radio_config(storage);
             }
+            9 => {
+                buzzer.click();
+                storage.radio.servo_rate_hz = match storage.radio.servo_rate_hz {
+                    50 => 60,
+                    60 => 100,
+                    100 => 150,
+                    150 => 200,
+                    200 => 250,
+                    250 => 300,
+                    300 => 350,
+                    350 => 400,
+                    _ => 50,
+                };
+                crate::rf::set_rx_settings(
+                    storage.radio.servo_rate_hz,
+                    storage.radio.rx_out_mode,
+                    storage.radio.rx_serial_proto,
+                );
+                storage::save_radio_config(storage);
+            }
+            10 => {
+                buzzer.click();
+                storage.radio.rx_out_mode = if storage.radio.rx_out_mode == 0 { 1 } else { 0 };
+                crate::rf::set_rx_settings(
+                    storage.radio.servo_rate_hz,
+                    storage.radio.rx_out_mode,
+                    storage.radio.rx_serial_proto,
+                );
+                storage::save_radio_config(storage);
+            }
+            11 => {
+                buzzer.click();
+                storage.radio.rx_serial_proto = if storage.radio.rx_serial_proto == 0 { 1 } else { 0 };
+                crate::rf::set_rx_settings(
+                    storage.radio.servo_rate_hz,
+                    storage.radio.rx_out_mode,
+                    storage.radio.rx_serial_proto,
+                );
+                storage::save_radio_config(storage);
+            }
             _ => {}
         }
     }
@@ -183,6 +225,19 @@ pub fn update_radio_setup(
             8 => {
                 let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
                 widgets::draw_list_row(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str), 62);
+            }
+            9 => {
+                let mut hz_buf = [0u8; 8];
+                let hz_str = format_servo_hz(storage.radio.servo_rate_hz, &mut hz_buf);
+                widgets::draw_list_row(lcd, slot, is_sel, "Servo Hz:", Some(hz_str), 62);
+            }
+            10 => {
+                let out_str = if storage.radio.rx_out_mode == 0 { "PWM" } else { "PPM" };
+                widgets::draw_list_row(lcd, slot, is_sel, "RX Out:", Some(out_str), 62);
+            }
+            11 => {
+                let serial_str = if storage.radio.rx_serial_proto == 0 { "i-BUS" } else { "S.BUS" };
+                widgets::draw_list_row(lcd, slot, is_sel, "Serial:", Some(serial_str), 62);
             }
             _ => {}
         }

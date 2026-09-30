@@ -860,6 +860,11 @@ fn main() -> ! {
     trims.values.throttle = active.trims[2];
     trims.values.yaw = active.trims[3];
     rf::set_rx_id(active.rx_id);
+    rf::set_rx_settings(
+        storage.radio.servo_rate_hz,
+        storage.radio.rx_out_mode,
+        storage.radio.rx_serial_proto,
+    );
 
     // Apply saved backlight brightness level & LCD contrast
     lcd.set_backlight_level(storage.radio.backlight_brightness * 10);

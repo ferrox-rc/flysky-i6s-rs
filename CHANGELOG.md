@@ -5,7 +5,18 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.18.1] - 2026-09-30
+
+### Fixed
+- **AFHDS 2A Servo Refresh Rate Safety ([`src/rf/afhds2a.rs`](src/rf/afhds2a.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Replaced hardcoded 400 Hz servo refresh rate in `build_settings_packet` with a safe default of **50 Hz** (20 ms period) to prevent jitter, overheating, and burnout of standard analog servos.
+  - Added configurable servo rate in **Radio Setup** (`Servo Hz:`) cycling safely through `50 Hz`, `60 Hz`, `100 Hz`, `150 Hz`, `200 Hz`, `250 Hz`, `300 Hz`, `350 Hz`, and `400 Hz`.
+  - Added hardware bounds checking in `storage.sanitize()` clamping values strictly to `50..=400 Hz` (defaulting to 50 Hz on uninitialized flash).
+- **Configurable AFHDS 2A Output Modes**:
+  - Added receiver output mode selection in **Radio Setup** (`RX Out:`): toggle between **PWM** (`0x00`) and **PPM** (`0x01`).
+  - Added receiver serial telemetry protocol selection in **Radio Setup** (`Serial:`): toggle between **i-BUS** (`0xDE`) and **S.BUS** (`0xDD`).
+  - Implemented dynamic over-the-air synchronization via `PacketType::Settings` to reconfigure receiver hardware on the fly without power cycling.
+  - Preserved strict 128-byte `RadioConfig` flash layout by allocating 4 bytes from `_reserved`.
 
 ### Added
 - **CRSF / ELRS Integer Parameter Support ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/crsf/protocol.rs`](src/crsf/protocol.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs))**:

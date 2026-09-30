@@ -54,7 +54,10 @@ pub struct RadioConfig {
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
     pub ext_module_pwr: u8,        // 64 (0: Active HIGH / N-type, 1: Active LOW / P-type)
     pub tone_style: u8,            // 65 (0: Simple / Standard, 1: Rich / Melodic)
-    pub _reserved: [u8; 62],       // 66..128
+    pub servo_rate_hz: u16,        // 66..68 (50..400 Hz, default 50 Hz for analog servo safety)
+    pub rx_out_mode: u8,           // 68 (0: PWM, 1: PPM, default 0)
+    pub rx_serial_proto: u8,       // 69 (0: i-BUS, 1: S.BUS, default 0)
+    pub _reserved: [u8; 58],       // 70..128
 }
 
 impl RadioConfig {
@@ -106,7 +109,10 @@ impl RadioConfig {
             ],
             ext_module_pwr: 0,
             tone_style: 1,
-            _reserved: [0; 62],
+            servo_rate_hz: 50,
+            rx_out_mode: 0,
+            rx_serial_proto: 0,
+            _reserved: [0; 58],
         }
     }
 }
@@ -279,6 +285,15 @@ impl RadioStorage {
         }
         if self.radio.tone_style > 1 {
             self.radio.tone_style = 1;
+        }
+        if self.radio.servo_rate_hz < 50 || self.radio.servo_rate_hz > 400 {
+            self.radio.servo_rate_hz = 50;
+        }
+        if self.radio.rx_out_mode > 1 {
+            self.radio.rx_out_mode = 0;
+        }
+        if self.radio.rx_serial_proto > 1 {
+            self.radio.rx_serial_proto = 0;
         }
 
         for stick in self.radio.sticks.iter_mut() {
@@ -989,6 +1004,9 @@ mod tests {
         storage.radio.lcd_contrast = 255;
         storage.radio.usb_mode = 255;
         storage.radio.ext_module_pwr = 255;
+        storage.radio.servo_rate_hz = 65535;
+        storage.radio.rx_out_mode = 255;
+        storage.radio.rx_serial_proto = 255;
 
         for m in storage.models.iter_mut() {
             m.arm_switch = 255;
@@ -1013,6 +1031,9 @@ mod tests {
         assert_eq!(storage.radio.lcd_contrast, 37);
         assert_eq!(storage.radio.usb_mode, 0);
         assert_eq!(storage.radio.ext_module_pwr, 0);
+        assert_eq!(storage.radio.servo_rate_hz, 50);
+        assert_eq!(storage.radio.rx_out_mode, 0);
+        assert_eq!(storage.radio.rx_serial_proto, 0);
 
         for (idx, m) in storage.models.iter().enumerate() {
             assert!(m.arm_switch <= 10, "arm_switch must be sanitized <= 10");
