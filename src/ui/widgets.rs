@@ -89,6 +89,48 @@ pub fn draw_channel_gauge(
     lcd.fill_rect(cursor_center - 1, y + 1, 3, height.saturating_sub(2), true);
 }
 
+/// Draw a compact horizontal dual split bar for rotary pots (VRa and VRb).
+/// - Dimensions: width x 7 px. Top lane is VRa, bottom lane is VRb.
+/// - Each lane features a center tick and sliding 3px cursor (-1000..+1000).
+pub fn draw_split_pot_bar(
+    lcd: &mut St7567,
+    x: i32,
+    y: i32,
+    width: u32,
+    vr1: i16,
+    vr2: i16,
+) {
+    if width < 8 {
+        return;
+    }
+    // Top border, middle divider, and bottom border
+    lcd.draw_hline(x, y, width, true);
+    lcd.draw_hline(x, y + 3, width, true);
+    lcd.draw_hline(x, y + 6, width, true);
+
+    // Left and right end caps
+    lcd.draw_vline(x, y, 7, true);
+    lcd.draw_vline(x + width as i32 - 1, y, 7, true);
+
+    // Center ticks for both top and bottom lanes
+    let center_x = x + (width as i32 / 2);
+    lcd.set_pixel(center_x, y + 1, true);
+    lcd.set_pixel(center_x, y + 5, true);
+
+    // Travel range for sliding cursors
+    let min_pos = x + 2;
+    let max_pos = x + width as i32 - 3;
+    let travel = (max_pos - min_pos).max(1);
+
+    // Top cursor: VRa (y + 1..y + 2, 3px wide)
+    let c1 = min_pos + (((vr1 as i32 + 1000) * travel + 1000) / 2000);
+    lcd.fill_rect(c1 - 1, y + 1, 3, 2, true);
+
+    // Bottom cursor: VRb (y + 4..y + 5, 3px wide)
+    let c2 = min_pos + (((vr2 as i32 + 1000) * travel + 1000) / 2000);
+    lcd.fill_rect(c2 - 1, y + 4, 3, 2, true);
+}
+
 /// Draw a left-to-right throttle progress bar (-1000 is 0%, +1000 is 100%).
 pub fn draw_progress_bar(
     lcd: &mut St7567,

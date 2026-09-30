@@ -1,7 +1,7 @@
 //! Page 0 (P1/4): Primary Gimbals & Trims, Switches, Pots, and Trim status.
 
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
+    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
     text::Text,
@@ -11,7 +11,7 @@ use crate::display::St7567;
 use crate::input::InputState;
 use crate::storage::RadioStorage;
 use crate::trim::{self, TrimController};
-use crate::ui::format::{ascii_as_str, format_percent, format_throttle_percent, format_trim};
+use crate::ui::format::{format_percent, format_throttle_percent, format_trim};
 use crate::ui::glyphs::draw_switch_arrow;
 use crate::ui::widgets;
 
@@ -27,6 +27,7 @@ pub fn render(
     blink_on: bool,
 ) {
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let mut pct_buf = [0u8; 5];
     let is_general = storage.active_model().model_type == 4;
 
@@ -78,14 +79,9 @@ pub fn render(
     Text::new("D", Point::new(56, 53), text_style).draw(lcd).ok();
     draw_switch_arrow(lcd, 63, 46, state.switches.sd);
 
-    // Pots: V1 / V2 on right (scaled 0..9 across full turn)
-    let mut pot_buf = *b"V:0/0";
-    let p1_val = (((state.pots.vr1 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
-    let p2_val = (((state.pots.vr2 as i32 + 1000) * 9) / 2000).clamp(0, 9) as u8;
-    pot_buf[2] = b'0' + p1_val;
-    pot_buf[4] = b'0' + p2_val;
-    let pot_str = ascii_as_str(&pot_buf);
-    Text::new(pot_str, Point::new(96, 53), text_style).draw(lcd).ok();
+    // Pots: Split bar on right (Top: VRa, Bottom: VRb)
+    Text::new("VR", Point::new(74, 52), text_style_small).draw(lcd).ok();
+    widgets::draw_split_pot_bar(lcd, 84, 46, 42, state.pots.vr1, state.pots.vr2);
 
     // Standardized Footer (y = 55..63)
     if is_binding {
