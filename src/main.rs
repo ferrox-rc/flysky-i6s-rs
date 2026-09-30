@@ -801,6 +801,13 @@ fn main() -> ! {
     // 3. Initialize ST7567 128×64 LCD (clears framebuffer and flushes before turning on backlight)
     let mut lcd = St7567::new();
 
+    // Render Ferrox-RC Splash Screen immediately upon LCD initialization (bypassed on warm watchdog recovery)
+    let splash_start_ms = time::millis();
+    if !was_watchdog_reset {
+        ui::splash::draw_splash(&mut lcd);
+        lcd.flush();
+    }
+
     // 4. Start deterministic 2.0s Hardware Watchdog (IWDG) via PAC
     watchdog::start();
 
@@ -880,9 +887,14 @@ fn main() -> ! {
     if (initial_keys & (1 << 10)) != 0 && !was_watchdog_reset {
         calib_wizard.start(&mut buzzer);
     }
-    watchdog::feed();
+    // 10. Hold splash screen for ~600ms total elapsed time since LCD initialization
+    if !was_watchdog_reset && !calib_wizard.is_active() {
+        while time::millis().wrapping_sub(splash_start_ms) < 600 {
+            watchdog::feed();
+        }
+    }
 
-    // 10. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
+    // 11. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     // Bypassed on watchdog reset to immediately resume RF control in flight
     run_preflight_check(storage, &mut buzzer, &mut lcd, &calib_wizard, was_watchdog_reset);
 

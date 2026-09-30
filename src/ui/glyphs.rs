@@ -145,3 +145,33 @@ pub fn draw_battery_gauge(lcd: &mut St7567, x: i32, y: i32, bars: u8) {
         lcd.fill_rect(x + 2, y + 1, 2, 5, true);
     }
 }
+
+/// 28x27 Ferrox-RC Delta & Crystal Emblem Bitmap (95 bytes).
+pub const LOGO_FERROX_28X27: [u8; 95] = [
+    0, 96, 0, 0, 0, 6, 0, 0, 240, 0, 0, 0,
+    9, 0, 0, 152, 1, 0, 192, 48, 0, 0, 12, 3,
+    0, 64, 32, 0, 0, 6, 6, 0, 32, 64, 0, 0,
+    99, 12, 0, 144, 144, 0, 128, 9, 25, 0, 8, 6,
+    1, 64, 96, 32, 0, 134, 16, 6, 32, 0, 64, 0,
+    1, 0, 8, 48, 0, 192, 128, 1, 0, 24, 8, 0,
+    0, 129, 6, 0, 22, 60, 0, 192, 227, 3, 0, 124,
+    30, 240, 128, 247, 1, 6, 248, 7, 96, 0, 14,
+];
+
+/// Draw the 28x27 Ferrox-RC emblem at (x, y) directly onto the LCD.
+#[inline]
+pub fn draw_ferrox_logo(lcd: &mut St7567, x: i32, y: i32) {
+    for row in 0..27 {
+        let py = y + row as i32;
+        let base_bit = row * 28;
+        for col in 0..28 {
+            let px = x + col as i32;
+            let bit = base_bit + col;
+            let byte_idx = bit / 8;
+            let bit_idx = bit % 8;
+            if (LOGO_FERROX_28X27[byte_idx] & (1 << bit_idx)) != 0 {
+                lcd.set_pixel(px, py, true);
+            }
+        }
+    }
+}
