@@ -278,29 +278,26 @@ pub fn format_percent(val: i16, buf: &mut [u8; 5]) -> &str {
     }
 }
 
-/// Format throttle value (-1000..+1000) to unipolar percentage string "  0%" .. "100%"
+/// Format throttle value (-1000..+1000) to unipolar percentage string " 100%" .. "   0%"
 pub fn format_throttle_percent(val: i16, buf: &mut [u8; 5]) -> &str {
     let pct = (((val as i32 + 1000) * 100) / 2000).clamp(0, 100) as u8;
 
+    buf[0] = b' ';
     if pct >= 100 {
-        buf[0] = b'1';
-        buf[1] = b'0';
+        buf[1] = b'1';
         buf[2] = b'0';
-        buf[3] = b'%';
-        ascii_as_str(&buf[0..4])
+        buf[3] = b'0';
     } else if pct >= 10 {
-        buf[0] = b' ';
-        buf[1] = b'0' + (pct / 10);
-        buf[2] = b'0' + (pct % 10);
-        buf[3] = b'%';
-        ascii_as_str(&buf[0..4])
-    } else {
-        buf[0] = b' ';
         buf[1] = b' ';
-        buf[2] = b'0' + pct;
-        buf[3] = b'%';
-        ascii_as_str(&buf[0..4])
+        buf[2] = b'0' + (pct / 10);
+        buf[3] = b'0' + (pct % 10);
+    } else {
+        buf[1] = b' ';
+        buf[2] = b' ';
+        buf[3] = b'0' + pct;
     }
+    buf[4] = b'%';
+    ascii_as_str(buf)
 }
 
 /// Format active trim status to "TRM X:+00"
@@ -399,5 +396,13 @@ mod tests {
 
         let len_neg = i32_to_dec(-987, &mut b16);
         assert_eq!(ascii_as_str(&b16[..len_neg]), "-987");
+
+        let mut b5 = [0u8; 5];
+        assert_eq!(format_throttle_percent(1000, &mut b5), " 100%");
+        assert_eq!(format_throttle_percent(0, &mut b5), "  50%");
+        assert_eq!(format_throttle_percent(-1000, &mut b5), "   0%");
+        assert_eq!(format_percent(1000, &mut b5), "+100%");
+        assert_eq!(format_percent(0, &mut b5), "   0%");
+        assert_eq!(format_percent(-1000, &mut b5), "-100%");
     }
 }

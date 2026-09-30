@@ -1,31 +1,17 @@
-use embedded_graphics::image::Image;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
-use embedded_icon::icons::mdi::size12px::*;
-use embedded_icon::NewIcon;
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::storage::{RadioStorage, NUM_MODELS};
+use crate::ui::glyphs::{draw_glyph_12x12, MENU_GLYPHS};
 
 fn draw_menu_icon(lcd: &mut St7567, idx: usize, pt: Point, color: BinaryColor) {
-    match idx {
-        0 => { let _ = Image::new(&Airplane::new(color), pt).draw(lcd); }
-        1 => { let _ = Image::new(&AirplaneCog::new(color), pt).draw(lcd); }
-        2 => { let _ = Image::new(&ChartLine::new(color), pt).draw(lcd); }
-        3 => { let _ = Image::new(&ChartBellCurve::new(color), pt).draw(lcd); }
-        4 => { let _ = Image::new(&SwapHorizontal::new(color), pt).draw(lcd); }
-        5 => { let _ = Image::new(&ToggleSwitch::new(color), pt).draw(lcd); }
-        6 => { let _ = Image::new(&SwapVertical::new(color), pt).draw(lcd); }
-        7 => { let _ = Image::new(&Cog::new(color), pt).draw(lcd); }
-        8 => { let _ = Image::new(&RadioTower::new(color), pt).draw(lcd); }
-        9 => { let _ = Image::new(&Gauge::new(color), pt).draw(lcd); }
-        10 => { let _ = Image::new(&CrosshairsGps::new(color), pt).draw(lcd); }
-        11 => { let _ = Image::new(&Pulse::new(color), pt).draw(lcd); }
-        12 => { let _ = Image::new(&InformationOutline::new(color), pt).draw(lcd); }
-        _ => {}
+    if idx < MENU_GLYPHS.len() {
+        let on = color == BinaryColor::On;
+        draw_glyph_12x12(lcd, pt.x, pt.y, MENU_GLYPHS[idx], on);
     }
 }
 
@@ -72,6 +58,8 @@ pub fn update(
     if keys.ok {
         buzzer.click();
         ctrl.waiting_release = true;
+        ctrl.main_menu_selected = ctrl.selected_item;
+        ctrl.main_menu_scroll = ctrl.scroll_offset;
         match ctrl.selected_item {
             0 => {
                 ctrl.state = MenuState::ModelSelect;

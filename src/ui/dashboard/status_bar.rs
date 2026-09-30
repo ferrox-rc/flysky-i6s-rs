@@ -5,10 +5,8 @@ use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
     text::Text,
-    image::Image,
 };
-use embedded_icon::icons::mdi::size12px::Battery;
-use embedded_icon::NewIcon;
+use crate::ui::glyphs::{draw_glyph_12x12, GLYPH_BATTERY};
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -101,8 +99,7 @@ pub fn render(
         }
     } else {
         *vbat_alarm_timer = 7000;
-        let bat_icon = Battery::new(BinaryColor::On);
-        let _ = Image::new(&bat_icon, Point::new(86, 0)).draw(lcd);
+        draw_glyph_12x12(lcd, 86, 0, &GLYPH_BATTERY, true);
         Text::new(vbat_str, Point::new(98, 9), text_style).draw(lcd).ok();
     }
 

@@ -5,5 +5,6 @@
 
 pub mod dashboard;
 pub mod format;
+pub mod glyphs;
 pub mod menu;
 pub mod widgets;

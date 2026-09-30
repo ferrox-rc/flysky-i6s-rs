@@ -647,8 +647,11 @@ fn run_preflight_check(
         let state = input::poll();
         let keys = boot::scan_keys();
 
+        let is_general = storage.active_model().model_type == 4;
         let is_calibrated = storage.radio.sticks[2].min > 200;
-        let thr_unsafe = if is_calibrated {
+        let thr_unsafe = if is_general {
+            false
+        } else if is_calibrated {
             state.sticks.throttle > -900
         } else {
             state.raw[2] > 1400

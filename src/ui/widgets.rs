@@ -206,24 +206,15 @@ pub fn draw_scrollbar(
     if count <= 1 {
         return;
     }
-    let track_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
-
     // 1px track line on x = 126
-    Line::new(Point::new(126, top_y), Point::new(126, top_y + height as i32 - 1))
-        .into_styled(track_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_vline(126, top_y, height, true);
 
     // Thumb height: proportional or minimum 6px
     let thumb_h = ((height * 3) / count as u32).clamp(6, height);
     let travel = height.saturating_sub(thumb_h);
     let thumb_y = top_y + ((selected as u32 * travel) / (count as u32 - 1)) as i32;
 
-    Rectangle::new(Point::new(125, thumb_y), Size::new(3, thumb_h))
-        .into_styled(fill_style)
-        .draw(lcd)
-        .ok();
+    lcd.fill_rect(125, thumb_y, 3, thumb_h, true);
 }
 
 /// Render a single list item row within a 3-slot view (14px row height) with optional 12x12 icon.
@@ -239,12 +230,8 @@ pub fn draw_icon_row<F>(
     F: FnOnce(&mut St7567, Point, BinaryColor),
 {
     let y = 13 + (slot as i32 * 14);
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
     let (text_color, icon_color) = if is_selected {
-        Rectangle::new(Point::new(2, y), Size::new(121, 13))
-            .into_styled(fill_style)
-            .draw(lcd)
-            .ok();
+        lcd.fill_rect(2, y, 121, 13, true);
         (BinaryColor::Off, BinaryColor::Off)
     } else {
         (BinaryColor::On, BinaryColor::On)

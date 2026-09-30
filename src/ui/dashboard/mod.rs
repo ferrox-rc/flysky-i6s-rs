@@ -50,14 +50,14 @@ impl DashboardController {
 
     /// Advance to the next dashboard page.
     pub fn next_page(&mut self, buzzer: &mut Buzzer) {
-        self.page = (self.page + 1) % 4;
+        self.page = (self.page + 1) % 5;
         buzzer.play_tone(2200, 30);
     }
 
     /// Return to the previous dashboard page.
     #[allow(dead_code)]
     pub fn prev_page(&mut self, buzzer: &mut Buzzer) {
-        self.page = if self.page == 0 { 3 } else { self.page - 1 };
+        self.page = if self.page == 0 { 4 } else { self.page - 1 };
         buzzer.play_tone(2200, 30);
     }
 
@@ -121,8 +121,9 @@ impl DashboardController {
                 timer_expired,
                 blink_on,
             ),
-            1 => pages::channels::render(lcd, rf_chs, is_binding),
-            2 => pages::model::render(lcd, storage, telem, is_binding),
+            1 => pages::channels::render(lcd, rf_chs, is_binding, 0),
+            2 => pages::channels::render(lcd, rf_chs, is_binding, 1),
+            3 => pages::model::render(lcd, storage, telem, is_binding),
             _ => {
                 let is_crsf = storage.active_model().rf_protocol == 1;
                 pages::telemetry::render(
@@ -137,5 +138,42 @@ impl DashboardController {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dashboard_5page_cycling() {
+        let mut dash = DashboardController::new();
+        let mut buzzer = Buzzer::new();
+
+        assert_eq!(dash.page, 0);
+
+        // Next page advances through all 5 pages and wraps
+        dash.next_page(&mut buzzer);
+        assert_eq!(dash.page, 1);
+        dash.next_page(&mut buzzer);
+        assert_eq!(dash.page, 2);
+        dash.next_page(&mut buzzer);
+        assert_eq!(dash.page, 3);
+        dash.next_page(&mut buzzer);
+        assert_eq!(dash.page, 4);
+        dash.next_page(&mut buzzer);
+        assert_eq!(dash.page, 0);
+
+        // Prev page wraps backwards from 0 to 4
+        dash.prev_page(&mut buzzer);
+        assert_eq!(dash.page, 4);
+        dash.prev_page(&mut buzzer);
+        assert_eq!(dash.page, 3);
+        dash.prev_page(&mut buzzer);
+        assert_eq!(dash.page, 2);
+        dash.prev_page(&mut buzzer);
+        assert_eq!(dash.page, 1);
+        dash.prev_page(&mut buzzer);
+        assert_eq!(dash.page, 0);
     }
 }

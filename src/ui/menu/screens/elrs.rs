@@ -20,9 +20,7 @@ use crate::menu::{MenuController, MenuState, NavKeys};
 /// Helper to exit back to the previous radio setup menu.
 fn exit_to_parent_menu(ctrl: &mut MenuController, buzzer: &mut Buzzer) {
     if ctrl.return_state == MenuState::MainMenu {
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 8;
-        ctrl.scroll_offset = 5;
+        ctrl.return_to_main_menu();
     } else {
         ctrl.state = MenuState::RxSetup;
         ctrl.selected_item = 2;

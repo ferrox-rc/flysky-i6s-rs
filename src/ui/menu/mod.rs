@@ -54,6 +54,8 @@ pub struct MenuController {
     pub return_state: MenuState,
     pub selected_item: usize,
     pub scroll_offset: usize,
+    pub main_menu_selected: usize,
+    pub main_menu_scroll: usize,
     pub page_idx: usize,
     pub sub_idx: usize,
     pub edit_val: i32,
@@ -81,6 +83,8 @@ impl MenuController {
             return_state: MenuState::Closed,
             selected_item: 0,
             scroll_offset: 0,
+            main_menu_selected: 0,
+            main_menu_scroll: 0,
             page_idx: 0,
             sub_idx: 0,
             edit_val: 0,
@@ -106,6 +110,8 @@ impl MenuController {
         self.state = MenuState::MainMenu;
         self.selected_item = 0;
         self.scroll_offset = 0;
+        self.main_menu_selected = 0;
+        self.main_menu_scroll = 0;
         self.page_idx = 0;
         self.sub_idx = 0;
         self.edit_val = 0;
@@ -118,6 +124,15 @@ impl MenuController {
         self.down_hold_ms = 0;
         self.repeat_timer_ms = 0;
         buzzer.click();
+    }
+
+    /// Return safely to Main Menu, preserving cursor index and scroll offset.
+    pub fn return_to_main_menu(&mut self) {
+        self.state = MenuState::MainMenu;
+        self.selected_item = self.main_menu_selected;
+        self.scroll_offset = self.main_menu_scroll;
+        self.editing = false;
+        self.waiting_release = true;
     }
 
     /// Returns true if any menu or diagnostic screen is active.
@@ -258,5 +273,42 @@ impl MenuController {
                 screens::diag::update_system_info(self, lcd, &nav_keys, buzzer);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_menu_return_to_main_menu_preserves_position() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+
+        ctrl.open(&mut buzzer);
+        assert_eq!(ctrl.state, MenuState::MainMenu);
+        assert_eq!(ctrl.selected_item, 0);
+        assert_eq!(ctrl.scroll_offset, 0);
+
+        // Simulate navigating to item 7 ("Radio Setup")
+        ctrl.selected_item = 7;
+        ctrl.scroll_offset = 5;
+        ctrl.main_menu_selected = 7;
+        ctrl.main_menu_scroll = 5;
+
+        // Enter sub-menu: indices reset
+        ctrl.state = MenuState::RadioSetup;
+        ctrl.selected_item = 0;
+        ctrl.scroll_offset = 0;
+        ctrl.editing = true;
+
+        // Return to main menu
+        ctrl.return_to_main_menu();
+
+        assert_eq!(ctrl.state, MenuState::MainMenu);
+        assert_eq!(ctrl.selected_item, 7);
+        assert_eq!(ctrl.scroll_offset, 5);
+        assert!(!ctrl.editing);
+        assert!(ctrl.waiting_release);
     }
 }
