@@ -170,7 +170,7 @@ pub fn init() {
 }
 
 /// Assert Chip Select (Active Low).
-#[inline(always)]
+#[inline]
 pub fn csn_low() {
     unsafe {
         let mut timeout = 10_000u32;
@@ -184,7 +184,7 @@ pub fn csn_low() {
 }
 
 /// Deassert Chip Select (High).
-#[inline(always)]
+#[inline]
 pub fn csn_high() {
     unsafe {
         let mut timeout = 10_000u32;
@@ -200,7 +200,7 @@ pub fn csn_high() {
 }
 
 /// Transfer a single byte over SPI1 (Full Duplex).
-#[inline(always)]
+#[inline]
 pub fn transfer_byte(data: u8) -> u8 {
     unsafe {
         let mut timeout = 10_000u32;
@@ -221,13 +221,13 @@ pub fn transfer_byte(data: u8) -> u8 {
 }
 
 /// Write a single byte over SPI1 (discards read byte).
-#[inline(always)]
+#[inline]
 pub fn write_byte(data: u8) {
     let _ = transfer_byte(data);
 }
 
 /// Read a single byte over SPI1 (sends dummy 0x00).
-#[inline(always)]
+#[inline]
 pub fn read_byte() -> u8 {
     transfer_byte(0x00)
 }

@@ -49,7 +49,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 | | Inward Trim Keys | `PC6`+`PD13` & `PC7`+`PD14` | Roll Left (RHL) + Yaw Right (LHR) |
 | | Dedicated Bind Key | `PF2` | Active Low (pull-up enabled) |
 | **Storage** | On-chip Flash (Pages 60–63)| `0x0801_E000 .. 0x0801_FFFF` (8 KB) | Append-only sequential storage (Keys 0..20, ~2.8 ms save) |
-| **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External telemetry / CRSF / ELRS module bay |
+| **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External CRSF / ELRS module bay; interrupt RX with 128B ring buffer & ORE recovery |
 | **USB Controller** | Native USB Full-Speed (12 Mbps)| `PA11` (D-) / `PA12` (D+) | Joystick HID, CDC-ACM Serial, Composite, Off |
 | **Audio** | Piezo Buzzer | `TIM1_CH1` (`PA8`) | Hardware PWM frequency & tone generator |
 
@@ -146,6 +146,9 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - **[Flight Control & 14-Channel Mixing](docs/MIXER.md)**: 4-stage pipeline, integer cubic expo, Delta/V-Tail/Flaperon templates, auxiliary channel remapping, and EdgeTX freeform matrix mixing.
 - **[Stick Calibration & Flash Persistence](docs/CALIBRATION_AND_STORAGE.md)**: 2-step interactive calibration wizard, tolerance margin calculation, and 4-page append-only sequential storage engine across Pages 60–63.
 - **[USB Subsystem & Simulator Manual](docs/USB_SUBSYSTEM.md)**: Hardware Full-Speed USB driver, 100 Hz HID Gamepad descriptor (8 axes, 16 buttons), CDC-ACM telemetry/CLI, and silent RF standby.
+- **[CRSF / ExpressLRS Subsystem Guide](docs/CRSF_ELRS_GUIDE.md)**: Native CRSF/ELRS driver, USART2 setup (`PD5`/`PA15`), `PC13` module power control, on-radio parameter configurator, and live link diagnostics.
+- **[CRSF Protocol Specification & Verification](docs/CRSF_PROTOCOL_SPEC.md)**: Byte-level wire format, CRC8-DVB calculation, parameter discovery handshake, state machine lifecycle, and manual verification guide.
+- **[Testing Methodology & Verification Guide](docs/TESTING.md)**: Dual-target host test harness, non-invasive peripheral decoupling, deterministic mock timing, adversarial state machine verification, and test execution guide.
 - **[Ecosystem Context & Background](docs/FIRMWARE_COMPARISON.md)**: Background on open-source FS-i6X firmware development, OpenI6X foundations, and the Rust architectural philosophy.
 - **[Hardware Reference & Pinout](docs/HARDWARE_REFERENCE.md)**: Detailed schematics, pin mappings, ST7567 LCD 6800-bus timings, buzzer PWM, and dual-MCU (STM32 / APM32) profiles.
 
@@ -259,12 +262,13 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Linker script memory layout update (`FLASH (rx)` length = 120 KB, Pages 0–59).
 - [x] USB Composite mode (Joystick + CDC Serial) and clean silent interactive CLI on connection.
 
-### Phase 16: CRSF Protocol Compliance & Range Normalization (IN PROGRESS / BRANCH: `fix/crsf-elrs-spec-compliance`)
+### Phase 16: CRSF Protocol Compliance & Automated Testing (COMPLETED)
 - [x] TBS Crossfire Rev 08 11-bit channel scaling formula adherence across all 16 channels.
 - [x] Standardize radio pulse width range to FlySky standard 988..2012 µs (center 1500 µs, span 1024 µs).
 - [x] Multi-frame chunk reassembly for ExpressLRS configuration parameters.
 - [x] Expand parameter slots to 16 items and string buffers to 48 bytes.
 - [x] CRSF protocol specification and manual bench verification guide (`docs/CRSF_PROTOCOL_SPEC.md`).
+- [x] Dual-target host unit test harness (`cargo test-host`) with 36 automated unit tests across curves, trims, mixer, and protocol state machines (`docs/TESTING.md`).
 
 ### Phase 17: Modern UI Glyphs & Visual Experience (IN PROGRESS / BRANCH: `feature/modern-ui-glyphs`)
 - [x] MDI 12px vector icon integration (`embedded-icon`) across Settings Menu items.
@@ -277,15 +281,24 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Spoken telemetry announcements (battery voltage, low RSSI, timer elapsed).
 - [x] Audible switch position announcements and flight mode voice prompts.
 
-### Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics (PLANNED / BRANCH: `feat/flight-timer-mixer-polish`)
-- [ ] Throttle- and switch-activated Flight Countdown / Stopwatch timer utilizing existing `timer_secs` storage.
-- [ ] Acoustic countdown beeps (1-min warning, 10s..1s countdown, persistent tone at 0) and formatted flight dashboard display.
-- [ ] Elevon & V-Tail saturation resolution (standardizing `(p ± r) / 2` throw limits).
-- [ ] Wing/Tail differential throw activation utilizing existing `template_diff` parameter.
-- [ ] Unipolar / half-range mixer source option (`Thr+`) to eliminate negative pitch-down at idle on compensation mixes.
-- [ ] Physical switch auto-detection in menu editors (toggling any physical switch auto-selects its condition).
-- [ ] Model Duplicate / Copy utility in `MODEL SETUP` for safe mixer experimentation.
-- [ ] Non-visual potentiometer center acoustic detent click when crossing neutral center on `VRA` and `VRB`.
+### Phase 19: Flight Timer, Mixer Polish, & Pilot Ergonomics (COMPLETED)
+- [x] EdgeTX-parity Flight Countdown / Stopwatch timer with multi-trigger modes (`THs (RUN)`, `THt (LTCH)`, `ALWAYS ON`, and switch triggers `SA^`..`SDv`).
+- [x] Auto-reset upon arming and freeze upon disarming when Arm Switch is assigned.
+- [x] Visual HUD Hold-to-Reset progress bar (holding `[CANCEL]` for 1.0s with animated bar and confirmation toast).
+- [x] Dedicated `[UP]` / `[DOWN]` page navigation on flight dashboard.
+- [x] Acoustic countdown beeps (1-min warning, 10s..1s countdown, persistent tone at 0) and formatted flight dashboard display.
+- [x] Elevon & V-Tail saturation resolution (standardizing `(p ± r) / 2` throw limits).
+- [x] Wing/Tail differential throw activation utilizing existing `template_diff` parameter.
+- [x] Unipolar / half-range mixer source option (`Thr+`) to eliminate negative pitch-down at idle on compensation mixes.
+- [x] Physical switch auto-detection in menu editors (toggling any physical switch auto-selects its condition).
+- [x] Model Duplicate / Copy utility in `MODEL SETUP` for safe mixer experimentation.
+- [x] Non-visual potentiometer center acoustic detent click when crossing neutral center on `VRA` and `VRB`.
+- [x] 18-channel i-BUS & AFHDS 2A over-the-air encoding with `ModelConfig` v5 and automatic v4 flash migration.
+- [x] CRSF Parameter 0 root-folder query and child-ID selective discovery.
+- [x] CRSF dynamic command timeout polling, live command info text (`[Binding]`, `[OK]`, `[Failed]`), and clamped info/string parameter rendering.
+- [x] CRSF integer parameter support (`UINT8`, `INT8`, `UINT16`, `INT16`) with in-place modal editing, unit display, and multi-byte writes.
+- [x] CRSF nested subfolder title retention stack preserving parent names up to 6 levels deep.
+- [x] Unified configurator buffers: `MAX_PARAMS = 48` per folder, `MAX_PARAM_MAP = 96`, and `STRING_POOL_SIZE = 1280` bytes.
 
 ### Phase 20: Trainer Port Subsystem & PPM In/Out (PLANNED / BRANCH: `feat/trainer-ppm`)
 - [ ] Direct PAC driver for `TIM15` (1 µs tick resolution at 48 MHz).
@@ -299,8 +312,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [ ] Auxiliary channel rate-limiter ("Servo Slow") for realistic flap deployment and gear doors without aerodynamic ballooning.
 
 ### Current Firmware Footprint
-- **Application Flash ROM**: **~89.4 KB** (.text 89,432B + .data 1,876B = 91.3 KB total) used out of **120 KB** partition (**>30.8 KB / 25.7% free headroom**).
-- **Static RAM**: **~3.0 KB** (`.data` 1,876B + `.bss` 1,128B) out of **16 KB** available (**>81% SRAM free** with **>6.3 KB** guaranteed stack safety margin).
+- **Application Flash ROM**: **~101.6 KB** (.text 87,056B + .rodata 8,072B + .data 6,292B + .vector_table 192B = 101.6 KB total) used out of **120 KB** partition (**>18.4 KB / 15.3% free headroom**).
+- **Static RAM**: **~7.3 KB** (`.data` 6,292B + `.bss` 1,000B) out of **16 KB** available (**>54% SRAM free** with **>8.7 KB** guaranteed stack safety margin).
 - **Non-Volatile Storage**: **8,192 bytes** (Pages 60–63) managed as an append-only log with automatic wear levelling.
 
 ---
@@ -309,7 +322,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 | Action | Control | Notes |
 | :--- | :--- | :--- |
-| **Cycle Flight Pages** | **Tap `BIND` button** | Cycles through Page 1/4 (Gimbals), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
+| **Cycle Flight Pages** | **`[UP]` / `[DOWN]` or Tap `[BIND]`** | Steps through Page 1/4 (Gimbals & Timer), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
+| **Reset Flight Timer** | **Hold `[CANCEL]` (>= 1.0s)** | Displays centered HUD progress bar on flight screen; resets timer with chime on 1.0s completion |
 | **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, Protocol Setup, Monitors, Calib, Diag, & Info |
 | **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |
 | **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
@@ -372,11 +386,19 @@ dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
 
 ---
 
-## 10. Development Methodology & Note on AI Assistance
+## 10. Development Methodology, Automated Testing, & AI Assistance
 
-This project was built through a **human-directed, AI-assisted development workflow** ("vibe-coding" with rigorous physical hardware bench testing). Having previously contributed to OpenI6X, domain knowledge of the FS-i6X hardware, pinouts, and protocol timings was used to direct LLM pair-programming tools to rapidly implement the `no_std` Rust architecture.
+This project was built through a **human-directed, AI-assisted development workflow** ("vibe-coding" with rigorous physical hardware bench testing and automated test harnesses). Having previously contributed to OpenI6X, domain knowledge of the FS-i6X hardware, pinouts, and protocol timings was used to direct LLM pair-programming tools to rapidly implement the `no_std` Rust architecture.
 
-Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been deployed and verified on real FlySky FS-i6X hardware. We welcome community code review, contributions, and PRs to continue refining and hardening the codebase!
+### Automated Testing & Dual-Target Harness
+To guarantee mathematical correctness and protocol compliance without requiring a physical radio or slow hardware emulators, `flysky-i6x-rs` features a **zero-file-move dual-target test harness**:
+- **Host Unit Test Execution**: Running `cargo test-host` compiles the codebase against the host target (`x86_64`) with standard library support, executing 36 unit and adversarial regression tests across flight curves, digital trims, matrix mixers, and CRSF/ELRS state machines in **sub-millisecond time**.
+- **Peripheral & Timing Decoupling**: Peripheral drivers (`uart.rs`, `time.rs`) use `#[cfg(test)]` mocks to simulate serial UART FIFO queues and advance virtual time deterministically.
+- **Physical Hardware Validation**: Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been deployed and verified on real FlySky FS-i6X hardware.
+
+For detailed test architecture, adversarial verification scenarios, and developer commands, refer to the **[Testing Methodology & Verification Guide](docs/TESTING.md)**.
+
+We welcome community code review, contributions, and PRs to continue refining and hardening the codebase!
 
 ---
 
@@ -385,6 +407,7 @@ Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel b
 This project stands on the shoulders of the open-source RC community and owes special gratitude to:
 
 - **Kuba (qba667), Janek (ajjjjjjjj), and the OpenI6X Team**: For their groundbreaking reverse-engineering of the FlySky FS-i6X hardware, bus timings, ST7567 LCD initialization sequence, A7105 SPI registers, bootloader jump sequences, and the `PC9` backlight PWM dimming mod. Without their pioneering work and generous sharing of hardware research, this project would not have been possible.
+- **Wimalopaan**: For extensive real-hardware testing, logic analyzer protocol traces, invaluable architectural feedback on TBS-Agent UI paradigms, over-the-air CRSF framing diagnostics, and deep verification of ExpressLRS parameter synchronization on the FS-i6X platform.
 - **OpenTX and EdgeTX Teams**: For defining modern open-source RC transmitter mixing, telemetry architectures, and simulator standards.
 - **ExpressLRS & Team BlackSheep**: For pioneering open, high-performance CRSF protocols and parameter synchronization.
 

@@ -1,8 +1,9 @@
 //! Hardware SysTick 1.000 ms monotonic timekeeping driver.
 
+use core::sync::atomic::{AtomicU32, Ordering};
 use cortex_m_rt::exception;
 
-static mut SYSTEM_MILLIS: u32 = 0;
+static SYSTEM_MILLIS: AtomicU32 = AtomicU32::new(0);
 
 /// Initialize Cortex-M SysTick timer for 1 kHz (1.000 ms) ticks at 48 MHz core clock.
 /// Configures SysTick to lowest hardware interrupt priority (0xC0) so it never
@@ -28,14 +29,26 @@ pub fn init() {
 }
 
 /// Monotonic system uptime in milliseconds since boot.
+/// Lock-free, zero-overhead atomic read with Relaxed ordering.
 #[inline(always)]
 pub fn millis() -> u32 {
-    cortex_m::interrupt::free(|_| unsafe { SYSTEM_MILLIS })
+    SYSTEM_MILLIS.load(Ordering::Relaxed)
 }
 
 #[exception]
 fn SysTick() {
-    unsafe {
-        SYSTEM_MILLIS = SYSTEM_MILLIS.wrapping_add(1);
-    }
+    let current = SYSTEM_MILLIS.load(Ordering::Relaxed);
+    SYSTEM_MILLIS.store(current.wrapping_add(1), Ordering::Relaxed);
 }
+
+#[cfg(test)]
+pub fn set_millis(ms: u32) {
+    SYSTEM_MILLIS.store(ms, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+pub fn advance_millis(ms: u32) {
+    let cur = SYSTEM_MILLIS.load(Ordering::Relaxed);
+    SYSTEM_MILLIS.store(cur.wrapping_add(ms), Ordering::Relaxed);
+}
+

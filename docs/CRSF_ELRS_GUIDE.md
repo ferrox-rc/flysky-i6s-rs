@@ -15,10 +15,10 @@ The FlySky FS-i6X motherboard provides an internal rear module connector and bac
 | Pin | Function | Peripheral | Description |
 | :--- | :--- | :--- | :--- |
 | `PD5` | **USART2_TX** | AF0 | Bidirectional CRSF serial TX to external ELRS/Crossfire TX module |
-| `PA15` | **USART2_RX** | AF1 | Telemetry serial RX from external TX module |
+| `PA15` | **USART2_RX** | AF1 | Interrupt-driven telemetry RX with 128-byte lock-free ring buffer (IRQ 28, priority `0x40`) |
 | `PC13` | **MOD_PWR** | GPIO Out | External module power rail switch (Configurable polarity: Active HIGH or Active LOW) |
 
-Implemented in [`src/crsf/uart.rs`](../src/crsf/uart.rs).
+Implemented in [`src/crsf/uart.rs`](../src/crsf/uart.rs). Dedicated `USART2` interrupt handler clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout ($\ge 3\text{ ms}$) guarantees deterministic frame resynchronization.
 
 ### Power Switch Polarity (PC13)
 Hardware power circuits vary depending on how external modules are wired to the transmitter:
@@ -85,15 +85,54 @@ Radio (FS-i6X)                               External ELRS TX Module
       | -------- 0x2D (PARAM_WRITE: ID, Value) -------> |
 ```
 
-### Navigating the Configurator:
-1. Open Menu with long-press `[OK]`.
-2. Scroll to `9. Protocol Setup` and press `[OK]`.
-3. Highlight `[Configure Module]` and press `[OK]`.
-4. The radio sends `0x28 Ping` and dynamically populates parameters (Packet Rate, Power, TLM Ratio, Wi-Fi Mode, Bind).
-5. Press `[UP]` / `[DOWN]` to navigate between parameters.
-6. Press `[OK]` on a selection option (e.g., `Rate`) to cycle through available frequencies immediately.
-7. Press `[OK]` on a command action (e.g., `[Wi-Fi Mode]` or `[Bind]`) to trigger module functions.
-8. Press `[ESC]` at any time to return to the Protocol Setup menu.
+### Navigating the Configurator (TBS-Agent Style):
+
+#### Step 1: Open the Configurator & Device Picker
+1. Long-press **`[OK]`** on the flight screen to open the Main Menu.
+2. Scroll to `9. Protocol Setup` and press **`[OK]`**.
+3. Highlight `[Configure Module]` and press **`[OK]`**.
+4. The radio broadcasts discovery pings (`0x28 Ping`) and opens the **`CRSF DEVICES`** selection screen:
+   ```text
+   +-----------------------------------+
+   | CRSF DEVICES                      |
+   | > RM RP2                     [TX] |
+   |   RM RP4TD-M 2400            [RX] |
+   |   Betaflight                 [FC] |
+   |                                   |
+   | [OK] Select            [ESC] Back |
+   +-----------------------------------+
+   ```
+5. Use **`[UP]`** / **`[DOWN]`** to highlight the device you wish to configure (e.g. external transmitter `[TX]` or over-the-air receiver `[RX]`). Devices are discovered dynamically via 1 Hz broadcast pings; if a device disconnects or is powered off, it is automatically pruned after 3 seconds.
+6. Press **`[OK]`** to select that device and load its parameters immediately at full wire speed.
+
+#### Step 2: Hierarchical Folder Navigation
+- Parameters are grouped logically in folders per the module's firmware (e.g. `VTX Admin >`, `Wi-Fi Options >`).
+- Folders display with a trailing chevron indicator (`>`).
+- Press **`[OK]`** on a folder to drill down into its sub-parameters. The header updates to show the active folder name.
+- When navigating deeply nested subfolders (up to 6 levels), the full folder stack preserves each folder's display name. Pressing **`[ESC]`** ascends back to the parent folder and restores the parent's actual title in the header (never generic `"Folder"`).
+- Press **`[ESC]`** at the root parameter level to return to the **`CRSF DEVICES`** picker to switch devices.
+
+#### Step 3: In-Place Modal Parameter Editing (Select & Integer)
+- **Selection Parameters** (e.g., `Packet Rate`, `Power`):
+  - Highlight the setting and press **`[OK]`** (footer displays `[OK] Edit`).
+  - The field enters **Edit Mode**, displayed with selection brackets: `< 250Hz >`.
+  - Press **`[UP]`** or **`[DOWN]`** to preview and cycle through options locally on screen without emitting premature serial commands.
+  - Press **`[OK]`** to commit your choice: the radio transmits the `0x2D Param Write` frame over USART2 to the module and exits Edit Mode.
+  - Press **`[ESC]`** to cancel editing without saving.
+- **Integer Parameters** (e.g., receiver PWM channel output mapping `Output 1`, `Output 2`, offsets, trims):
+  - Values and their unit strings (e.g., `4 ch`, `100 %`, `250 mW`, `0 us`) are rendered clearly on the right.
+  - Press **`[OK]`** to enter modal editing: displays `< 4 ch >`.
+  - Press **`[UP]`** / **`[DOWN]`** to increment or decrement the numeric value, automatically clamped within the device's allowable `[min, max]` limits.
+  - Press **`[OK]`** to transmit the write frame (1-byte for `UINT8`/`INT8`, 2-byte big-endian for `UINT16`/`INT16`) to the receiver or transmitter module.
+  - Press **`[ESC]`** to cancel without altering the setting.
+
+#### Step 4: Triggering Command Actions
+- Highlight an action command (such as `[Bind]` or `[Wi-Fi Mode]`) and press **`[OK]`**.
+- If confirmation is required, an overlay prompt appears (`Run: [Bind]? [OK] Yes [ESC] No`).
+- Press **`[OK]`** to execute or **`[ESC]`** to cancel. The status updates in real-time (`[Executing...]` -> `[Cmd]`).
+
+> [!TIP]
+> For the complete byte-level framing breakdown, wire timing diagrams, CRC-8 formulas, and state machine transitions, refer to the [CRSF Protocol Specification & Verification Guide](CRSF_PROTOCOL_SPEC.md).
 
 ---
 
@@ -127,7 +166,7 @@ In `Serial` or `Composite` USB mode, the transmitter streams JSON telemetry over
 The CLI `status` command reports the active protocol:
 ```text
 i6x> status
-FlySky FS-i6X Rust Firmware v0.16.0
+FlySky FS-i6X Rust Firmware v0.18.0
 Protocol: CRSF / ExpressLRS (PD5 UART active)
 {"vbat":5.18,...}
 ```

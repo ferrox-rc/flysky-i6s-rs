@@ -13,10 +13,22 @@ use core::ptr;
 
 pub const NUM_CHANNELS: usize = 11;
 
+/// Minimum 12-bit ADC conversion count (0V).
+pub const ADC_MIN: u16 = 0;
+/// Theoretical midpoint of 12-bit ADC (VDD / 2).
+pub const ADC_CENTER: u16 = 2048;
+/// Maximum 12-bit ADC conversion count (VDD).
+pub const ADC_MAX: u16 = 4095;
+
+use core::cell::UnsafeCell;
+
+struct AdcDmaBuffer(UnsafeCell<[u16; NUM_CHANNELS]>);
+unsafe impl Sync for AdcDmaBuffer {}
+
 /// Statically allocated buffer written directly by DMA1 hardware.
-static mut ADC_RAW_BUFFER: [u16; NUM_CHANNELS] = [0; NUM_CHANNELS];
+static ADC_RAW_BUFFER: AdcDmaBuffer = AdcDmaBuffer(UnsafeCell::new([0; NUM_CHANNELS]));
 /// Stable snapshot of latest completed conversion sequence.
-static mut LATEST_ADC_SNAPSHOT: [u16; NUM_CHANNELS] = [2048; NUM_CHANNELS];
+static LATEST_ADC_SNAPSHOT: AdcDmaBuffer = AdcDmaBuffer(UnsafeCell::new([2048; NUM_CHANNELS]));
 
 // Base register addresses for STM32F072
 const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
@@ -66,9 +78,12 @@ pub fn wait_first_conversion() {
             timeout -= 1;
         }
 
+        let raw_ptr = ADC_RAW_BUFFER.0.get();
+        let snap_ptr = LATEST_ADC_SNAPSHOT.0.get();
+
         // Snapshot initial readings
         for i in 0..NUM_CHANNELS {
-            LATEST_ADC_SNAPSHOT[i] = ptr::read_volatile(&ADC_RAW_BUFFER[i]);
+            (*snap_ptr)[i] = ptr::read_volatile(&(*raw_ptr)[i]);
         }
 
         // Clear DMA flags (TCIF1, HTIF1, TEIF1, GIF1)
@@ -147,7 +162,7 @@ pub fn init() {
         // 9. Configure DMA1 Channel 1:
         ptr::write_volatile(DMA1_CH1_CCR, 0);
         ptr::write_volatile(DMA1_CH1_CPAR, ADC1_DR as u32);
-        ptr::write_volatile(DMA1_CH1_CMAR, core::ptr::addr_of_mut!(ADC_RAW_BUFFER) as u32);
+        ptr::write_volatile(DMA1_CH1_CMAR, ADC_RAW_BUFFER.0.get() as u32);
         ptr::write_volatile(DMA1_CH1_CNDTR, NUM_CHANNELS as u32);
         ptr::write_volatile(DMA1_CH1_CCR, DMA_CCR_VAL);
 
@@ -160,11 +175,14 @@ pub fn init() {
 /// Automatically re-arms DMA and restarts conversion sequence when finished.
 pub fn read_raw() -> [u16; NUM_CHANNELS] {
     unsafe {
+        let raw_ptr = ADC_RAW_BUFFER.0.get();
+        let snap_ptr = LATEST_ADC_SNAPSHOT.0.get();
+
         // If the current sequence is complete (TCIF1 = bit 1 of DMA1_ISR):
         if (ptr::read_volatile(DMA1_ISR) & (1 << 1)) != 0 {
             // Snapshot all 11 channels cleanly
             for i in 0..NUM_CHANNELS {
-                LATEST_ADC_SNAPSHOT[i] = ptr::read_volatile(&ADC_RAW_BUFFER[i]);
+                (*snap_ptr)[i] = ptr::read_volatile(&(*raw_ptr)[i]);
             }
 
             // Clear DMA flags for Channel 1
@@ -181,6 +199,6 @@ pub fn read_raw() -> [u16; NUM_CHANNELS] {
             ptr::write_volatile(ADC1_CR, ptr::read_volatile(ADC1_CR) | (1 << 2)); // ADSTART
         }
 
-        LATEST_ADC_SNAPSHOT
+        *snap_ptr
     }
 }

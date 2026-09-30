@@ -1,7 +1,11 @@
 [package]
 name = "flysky-i6x-rs"
-version = "0.15.1"
+version = "0.18.1"
 edition = "2021"
+
+[lib]
+name = "flysky_i6x_rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "flysky-i6x-rs"
@@ -19,6 +23,9 @@ usb-device = "0.3.2"
 stm32-usbd = "0.8.0"
 usbd-hid = "0.10.2"
 usbd-serial = "0.2.2"
+sequential-storage = "8.0.1"
+embedded-storage = "0.3.2"
+embedded-storage-async = "0.4.1"
 
 [features]
 default = ["stm32"]

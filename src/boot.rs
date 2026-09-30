@@ -1,53 +1,46 @@
 //! Key matrix scanning and DFU bootloader detection.
 
-use core::ptr;
+use stm32f0xx_hal::pac;
 use crate::chip::{self, McuProfile};
-
-const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
-
-const GPIOC_MODER: *mut u32 = 0x4800_0800 as *mut u32;
-const GPIOC_BSRR: *mut u32 = 0x4800_0818 as *mut u32;
-
-const GPIOD_MODER: *mut u32 = 0x4800_0C00 as *mut u32;
-const GPIOD_PUPDR: *mut u32 = 0x4800_0C0C as *mut u32;
-const GPIOD_IDR: *const u32 = 0x4800_0C10 as *const u32;
-
-const GPIOF_MODER: *mut u32 = 0x4800_1400 as *mut u32;
-const GPIOF_PUPDR: *mut u32 = 0x4800_140C as *mut u32;
-const GPIOF_IDR: *const u32 = 0x4800_1410 as *const u32;
 
 #[inline(always)]
 fn delay_cycles(n: u32) {
-    for _ in 0..n {
-        cortex_m::asm::nop();
-    }
+    cortex_m::asm::delay(n);
 }
 
 /// Initialize GPIO clocks and pins for keys and trims.
 pub fn init_keys() {
+    let rcc = unsafe { &*pac::RCC::ptr() };
+    let gpioc = unsafe { &*pac::GPIOC::ptr() };
+    let gpiod = unsafe { &*pac::GPIOD::ptr() };
+    let gpiof = unsafe { &*pac::GPIOF::ptr() };
+
     unsafe {
         // Enable GPIOC, GPIOD, GPIOF clocks (bits 19, 20, 22)
-        let ahbenr = ptr::read_volatile(RCC_AHBENR);
-        ptr::write_volatile(RCC_AHBENR, ahbenr | (1 << 19) | (1 << 20) | (1 << 22));
+        rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 19) | (1 << 20) | (1 << 22)));
 
         // Configure PC6, PC7, PC8 as outputs (MODER = 01)
-        let c_moder = ptr::read_volatile(GPIOC_MODER);
-        ptr::write_volatile(GPIOC_MODER, (c_moder & !(0x3F << 12)) | (0x15 << 12));
+        gpioc.moder.modify(|r, w| {
+            let val = r.bits();
+            w.bits((val & !(0x3F << 12)) | (0x15 << 12))
+        });
 
         // Set PC6, PC7, PC8 initially HIGH
-        ptr::write_volatile(GPIOC_BSRR, (1 << 6) | (1 << 7) | (1 << 8));
+        gpioc.bsrr.write(|w| w.bits((1 << 6) | (1 << 7) | (1 << 8)));
 
         // Configure PD12..PD15 as inputs (MODER = 00) with pull-ups (PUPDR = 01)
-        let d_moder = ptr::read_volatile(GPIOD_MODER);
-        ptr::write_volatile(GPIOD_MODER, d_moder & !(0xFF << 24));
-        let d_pupdr = ptr::read_volatile(GPIOD_PUPDR);
-        ptr::write_volatile(GPIOD_PUPDR, (d_pupdr & !(0xFF << 24)) | (0x55 << 24));
+        gpiod.moder.modify(|r, w| w.bits(r.bits() & !(0xFF << 24)));
+        gpiod.pupdr.modify(|r, w| {
+            let val = r.bits();
+            w.bits((val & !(0xFF << 24)) | (0x55 << 24))
+        });
 
         // Configure PF2 (Bind button) as input with pull-up (MODER = 00, PUPDR = 01)
-        let f_moder = ptr::read_volatile(GPIOF_MODER);
-        ptr::write_volatile(GPIOF_MODER, f_moder & !(3 << 4));
-        let f_pupdr = ptr::read_volatile(GPIOF_PUPDR);
-        ptr::write_volatile(GPIOF_PUPDR, (f_pupdr & !(3 << 4)) | (1 << 4));
+        gpiof.moder.modify(|r, w| w.bits(r.bits() & !(3 << 4)));
+        gpiof.pupdr.modify(|r, w| {
+            let val = r.bits();
+            w.bits((val & !(3 << 4)) | (1 << 4))
+        });
     }
 }
 
@@ -67,28 +60,31 @@ pub fn init_keys() {
 /// - bit 12: Dedicated Bind key (PF2)
 pub fn scan_keys() -> u16 {
     let mut result = 0u16;
+    let gpioc = unsafe { &*pac::GPIOC::ptr() };
+    let gpiod = unsafe { &*pac::GPIOD::ptr() };
+    let gpiof = unsafe { &*pac::GPIOF::ptr() };
 
     unsafe {
         let cols = [6, 7, 8];
         for (col_idx, &col) in cols.iter().enumerate() {
-            // Drive active column LOW
-            ptr::write_volatile(GPIOC_BSRR, 1 << (col + 16));
+            // Drive active column LOW (BRy = bit col + 16)
+            gpioc.bsrr.write(|w| w.bits(1 << (col + 16)));
             delay_cycles(150); // allow line capacitance to discharge
 
             // Read lines PD12..PD15 (active LOW)
-            let idr = ptr::read_volatile(GPIOD_IDR);
+            let idr = gpiod.idr.read().bits();
             let lines = ((idr >> 12) & 0x0F) as u8;
             let pressed = (!lines) & 0x0F;
 
             result |= (pressed as u16) << (col_idx * 4);
 
-            // Restore column to HIGH
-            ptr::write_volatile(GPIOC_BSRR, 1 << col);
+            // Restore column to HIGH (BSy = bit col)
+            gpioc.bsrr.write(|w| w.bits(1 << col));
             delay_cycles(100);
         }
 
         // Check Bind button (PF2, active LOW)
-        let fidr = ptr::read_volatile(GPIOF_IDR);
+        let fidr = gpiof.idr.read().bits();
         if (fidr & (1 << 2)) == 0 {
             result |= 1 << 12; // Bind pressed
         }

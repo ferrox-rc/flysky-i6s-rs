@@ -162,26 +162,43 @@ When `SERIAL` or `COMPOSITE` mode is selected, the transmitter exposes a standar
 - **Stop Bits**: 1
 - **Flow Control**: None
 
-### Autonomous Telemetry Streaming (Universal JSON Lines)
-Every 50 ms (20 Hz), the transmitter automatically broadcasts a structured JSON Lines (`ndjson`) packet that can be parsed trivially by any Python script, Node.js tool, web browser (WebSerial), or ground station:
-```json
-{"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[1500,1500,1150,1500,1000,1000,1500,1500,1000,1000,1500,1500,1500,1500]}
-```
-
-### Interactive CLI Commands
-Users can open a serial terminal (PuTTY, Tera Term, Minicom, or screen) to interact directly with the radio:
+### Silent Connection & Interactive CLI
+To avoid buffer fragmentation, stale bytes, or unsolicited text spew when connecting terminal emulators, the USB serial port initializes **silently**:
+- When opening a terminal (e.g. `picocom /dev/ttyACM0 --imap lfcrlf`), no unsolicited banner is blasted over the wire.
+- Pressing **`[Enter]`** displays the interactive prompt: `i6x> `.
+- Local echo and backspace handling (`0x08`, `0x7F`) are supported.
 
 ```bash
-$ picocom -b 115200 /dev/ttyACM0
+$ sudo picocom /dev/ttyACM0 --imap lfcrlf
+Terminal ready
+
+i6x> help
+Commands:
+  help      - Show this help
+  status    - Firmware & battery info
+  channels  - Dump RF channel values (CH1..CH14)
+  telem     - Dump single telemetry frame
+  stream    - Start continuous telemetry streaming (any key to stop)
+  reboot    - Reboot transmitter
+i6x> 
 ```
+
+### Supported CLI Commands
 
 | Command | Description | Example Output |
 | :--- | :--- | :--- |
-| **`help`** | Displays available serial CLI commands | `Commands: help, status, channels, telem, reboot` |
-| **`status`** | System health, firmware version, and link state | `FlySky FS-i6X Rust Firmware v0.13.1` + JSON line |
+| **`help`** | Displays available serial CLI commands | `Commands: help, status, channels, telem, stream, reboot` |
+| **`status`** | System health, firmware version, RF protocol, and telemetry | `FlySky FS-i6X Rust Firmware v...` + telemetry line |
 | **`channels`** | Real-time channel pulse widths in JSON format | `{"ch":[1500,1500,1150,1500,1000,...]}` |
-| **`telem`** | Full downlink sensor metrics and packet odometer | `{"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[...]}` |
-| **`reboot`** | Safely triggers a software system reset | `Rebooting...` |
+| **`telem`** | Dumps a single telemetry frame with sensor metrics and odometer | `{"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[...]}` |
+| **`stream`** | Starts continuous 10 Hz JSON telemetry streaming (press any key to stop) | `[Streaming telemetry @ 10Hz. Press any key to stop.]` |
+| **`reboot`** | Safely triggers a software system reset via NVIC | `Rebooting...` |
+
+### Telemetry Stream Format (Universal JSON Lines)
+When `stream` is active (or when queried with `telem`), the transmitter outputs structured JSON Lines (`ndjson`) suitable for real-time visualization or logging:
+```json
+{"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[1500,1500,1150,1500,1000,1000,1500,1500,1000,1000,1500,1500,1500,1500]}
+```
 
 ---
 

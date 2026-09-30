@@ -4,6 +4,11 @@
 //! and RC flight simulators (Liftoff, Velocidrone, RealFlight, AccuRC, DCL, etc.).
 
 use crate::input::{SwitchPos, Switches};
+use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS};
+
+pub const USB_AXIS_MIN: u16 = 0;
+pub const USB_AXIS_MAX: u16 = 2047; // 11-bit endpoint
+pub const AUX_BUTTON_THRESHOLD_US: u16 = 1750; // Threshold for high-channel logical button triggers
 
 /// USB HID Report Descriptor for an 8-Axis, 16-Button Joystick (18 bytes input report).
 /// Matches OpenI6X and EdgeTX 11-bit simulator conventions.
@@ -41,11 +46,13 @@ pub const GAMEPAD_REPORT_DESC: &[u8] = &[
 
 pub const REPORT_SIZE: usize = 18;
 
-/// Map a microsecond channel pulse width (1000..2000 µs) to 11-bit USB axis value (0..2047).
+/// Map a microsecond channel pulse width (CHANNEL_MIN_US..CHANNEL_MAX_US) to 11-bit USB axis value (USB_AXIS_MIN..USB_AXIS_MAX).
 #[inline(always)]
 fn us_to_axis(us: u16) -> u16 {
-    let clamped = us.clamp(1000, 2000) as u32;
-    (((clamped - 1000) * 2047) / 1000) as u16
+    let clamped = us.clamp(CHANNEL_MIN_US, CHANNEL_MAX_US) as u32;
+    let span = CHANNEL_SPAN_US;
+    let axis = (((clamped - CHANNEL_MIN_US as u32) * (USB_AXIS_MAX - USB_AXIS_MIN) as u32 + (span / 2)) / span) as u16 + USB_AXIS_MIN;
+    axis.clamp(USB_AXIS_MIN, USB_AXIS_MAX)
 }
 
 /// Build standard 18-byte HID Joystick report matching EdgeTX/OpenTX conventions:
@@ -57,9 +64,9 @@ fn us_to_axis(us: u16) -> u16 {
 ///   - Button 4: Switch SC (Mid)
 ///   - Button 5: Switch SC (Down)
 ///   - Button 6: Switch SD (Down)
-///   - Buttons 7..14: Channels 7..14 (> 1650 µs threshold for auxiliary functions)
+///   - Buttons 7..10: Channels 11..14 (> AUX_BUTTON_THRESHOLD_US for auxiliary functions)
 pub fn build_gamepad_report(
-    rf_chs: &[u16; 14],
+    rf_chs: &[u16; NUM_CHANNELS],
     switches: &Switches,
     out: &mut [u8; REPORT_SIZE],
 ) {
@@ -87,10 +94,10 @@ pub fn build_gamepad_report(
         btns |= 1 << 5; // Button 6
     }
 
-    // Buttons 7..10: Channels 11..14 (for any extra logical mixer triggers, > 1750 µs)
+    // Buttons 7..10: Channels 11..14 (for any extra logical mixer triggers, > AUX_BUTTON_THRESHOLD_US)
     // Only Channels 11..14 to prevent double-reporting SC (CH9) or SD (CH10)
     for (i, &pulse) in rf_chs[10..14].iter().enumerate() {
-        if pulse > 1750 {
+        if pulse > AUX_BUTTON_THRESHOLD_US {
             btns |= 1 << (6 + i);
         }
     }

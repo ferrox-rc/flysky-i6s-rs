@@ -9,8 +9,10 @@ Technical reference documentation for the FlySky FS-i6X hardware. This document 
 - **Primary MCU:** STMicroelectronics **STM32F072VB** (Cortex-M0 @ 48 MHz).
 - **Secondary Clone Variant:** Geehy **APM32F072VB** (pin- and register-compatible clone).
 - **Memory Map:**
-  - **Flash:** 128 KB (`0x08000000 .. 0x0801FFFF`)
-  - **SRAM:** 16 KB (`0x20000000 .. 0x20003FFF`)
+  - **Flash:** 128 KB (`0x0800_0000 .. 0x0801_FFFF`, 64 pages × 2048 bytes)
+    - **Application Firmware:** 120 KB (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59)
+    - **Non-Volatile Storage:** 8 KB (`0x0801_E000 .. 0x0801_FFFF`, Pages 60–63, 4-page append-only log)
+  - **SRAM:** 16 KB (`0x2000_0000 .. 0x2000_3FFF`)
 
 ### Dual-MCU Silicon Details
 
@@ -223,7 +225,11 @@ The FlySky FS-i6X mainboard routes the Micro-USB port directly to the STM32F072 
 
 - **Packet Memory Area (PMA)**: 1024 bytes located at `0x4000_6000` (`MemoryAccess::Word16x2`).
 - **Clock Tree**: Clocked directly from 48.000 MHz PLLCLK via `RCC_CFGR3` bit 7 (`USBSW = 1`).
-- **Modes Supported**: HID Gamepad (Flight Simulators), CDC-ACM (Virtual COM Port telemetry), Composite, and Off (Charge only).
+- **Modes Supported**:
+  - **HID Gamepad (`0x1209:0x4F54`)**: 100 Hz 8-axis 16-button gamepad for flight simulators.
+  - **CDC-ACM Serial (`0x0483:0x5740`)**: Interactive CLI and 10 Hz / 20 Hz telemetry streaming.
+  - **Composite (`0x1209:0x4968`)**: Simultaneous HID Gamepad and CDC-ACM Virtual COM Port via USB Interface Association Descriptors (IAD).
+  - **Off**: D+ pull-up disconnected, peripheral clock gated to eliminate battery consumption during charging.
 
 ### Rear Expansion Bay & Trainer Port (CRSF / ELRS Ready)
 The 4-pin round rear port (and internal expansion header) connects to the MCU's hardware `USART2`:
@@ -232,6 +238,6 @@ The 4-pin round rear port (and internal expansion header) connects to the MCU's 
 | :--- | :--- | :--- | :--- |
 | **Signal TX** | `PD5` | `USART2_TX` (AF0) | Asynchronous serial output to external module |
 | **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry downlink from external module |
-| **Module Power**| `PC13` | Power Switch GPIO | High = Powers external RF module bay (VCC) |
+| **Module Power**| `PC13` | Power Switch GPIO | Configurable polarity (Default High / Active Low supported in Radio Setup) |
 | **Baud Rate** | Selectable | 8N1 | 420k (ELRS), 416.6k (TBS), 115.2k (Low), 921.6k (Fast) |
 

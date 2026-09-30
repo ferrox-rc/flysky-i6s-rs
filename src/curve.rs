@@ -48,22 +48,9 @@ fn evaluate_5pt(x: i32, smooth: bool, curve: &[u8; 9]) -> u16 {
     let p1 = pts[i];
     let p2 = pts[i + 1];
     let p3 = if i + 2 < 5 { pts[i + 2] } else { 2 * pts[4] - pts[3] };
-
-    // t in 0..256 fixed point
     let t = (dx * 256) / 250;
-    let t2 = (t * t) / 256;
-    let t3 = (t2 * t) / 256;
 
-    let h00 = 2 * t3 - 3 * t2 + 256;
-    let h10 = t3 - 2 * t2 + t;
-    let h01 = -2 * t3 + 3 * t2;
-    let h11 = t3 - t2;
-
-    let m1 = (p2 - p0) / 2;
-    let m2 = (p3 - p1) / 2;
-
-    let y = (h00 * p1 + h01 * p2 + h10 * m1 + h11 * m2) / 256;
-    y.clamp(0, 1000) as u16
+    catmull_rom(p0, p1, p2, p3, t)
 }
 
 fn evaluate_9pt(x: i32, smooth: bool, curve: &[u8; 9]) -> u16 {
@@ -98,8 +85,13 @@ fn evaluate_9pt(x: i32, smooth: bool, curve: &[u8; 9]) -> u16 {
     let p1 = pts[i];
     let p2 = pts[i + 1];
     let p3 = if i + 2 < 9 { pts[i + 2] } else { 2 * pts[8] - pts[7] };
-
     let t = (dx * 256) / 125;
+
+    catmull_rom(p0, p1, p2, p3, t)
+}
+
+#[inline]
+fn catmull_rom(p0: i32, p1: i32, p2: i32, p3: i32, t: i32) -> u16 {
     let t2 = (t * t) / 256;
     let t3 = (t2 * t) / 256;
 
@@ -113,4 +105,76 @@ fn evaluate_9pt(x: i32, smooth: bool, curve: &[u8; 9]) -> u16 {
 
     let y = (h00 * p1 + h01 * p2 + h10 * m1 + h11 * m2) / 256;
     y.clamp(0, 1000) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_5pt_linear_identity() {
+        let curve = [0, 25, 50, 75, 100, 0, 0, 0, 0];
+        assert_eq!(evaluate_curve(0, 5, false, &curve), 0);
+        assert_eq!(evaluate_curve(250, 5, false, &curve), 250);
+        assert_eq!(evaluate_curve(500, 5, false, &curve), 500);
+        assert_eq!(evaluate_curve(750, 5, false, &curve), 750);
+        assert_eq!(evaluate_curve(1000, 5, false, &curve), 1000);
+        // Interpolated mid-point
+        assert_eq!(evaluate_curve(125, 5, false, &curve), 125);
+        assert_eq!(evaluate_curve(375, 5, false, &curve), 375);
+    }
+
+    #[test]
+    fn test_5pt_linear_flat_and_inverted() {
+        let flat = [50, 50, 50, 50, 50, 0, 0, 0, 0];
+        assert_eq!(evaluate_curve(0, 5, false, &flat), 500);
+        assert_eq!(evaluate_curve(500, 5, false, &flat), 500);
+        assert_eq!(evaluate_curve(1000, 5, false, &flat), 500);
+
+        let inverted = [100, 75, 50, 25, 0, 0, 0, 0, 0];
+        assert_eq!(evaluate_curve(0, 5, false, &inverted), 1000);
+        assert_eq!(evaluate_curve(250, 5, false, &inverted), 750);
+        assert_eq!(evaluate_curve(500, 5, false, &inverted), 500);
+        assert_eq!(evaluate_curve(750, 5, false, &inverted), 250);
+        assert_eq!(evaluate_curve(1000, 5, false, &inverted), 0);
+    }
+
+    #[test]
+    fn test_5pt_spline_endpoints_and_monotonicity() {
+        let curve = [0, 25, 50, 75, 100, 0, 0, 0, 0];
+        assert_eq!(evaluate_curve(0, 5, true, &curve), 0);
+        assert_eq!(evaluate_curve(500, 5, true, &curve), 500);
+        assert_eq!(evaluate_curve(1000, 5, true, &curve), 1000);
+
+        // Verify smooth progression
+        let mut prev = 0;
+        for x in (50..=1000).step_by(50) {
+            let val = evaluate_curve(x, 5, true, &curve);
+            assert!(val >= prev, "Spline must be monotonically non-decreasing at {}", x);
+            prev = val;
+        }
+    }
+
+    #[test]
+    fn test_9pt_linear_and_spline() {
+        let curve = [0, 12, 25, 37, 50, 62, 75, 87, 100];
+        assert_eq!(evaluate_curve(0, 9, false, &curve), 0);
+        assert_eq!(evaluate_curve(500, 9, false, &curve), 500);
+        assert_eq!(evaluate_curve(1000, 9, false, &curve), 1000);
+
+        assert_eq!(evaluate_curve(0, 9, true, &curve), 0);
+        assert_eq!(evaluate_curve(500, 9, true, &curve), 500);
+        assert_eq!(evaluate_curve(1000, 9, true, &curve), 1000);
+    }
+
+    #[test]
+    fn test_out_of_bounds_clamping() {
+        let curve5 = [0, 25, 50, 75, 100, 0, 0, 0, 0];
+        assert_eq!(evaluate_curve(1500, 5, false, &curve5), 1000);
+        assert_eq!(evaluate_curve(1500, 5, true, &curve5), 1000);
+
+        let curve9 = [0, 12, 25, 37, 50, 62, 75, 87, 100];
+        assert_eq!(evaluate_curve(1500, 9, false, &curve9), 1000);
+        assert_eq!(evaluate_curve(1500, 9, true, &curve9), 1000);
+    }
 }

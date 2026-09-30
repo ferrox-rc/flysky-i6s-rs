@@ -59,7 +59,7 @@ pub const HIGH_POWER: u8 = POWER_100MW;
 
 /// A7105 Register Initialization Table for AFHDS 2A (500 kbps GFSK)
 /// Entries matching 0xFF are skipped (unmodified).
-const AFHDS2A_A7105_REGS: [u8; 50] = [
+static AFHDS2A_A7105_REGS: [u8; 50] = [
     0xFF,
     0xC2 | (1 << 5), // 01: Mode Control (Enable FIFO mode + FCRC)
     0x00,            // 02: Calc
@@ -137,7 +137,9 @@ pub fn read_reg(addr: u8) -> u8 {
     val
 }
 
-pub static mut LAST_CHIP_ID: u8 = 0;
+use core::sync::atomic::{AtomicU8, Ordering};
+
+pub static LAST_CHIP_ID: AtomicU8 = AtomicU8::new(0);
 
 /// Perform a hardware reset and verify communications.
 /// Returns true if the A7105 responds with its factory reset signature (PLL_II = 0x9E).
@@ -162,9 +164,7 @@ pub fn reset() -> bool {
         spi::set_tx_rx_mode(spi::RF_MODE_OFF);
 
         let sig = read_reg(REG_PLL_II);
-        unsafe {
-            LAST_CHIP_ID = sig;
-        }
+        LAST_CHIP_ID.store(sig, Ordering::Relaxed);
 
         strobe(STROBE_STANDBY);
 

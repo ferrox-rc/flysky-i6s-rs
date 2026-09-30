@@ -64,58 +64,76 @@ pub fn read_uid(profile: &McuProfile) -> [u8; 12] {
 /// Initialize system clock to 48 MHz using external 8 MHz crystal (HSE) + PLL.
 /// Matches OpenI6X SetSysClock configuration.
 pub fn init_system_clock() {
-    const RCC_CR: *mut u32 = 0x4002_1000 as *mut u32;
-    const RCC_CFGR: *mut u32 = 0x4002_1004 as *mut u32;
-    const FLASH_ACR: *mut u32 = 0x4002_2000 as *mut u32;
+    let rcc = unsafe { &*stm32f0xx_hal::pac::RCC::ptr() };
+    let flash = unsafe { &*stm32f0xx_hal::pac::FLASH::ptr() };
 
     unsafe {
         // 1. Enable HSE (8 MHz external crystal on FlySky FS-i6X PCB)
-        let cr = ptr::read_volatile(RCC_CR);
-        ptr::write_volatile(RCC_CR, cr | (1 << 16)); // HSEON
+        rcc.cr.modify(|_, w| w.hseon().set_bit());
 
         // 2. Wait for HSERDY with timeout
         let mut timeout = 100_000u32;
-        while (ptr::read_volatile(RCC_CR) & (1 << 17)) == 0 && timeout > 0 {
+        while !rcc.cr.read().hserdy().bit() && timeout > 0 {
             timeout -= 1;
         }
 
         if timeout > 0 {
             // 3. Set Flash latency to 1 wait state (required for 48 MHz) & enable prefetch buffer
-            ptr::write_volatile(FLASH_ACR, (1 << 4) | (1 << 0)); // PRFTBE | LATENCY
+            flash.acr.write(|w| w.latency().ws1().prftbe().enabled());
 
             // 4. Configure PLL: HSE / 1 * 6 = 48 MHz
-            // PLLSRC = HSE PREDIV (bit 16)
-            // PLLMUL = 6 (0b0100 << 18 = 0x0010_0000)
-            let cfgr = ptr::read_volatile(RCC_CFGR);
+            // PLLSRC = HSE PREDIV (bit 16), PLLMUL = 6 (0b0100 << 18)
+            let cfgr = rcc.cfgr.read().bits();
             let cfgr_clean = cfgr & !(0x003F_0000 | 0x0000_0003);
-            ptr::write_volatile(RCC_CFGR, cfgr_clean | (1 << 16) | 0x0010_0000);
+            rcc.cfgr.write(|w| w.bits(cfgr_clean | (1 << 16) | 0x0010_0000));
 
             // 5. Enable PLL (PLLON = bit 24)
-            let cr = ptr::read_volatile(RCC_CR);
-            ptr::write_volatile(RCC_CR, cr | (1 << 24));
+            rcc.cr.modify(|_, w| w.pllon().set_bit());
 
             // 6. Wait for PLLRDY (bit 25)
             timeout = 100_000;
-            while (ptr::read_volatile(RCC_CR) & (1 << 25)) == 0 && timeout > 0 {
+            while !rcc.cr.read().pllrdy().bit() && timeout > 0 {
                 timeout -= 1;
             }
 
             // 7. Select PLL as system clock source (SW = 0b10)
-            let cfgr = ptr::read_volatile(RCC_CFGR);
-            ptr::write_volatile(RCC_CFGR, (cfgr & !0x03) | 0x02);
+            let cfgr = rcc.cfgr.read().bits();
+            rcc.cfgr.write(|w| w.bits((cfgr & !0x03) | 0x02));
 
             // 8. Wait for PLL to be used as system clock source (SWS = 0b1000)
             timeout = 100_000;
-            while (ptr::read_volatile(RCC_CFGR) & 0x0C) != 0x08 && timeout > 0 {
+            while (rcc.cfgr.read().bits() & 0x0C) != 0x08 && timeout > 0 {
                 timeout -= 1;
             }
 
             // 9. Select PLL (48 MHz) as USB clock source (USBSW = 1 in RCC_CFGR3 bit 7)
-            const RCC_CFGR3: *mut u32 = 0x4002_1030 as *mut u32;
-            let cfgr3 = ptr::read_volatile(RCC_CFGR3);
-            ptr::write_volatile(RCC_CFGR3, cfgr3 | (1 << 7));
+            rcc.cfgr3.modify(|_, w| w.usbsw().pllclk());
+        }
+
+        // 10. Enable LSI (40 kHz internal oscillator) and wait for stability
+        rcc.csr.modify(|_, w| w.lsion().set_bit());
+        let mut lsi_timeout = 100_000u32;
+        while !rcc.csr.read().lsirdy().bit() && lsi_timeout > 0 {
+            lsi_timeout -= 1;
         }
     }
+}
+
+/// Check if the MCU was rebooted by the hardware watchdog (IWDG or WWDG)
+/// and clear the reset status flags in RCC_CSR.
+///
+/// Under DO-178C and flight safety principles, a warm reboot caused by watchdog timeout
+/// must bypass the throttle-at-idle and switch-safety interlocks to recover flight
+/// control in under 10 ms instead of locking the pilot in a warning screen.
+pub fn check_and_clear_reset_flags() -> bool {
+    let rcc = unsafe { &*stm32f0xx_hal::pac::RCC::ptr() };
+    let csr = rcc.csr.read();
+    let was_watchdog = csr.iwdgrstf().bit_is_set() || csr.wwdgrstf().bit_is_set();
+
+    // Clear all reset source flags by setting RMVF
+    rcc.csr.modify(|_, w| w.rmvf().set_bit());
+
+    was_watchdog
 }
 
 /// Reset RCC to default power-on state (HSI 8MHz, no PLL, peripheral clocks disabled).

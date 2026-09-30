@@ -45,15 +45,35 @@ const USART_ISR_TC: u32 = 1 << 6;
 const USART_ISR_RXNE: u32 = 1 << 5;
 const USART_ISR_ORE: u32 = 1 << 3;
 
-static mut ACTIVE_HIGH: bool = true;
-static mut POWER_ON: bool = false;
+// NVIC registers
+#[cfg(not(test))]
+const NVIC_ICPR: *mut u32 = 0xE000_E280 as *mut u32;
+#[cfg(not(test))]
+const NVIC_IPR7: *mut u32 = 0xE000_E41C as *mut u32;
+
+#[cfg(not(test))]
+use stm32f0xx_hal::pac::interrupt;
+
+use core::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(test))]
+use core::sync::atomic::AtomicUsize;
+
+#[cfg(not(test))]
+static mut RX_RING: [u8; 128] = [0; 128];
+#[cfg(not(test))]
+static RX_HEAD: AtomicUsize = AtomicUsize::new(0);
+#[cfg(not(test))]
+static RX_TAIL: AtomicUsize = AtomicUsize::new(0);
+
+static ACTIVE_HIGH: AtomicBool = AtomicBool::new(true);
+static POWER_ON: AtomicBool = AtomicBool::new(false);
 
 /// Apply current PC13 pin state based on power state and active polarity.
 unsafe fn apply_power_pin() {
-    let pin_high = if ACTIVE_HIGH {
-        POWER_ON
+    let pin_high = if ACTIVE_HIGH.load(Ordering::Relaxed) {
+        POWER_ON.load(Ordering::Relaxed)
     } else {
-        !POWER_ON
+        !POWER_ON.load(Ordering::Relaxed)
     };
     if pin_high {
         ptr::write_volatile(GPIOC_BSRR, 1 << 13); // High
@@ -62,11 +82,55 @@ unsafe fn apply_power_pin() {
     }
 }
 
+#[cfg(test)]
+pub mod mock {
+    extern crate std;
+    use std::sync::Mutex;
+    use std::vec::Vec;
+
+    static RX_QUEUE: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+    static TX_LOG: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+    pub fn push_rx_bytes(bytes: &[u8]) {
+        let mut q = RX_QUEUE.lock().unwrap();
+        q.extend_from_slice(bytes);
+    }
+
+    pub fn pop_rx_byte() -> Option<u8> {
+        let mut q = RX_QUEUE.lock().unwrap();
+        if q.is_empty() {
+            None
+        } else {
+            Some(q.remove(0))
+        }
+    }
+
+    pub fn record_tx(data: &[u8]) {
+        let mut log = TX_LOG.lock().unwrap();
+        log.push(data.to_vec());
+    }
+
+    pub fn take_tx() -> Vec<Vec<u8>> {
+        let mut log = TX_LOG.lock().unwrap();
+        std::mem::take(&mut *log)
+    }
+
+    pub fn tx_count() -> usize {
+        TX_LOG.lock().unwrap().len()
+    }
+
+    pub fn clear() {
+        RX_QUEUE.lock().unwrap().clear();
+        TX_LOG.lock().unwrap().clear();
+    }
+}
+
 /// Initialize GPIO pins: PC13 as power switch (initially OFF), PD5 and PA15 peripheral clocks.
 pub fn init(active_high: bool) {
+    #[cfg(not(test))]
     unsafe {
-        ACTIVE_HIGH = active_high;
-        POWER_ON = false;
+        ACTIVE_HIGH.store(active_high, Ordering::Relaxed);
+        POWER_ON.store(false, Ordering::Relaxed);
 
         // Enable GPIOA (bit 17), GPIOC (bit 19), GPIOD (bit 20) clocks
         let ahb = ptr::read_volatile(RCC_AHBENR);
@@ -79,22 +143,30 @@ pub fn init(active_high: bool) {
         // Apply initial OFF state according to polarity
         apply_power_pin();
     }
+    #[cfg(test)]
+    let _ = active_high;
 }
 
 /// Set active power polarity for PC13: true = Active HIGH (N-type), false = Active LOW (P-type).
 pub fn set_power_polarity(active_high: bool) {
+    #[cfg(not(test))]
     unsafe {
-        ACTIVE_HIGH = active_high;
+        ACTIVE_HIGH.store(active_high, Ordering::Relaxed);
         apply_power_pin();
     }
+    #[cfg(test)]
+    let _ = active_high;
 }
 
 /// Set external module power state via PC13
 pub fn set_module_power(power_on: bool) {
+    #[cfg(not(test))]
     unsafe {
-        POWER_ON = power_on;
+        POWER_ON.store(power_on, Ordering::Relaxed);
         apply_power_pin();
     }
+    #[cfg(test)]
+    let _ = power_on;
 }
 
 /// Baud rate divisors for 48.000 MHz clock tree
@@ -110,6 +182,7 @@ pub fn get_brr_for_baud(baud_idx: u8) -> u32 {
 
 /// Configure and enable/disable USART2
 pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
+    #[cfg(not(test))]
     unsafe {
         if enabled {
             // 1. Enable USART2 clock in RCC_APB1ENR (bit 17)
@@ -144,11 +217,28 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             // Clear any pending error flags
             ptr::write_volatile(USART2_ICR, 0xFFFF_FFFF);
 
-            // 6. Enable UE (bit 0), TE (bit 3), RE (bit 2)
-            ptr::write_volatile(USART2_CR1, (1 << 0) | (1 << 3) | (1 << 2));
+            // Reset RX ring buffer indices
+            RX_HEAD.store(0, Ordering::Relaxed);
+            RX_TAIL.store(0, Ordering::Relaxed);
+
+            // Configure NVIC for USART2 (IRQ 28)
+            ptr::write_volatile(NVIC_ICPR, 1 << 28);
+            let ipr7 = ptr::read_volatile(NVIC_IPR7);
+            ptr::write_volatile(NVIC_IPR7, (ipr7 & !0xFF) | 0x40);
+            cortex_m::peripheral::NVIC::unmask(stm32f0xx_hal::pac::Interrupt::USART2);
+
+            // 6. Enable UE (bit 0), TE (bit 3), RE (bit 2), and RXNEIE (bit 5)
+            ptr::write_volatile(USART2_CR1, (1 << 0) | (1 << 3) | (1 << 2) | (1 << 5));
         } else {
-            // Disable UE
+            // Mask USART2 in NVIC
+            cortex_m::peripheral::NVIC::mask(stm32f0xx_hal::pac::Interrupt::USART2);
+
+            // Disable UE & RXNEIE
             ptr::write_volatile(USART2_CR1, 0);
+
+            // Reset RX ring buffer indices
+            RX_HEAD.store(0, Ordering::Relaxed);
+            RX_TAIL.store(0, Ordering::Relaxed);
 
             // Disable USART2 clock in RCC_APB1ENR (bit 17)
             let apb1 = ptr::read_volatile(RCC_APB1ENR);
@@ -161,12 +251,20 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             ptr::write_volatile(GPIOA_MODER, a_moder & !(3 << 30));
         }
     }
+    #[cfg(test)]
+    let _ = (enabled, baud_idx);
 }
 
 /// Transmit a buffer over USART2 (non-blocking if space available, bounded timeout)
 pub fn write_bytes(bytes: &[u8]) -> usize {
-    let mut sent = 0;
+    #[cfg(test)]
+    {
+        mock::record_tx(bytes);
+        bytes.len()
+    }
+    #[cfg(not(test))]
     unsafe {
+        let mut sent = 0;
         for &b in bytes {
             let mut timeout = 2500u32;
             while (ptr::read_volatile(USART2_ISR) & USART_ISR_TXE) == 0 {
@@ -178,12 +276,33 @@ pub fn write_bytes(bytes: &[u8]) -> usize {
             ptr::write_volatile(USART2_TDR, b as u32);
             sent += 1;
         }
+        sent
     }
-    sent
 }
 
 /// Read a byte from USART2 RX if available
 pub fn read_byte() -> Option<u8> {
+    #[cfg(test)]
+    {
+        mock::pop_rx_byte()
+    }
+    #[cfg(not(test))]
+    {
+        let head = RX_HEAD.load(Ordering::Acquire);
+        let tail = RX_TAIL.load(Ordering::Relaxed);
+        if head != tail {
+            let b = unsafe { RX_RING[tail] };
+            RX_TAIL.store((tail + 1) & (unsafe { RX_RING.len() } - 1), Ordering::Release);
+            Some(b)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(test))]
+#[interrupt]
+fn USART2() {
     unsafe {
         let isr = ptr::read_volatile(USART2_ISR);
         // Clear overrun error if present
@@ -192,10 +311,14 @@ pub fn read_byte() -> Option<u8> {
         }
 
         if (isr & USART_ISR_RXNE) != 0 {
-            let data = (ptr::read_volatile(USART2_RDR) & 0xFF) as u8;
-            Some(data)
-        } else {
-            None
+            let b = (ptr::read_volatile(USART2_RDR) & 0xFF) as u8;
+            let head = RX_HEAD.load(Ordering::Relaxed);
+            let tail = RX_TAIL.load(Ordering::Acquire);
+            let next_head = (head + 1) & (RX_RING.len() - 1);
+            if next_head != tail {
+                RX_RING[head] = b;
+                RX_HEAD.store(next_head, Ordering::Release);
+            }
         }
     }
 }
