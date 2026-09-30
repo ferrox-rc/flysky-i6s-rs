@@ -13,6 +13,7 @@ use crate::storage::RadioStorage;
 use crate::ui::format::{ascii_as_str, format_vbat, u32_to_hex};
 use crate::ui::widgets;
 
+#[inline(never)]
 pub fn render(
     lcd: &mut St7567,
     storage: &RadioStorage,

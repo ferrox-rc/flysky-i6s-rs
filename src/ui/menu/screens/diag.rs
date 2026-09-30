@@ -12,10 +12,11 @@ use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::chip;
 use crate::display::St7567;
-use crate::menu::format::u16_to_dec_4;
+use crate::menu::format::{ascii_as_str, u16_to_dec_4};
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 
+#[inline(never)]
 pub fn update_diag_anas(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -60,13 +61,14 @@ pub fn update_diag_anas(
 
         let mut val_buf = [0u8; 4];
         u16_to_dec_4(raw, &mut val_buf);
-        let val_str = core::str::from_utf8(&val_buf).unwrap_or("0000");
+        let val_str = ascii_as_str(&val_buf);
         Text::new(val_str, Point::new(90, y + 5), text_style_small).draw(lcd).ok();
     }
 
     widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");
 }
 
+#[inline(never)]
 pub fn update_system_info(
     ctrl: &mut MenuController,
     lcd: &mut St7567,

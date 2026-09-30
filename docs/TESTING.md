@@ -34,7 +34,7 @@ To achieve **instant, sub-millisecond local feedback** with zero hardware requir
         Profile: #![no_std]                          Profile: std enabled
         Peripheral Driver: Hardware MMIO             Peripheral Driver: Mock FIFO
         Hardware: Cortex-M0 (STM32F072)              Harness: Built-in Rust Test Runner
-        Binary: flysky-i6x.bin (Flash)               Speed: 36 tests in 0.00s
+        Binary: flysky-i6x.bin (Flash)               Speed: 74 tests in 0.01s
 ```
 
 1. **`src/lib.rs` Entry Point**: Configured with `#![cfg_attr(not(test), no_std)]`. When compiling firmware binaries, the codebase compiles strictly as `#![no_std]`. When running tests on the host, standard library support (`std`) is conditionally enabled for test assertion macros, vector allocations, and test runners.

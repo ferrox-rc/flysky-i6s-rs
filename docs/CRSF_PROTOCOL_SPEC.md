@@ -132,7 +132,10 @@ Instead of hardcoding or locking onto the local TX module, the handset renders a
 
 ### Step 3: Parameter Tree Loading (`0x2C` Read & `0x2B` Entry)
 
-Parameters are loaded sequentially from ID `1` up to `param_count` (cached up to `MAX_PARAMS = 24` to respect Cortex-M0 SRAM):
+Parameters are loaded on demand and cached in a unified memory layout:
+- **Per-Folder Active Buffer**: Up to `MAX_PARAMS = 48` parameters for the currently active folder.
+- **Device-Wide Param Map**: Up to `MAX_PARAM_MAP = 96` parameter IDs mapped to their parent folders.
+- **Unified String Pool**: `STRING_POOL_SIZE = 1280` bytes (1.25 KB) storing names, options, and unit strings.
 
 #### A. Request Frame (`0x2C` Parameter Read)
 ```text
@@ -157,13 +160,21 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
 
 1. `Parent ID` (1 byte, `0x00` = root)
 2. `Type` (1 byte):
+   - `0x00`: **`CRSF_TYPE_UINT8`** (Unsigned 8-bit integer, e.g. Output channel mapping)
+   - `0x01`: **`CRSF_TYPE_INT8`** (Signed 8-bit integer)
+   - `0x02`: **`CRSF_TYPE_UINT16`** (Unsigned 16-bit integer, big-endian)
+   - `0x03`: **`CRSF_TYPE_INT16`** (Signed 16-bit integer, big-endian)
    - `0x09`: **`CRSF_TYPE_SELECT`** (Selection list, e.g. Packet Rate, Power)
    - `0x0B`: **`CRSF_TYPE_FOLDER`** (Subfolder grouping, e.g. `VTX Admin >`, `Wi-Fi Options >`)
+   - `0x0C`: **`CRSF_TYPE_INFO`** / **`CRSF_TYPE_STRING`** (Read-only status string)
    - `0x0D`: **`CRSF_TYPE_COMMAND`** (Action command, e.g. `[Bind]`, `[Wi-Fi Mode]`)
-3. `Name` (Null-terminated ASCII string, e.g. `"Packet Rate\0"`)
+3. `Name` (Null-terminated ASCII string, e.g. `"Packet Rate\0"` or `"Output 1\0"`)
 4. Data field (dependent on `Type`):
+   - **For Integer Types (`UINT8` / `INT8` / `UINT16` / `INT16`)**:
+     - Followed by `[value, min, max, default]` (1 byte each for 8-bit, 2 bytes big-endian each for 16-bit).
+     - Followed by null-terminated `unit` string (e.g. `"ch\0"`, `"mW\0"`, `"%\0"`), stored in the unified string pool.
    - **For `SELECT` (0x09)**:
-     - Semicolon-delimited options string (stored up to 160 bytes, e.g. `"50Hz(-115dBm);100Hz Full(-112dBm);150Hz(-112dBm);250Hz(-108dBm);..."`).
+     - Semicolon-delimited options string (stored in unified string pool, e.g. `"50Hz(-115dBm);100Hz Full(-112dBm);150Hz(-112dBm);250Hz(-108dBm);..."`).
      - Followed by 1 byte: Current selection value index (0-indexed).
    - **For `FOLDER` (0x0B)**:
      - Defines a submenu node. Children specify `parent = folder_id`.
@@ -176,7 +187,7 @@ Parameters exceeding the CRSF MTU (~56 bytes) are split across multiple frames. 
 - **Timeout and Retries**: If no response arrives within **500 ms** (for local TX `0xEE`) or **1000 ms** (for remote receiver `0xEC`), `elrs_tick()` retries the request up to **4 times**. If retries are exhausted, the engine safely advances to `id + 1` immediately to prevent UI lockup.
 - **Completion**: When `Chunks Remain == 0`:
   - Parses and stores the reassembled parameter.
-  - If in `ElrsConfigState::LoadingParam(id)`: immediately requests `next_id = param_id + 1` until `param_count` or `MAX_PARAMS (24)` is reached, then enters `ElrsConfigState::Ready`.
+  - If in `ElrsConfigState::LoadingParam(id)`: immediately requests `next_id = param_id + 1` until `param_count` or folder parameters are loaded, then enters `ElrsConfigState::Ready`.
   - If already in `ElrsConfigState::Ready`: updates the cached parameter and **remains in `Ready`**, preserving active UI display.
 
 ---

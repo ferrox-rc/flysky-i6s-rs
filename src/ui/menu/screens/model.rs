@@ -10,7 +10,7 @@ use embedded_graphics::{
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-use crate::menu::format::{next_ascii, prev_ascii, u32_to_hex};
+use crate::menu::format::{ascii_as_str, next_ascii, prev_ascii, u32_to_hex};
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::rf;
@@ -18,6 +18,7 @@ use crate::storage::{self, ModelConfig, RadioStorage, NUM_MODELS};
 use crate::trim::TrimController;
 use crate::ui::format::format_timer;
 
+#[inline(never)]
 pub fn update_select(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -95,7 +96,7 @@ pub fn update_select(
             line_buf[16] = b'*';
             line_buf[17] = b']';
         }
-        let line_str = core::str::from_utf8(&line_buf).unwrap_or("M??:---");
+        let line_str = ascii_as_str(&line_buf);
 
         widgets::draw_list_row(lcd, slot, is_cursor, line_str, None, 0);
     }
@@ -103,6 +104,7 @@ pub fn update_select(
     widgets::draw_footer(lcd, "[OK] Load     [ESC] Back");
 }
 
+#[inline(never)]
 pub fn update_setup(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -321,15 +323,15 @@ pub fn update_setup(
         match idx {
             0 => {
                 Text::new("Name:", Point::new(4, y + 7), style).draw(lcd).ok();
-                let name_str = core::str::from_utf8(&storage.models[active_idx].name).unwrap_or("----------");
+                let name_str = ascii_as_str(&storage.models[active_idx].name);
                 Text::new(name_str, Point::new(40, y + 7), style).draw(lcd).ok();
 
                 if ctrl.editing {
                     let char_x = 40 + (ctrl.sub_idx as i32 * 6);
-                    Rectangle::new(Point::new(char_x - 1, y), Size::new(8, 9)).into_styled(fill_style).draw(lcd).ok();
+                    lcd.fill_rect(char_x - 1, y, 8, 9, true);
                     let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
                     let single_char = [storage.models[active_idx].name[ctrl.sub_idx]];
-                    let c_str = core::str::from_utf8(&single_char).unwrap_or("?");
+                    let c_str = ascii_as_str(&single_char);
                     Text::new(c_str, Point::new(char_x, y + 7), inv_style).draw(lcd).ok();
                 }
             }
@@ -373,7 +375,7 @@ pub fn update_setup(
                     let target_num = (ctrl.sub_idx + 1) as u8;
                     cp_buf[9] = b'0' + (target_num / 10);
                     cp_buf[10] = b'0' + (target_num % 10);
-                    let cp_str = core::str::from_utf8(&cp_buf).unwrap_or("Copy -> M??");
+                    let cp_str = ascii_as_str(&cp_buf);
                     Text::new(cp_str, Point::new(4, y + 7), style).draw(lcd).ok();
                 } else {
                     Text::new("Copy: [OK Duplicate]", Point::new(4, y + 7), style).draw(lcd).ok();
@@ -382,7 +384,7 @@ pub fn update_setup(
             6 => {
                 let mut rx_buf = [b'0'; 8];
                 u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
-                let rx_hex_str = core::str::from_utf8(&rx_buf).unwrap_or("00000000");
+                let rx_hex_str = ascii_as_str(&rx_buf);
                 Text::new("Rx:", Point::new(4, y + 7), style).draw(lcd).ok();
                 Text::new(rx_hex_str, Point::new(24, y + 7), style).draw(lcd).ok();
                 Text::new("[OK Bind]", Point::new(74, y + 7), style).draw(lcd).ok();

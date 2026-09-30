@@ -31,6 +31,43 @@ pub fn u16_to_dec_4(val: u16, buf: &mut [u8; 4]) {
     buf[3] = b'0' + (val % 10) as u8;
 }
 
+/// Format 0..100 as percentage string "100%", " 50%", "  0%" into buf[0..4]
+pub fn format_pct_3(val: u8, buf: &mut [u8; 4]) -> &str {
+    let v = val.min(100);
+    if v == 100 {
+        buf[0] = b'1';
+        buf[1] = b'0';
+        buf[2] = b'0';
+    } else if v >= 10 {
+        buf[0] = b' ';
+        buf[1] = b'0' + (v / 10);
+        buf[2] = b'0' + (v % 10);
+    } else {
+        buf[0] = b' ';
+        buf[1] = b' ';
+        buf[2] = b'0' + v;
+    }
+    buf[3] = b'%';
+    ascii_as_str(buf)
+}
+
+/// Format 0..99 as two decimal digits "00".."99" into buf[0..2]
+pub fn format_u8_2(val: u8, buf: &mut [u8; 2]) -> &str {
+    let v = val.min(99);
+    buf[0] = b'0' + (v / 10);
+    buf[1] = b'0' + (v % 10);
+    ascii_as_str(buf)
+}
+
+/// Format decivolts (e.g. 44 -> "4.4V") into buf[0..4]
+pub fn format_deci_volt(deci: u8, buf: &mut [u8; 4]) -> &str {
+    buf[0] = b'0' + (deci / 10);
+    buf[1] = b'.';
+    buf[2] = b'0' + (deci % 10);
+    buf[3] = b'V';
+    ascii_as_str(buf)
+}
+
 pub fn next_ascii(c: u8) -> u8 {
     match c {
         b' ' => b'A',
@@ -271,4 +308,67 @@ pub fn format_trim(axis: crate::trim::ActiveTrim, val: i8, buf: &mut [u8; 9]) ->
     buf[7] = b'0' + (abs / 10);
     buf[8] = b'0' + (abs % 10);
     ascii_as_str(buf)
+}
+
+/// Format an i32 to decimal ASCII representation in buf. Returns bytes written.
+pub fn i32_to_dec(val: i32, buf: &mut [u8]) -> usize {
+    if buf.is_empty() {
+        return 0;
+    }
+    if val == 0 {
+        buf[0] = b'0';
+        return 1;
+    }
+    let mut i = 0;
+    let (mut n, is_neg) = if val < 0 {
+        (val.unsigned_abs(), true)
+    } else {
+        (val as u32, false)
+    };
+    if is_neg && i < buf.len() {
+        buf[i] = b'-';
+        i += 1;
+    }
+    let start_digit = i;
+    while n > 0 && i < buf.len() {
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        i += 1;
+    }
+    // Reverse digits
+    buf[start_digit..i].reverse();
+    i
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_helpers() {
+        let mut b4 = [0u8; 4];
+        assert_eq!(format_pct_3(100, &mut b4), "100%");
+        assert_eq!(format_pct_3(50, &mut b4), " 50%");
+        assert_eq!(format_pct_3(5, &mut b4), "  5%");
+        assert_eq!(format_pct_3(0, &mut b4), "  0%");
+
+        let mut b2 = [0u8; 2];
+        assert_eq!(format_u8_2(37, &mut b2), "37");
+        assert_eq!(format_u8_2(0, &mut b2), "00");
+        assert_eq!(format_u8_2(9, &mut b2), "09");
+
+        assert_eq!(format_deci_volt(44, &mut b4), "4.4V");
+        assert_eq!(format_deci_volt(50, &mut b4), "5.0V");
+        assert_eq!(format_deci_volt(38, &mut b4), "3.8V");
+
+        let mut b16 = [0u8; 16];
+        let len0 = i32_to_dec(0, &mut b16);
+        assert_eq!(ascii_as_str(&b16[..len0]), "0");
+
+        let len_pos = i32_to_dec(1234, &mut b16);
+        assert_eq!(ascii_as_str(&b16[..len_pos]), "1234");
+
+        let len_neg = i32_to_dec(-987, &mut b16);
+        assert_eq!(ascii_as_str(&b16[..len_neg]), "-987");
+    }
 }

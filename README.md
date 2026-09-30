@@ -296,6 +296,9 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] 18-channel i-BUS & AFHDS 2A over-the-air encoding with `ModelConfig` v5 and automatic v4 flash migration.
 - [x] CRSF Parameter 0 root-folder query and child-ID selective discovery.
 - [x] CRSF dynamic command timeout polling, live command info text (`[Binding]`, `[OK]`, `[Failed]`), and clamped info/string parameter rendering.
+- [x] CRSF integer parameter support (`UINT8`, `INT8`, `UINT16`, `INT16`) with in-place modal editing, unit display, and multi-byte writes.
+- [x] CRSF nested subfolder title retention stack preserving parent names up to 6 levels deep.
+- [x] Unified configurator buffers: `MAX_PARAMS = 48` per folder, `MAX_PARAM_MAP = 96`, and `STRING_POOL_SIZE = 1280` bytes.
 
 ### Phase 20: Trainer Port Subsystem & PPM In/Out (PLANNED / BRANCH: `feat/trainer-ppm`)
 - [ ] Direct PAC driver for `TIM15` (1 µs tick resolution at 48 MHz).

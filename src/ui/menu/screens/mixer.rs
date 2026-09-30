@@ -12,13 +12,14 @@ use crate::buzzer::Buzzer;
 use crate::curve;
 use crate::display::St7567;
 use crate::menu::format::{
-    i8_to_dec, u8_to_dec, AXIS_NAMES, DR_SWITCH_NAMES, MODE_NAMES, SOURCE_NAMES, SWITCH_COND_NAMES,
+    ascii_as_str, i8_to_dec, u8_to_dec, AXIS_NAMES, DR_SWITCH_NAMES, MODE_NAMES, SOURCE_NAMES, SWITCH_COND_NAMES,
     TEMPLATE_NAMES,
 };
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::storage::{self, RadioStorage};
 
+#[inline(never)]
 pub fn update_dual_rate(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -190,6 +191,7 @@ pub fn update_dual_rate(
     widgets::draw_footer(lcd, footer);
 }
 
+#[inline(never)]
 pub fn update_throttle_curve(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -397,7 +399,7 @@ pub fn update_throttle_curve(
             p_buf[4] = b'0' + (val / 10);
             p_buf[5] = b'0' + (val % 10);
         }
-        let p_str = core::str::from_utf8(&p_buf).unwrap_or("P?:---%");
+        let p_str = ascii_as_str(&p_buf);
 
         if ctrl.editing {
             Rectangle::new(Point::new(2, 35), Size::new(70, 11))
@@ -474,6 +476,7 @@ pub fn update_throttle_curve(
     }
 }
 
+#[inline(never)]
 pub fn update_wing_mixer(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -595,7 +598,7 @@ pub fn update_wing_mixer(
             let mix = storage.models[active_idx].mixes[m_idx];
             let mut m_buf = *b"M0: ";
             m_buf[1] = b'1' + m_idx as u8;
-            let m_label = core::str::from_utf8(&m_buf).unwrap_or("M?: ");
+            let m_label = ascii_as_str(&m_buf);
             Text::new(m_label, Point::new(4, y + 7), style)
                 .draw(lcd)
                 .ok();
@@ -613,7 +616,7 @@ pub fn update_wing_mixer(
                     ch_buf[2] = b'0' + mix.target_ch;
                     ch_buf[3] = b' ';
                 }
-                let ch_str = core::str::from_utf8(&ch_buf).unwrap_or("CH??");
+                let ch_str = ascii_as_str(&ch_buf);
                 Text::new(ch_str, Point::new(24, y + 7), style)
                     .draw(lcd)
                     .ok();
@@ -635,6 +638,7 @@ pub fn update_wing_mixer(
     widgets::draw_footer(lcd, footer);
 }
 
+#[inline(never)]
 pub fn update_mixer_line_edit(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
@@ -748,7 +752,7 @@ pub fn update_mixer_line_edit(
 
     let mut title_buf = *b"EDIT MIX 0";
     title_buf[9] = b'1' + mix_idx as u8;
-    let title_str = core::str::from_utf8(&title_buf).unwrap_or("EDIT MIX");
+    let title_str = ascii_as_str(&title_buf);
     widgets::draw_header(lcd, title_str);
 
     let mix = storage.models[active_idx].mixes[mix_idx];
@@ -773,7 +777,7 @@ pub fn update_mixer_line_edit(
                         ch_buf[2] = b'0' + mix.target_ch;
                         ch_buf[3] = b' ';
                     }
-                    let ch_str = core::str::from_utf8(&ch_buf).unwrap_or("CH??");
+                    let ch_str = ascii_as_str(&ch_buf);
                     widgets::draw_list_row(lcd, slot, is_sel, "Target:", Some(ch_str), 56);
                 }
             }

@@ -311,6 +311,163 @@ impl St7567 {
     pub fn clear_buffer(&mut self) {
         self.framebuffer.fill(0);
     }
+
+    /// Set a single pixel at (x, y) to on or off with bounds checking.
+    #[inline]
+    pub fn set_pixel(&mut self, x: i32, y: i32, on: bool) {
+        if x >= 0 && (x as usize) < WIDTH && y >= 0 && (y as usize) < HEIGHT {
+            let page = (y as usize) / 8;
+            let bit = (y as usize) % 8;
+            let index = page * WIDTH + (x as usize);
+            if on {
+                self.framebuffer[index] |= 1 << bit;
+            } else {
+                self.framebuffer[index] &= !(1 << bit);
+            }
+        }
+    }
+
+    /// Fast horizontal line from (x, y) with length `w`.
+    pub fn draw_hline(&mut self, x: i32, y: i32, w: u32, on: bool) {
+        if y < 0 || (y as usize) >= HEIGHT || w == 0 {
+            return;
+        }
+        let x_start = x.max(0) as usize;
+        let x_end = ((x + w as i32).max(0) as usize).min(WIDTH);
+        if x_start >= x_end {
+            return;
+        }
+        let page = (y as usize) / 8;
+        let bit = (y as usize) % 8;
+        let mask = 1u8 << bit;
+        let start_idx = page * WIDTH + x_start;
+        let end_idx = page * WIDTH + x_end;
+
+        if on {
+            for b in &mut self.framebuffer[start_idx..end_idx] {
+                *b |= mask;
+            }
+        } else {
+            let inv_mask = !mask;
+            for b in &mut self.framebuffer[start_idx..end_idx] {
+                *b &= inv_mask;
+            }
+        }
+    }
+
+    /// Fast vertical line from (x, y) with length `h`.
+    pub fn draw_vline(&mut self, x: i32, y: i32, h: u32, on: bool) {
+        if x < 0 || (x as usize) >= WIDTH || h == 0 {
+            return;
+        }
+        let y_start = y.max(0) as usize;
+        let y_end = ((y + h as i32).max(0) as usize).min(HEIGHT);
+        if y_start >= y_end {
+            return;
+        }
+        let start_page = y_start / 8;
+        let end_page = (y_end - 1) / 8;
+        let col = x as usize;
+
+        for page in start_page..=end_page {
+            let page_y_start = page * 8;
+            let page_y_end = page_y_start + 7;
+            let bit_start = if y_start > page_y_start { y_start - page_y_start } else { 0 };
+            let bit_end = if y_end - 1 < page_y_end { (y_end - 1) - page_y_start } else { 7 };
+
+            let mut mask = 0u8;
+            for b in bit_start..=bit_end {
+                mask |= 1 << b;
+            }
+
+            let idx = page * WIDTH + col;
+            if on {
+                self.framebuffer[idx] |= mask;
+            } else {
+                self.framebuffer[idx] &= !mask;
+            }
+        }
+    }
+
+    /// Fast filled rectangle from (x, y) with size (w, h).
+    pub fn fill_rect(&mut self, x: i32, y: i32, w: u32, h: u32, on: bool) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        let x_start = x.max(0) as usize;
+        let x_end = ((x + w as i32).max(0) as usize).min(WIDTH);
+        if x_start >= x_end {
+            return;
+        }
+        let y_start = y.max(0) as usize;
+        let y_end = ((y + h as i32).max(0) as usize).min(HEIGHT);
+        if y_start >= y_end {
+            return;
+        }
+        let start_page = y_start / 8;
+        let end_page = (y_end - 1) / 8;
+
+        for page in start_page..=end_page {
+            let page_y_start = page * 8;
+            let page_y_end = page_y_start + 7;
+            let bit_start = if y_start > page_y_start { y_start - page_y_start } else { 0 };
+            let bit_end = if y_end - 1 < page_y_end { (y_end - 1) - page_y_start } else { 7 };
+
+            let mask = if bit_start == 0 && bit_end == 7 {
+                0xFFu8
+            } else {
+                let mut m = 0u8;
+                for b in bit_start..=bit_end {
+                    m |= 1 << b;
+                }
+                m
+            };
+
+            let row_start = page * WIDTH + x_start;
+            let row_end = page * WIDTH + x_end;
+
+            if on {
+                if mask == 0xFF {
+                    self.framebuffer[row_start..row_end].fill(0xFF);
+                } else {
+                    for b in &mut self.framebuffer[row_start..row_end] {
+                        *b |= mask;
+                    }
+                }
+            } else {
+                if mask == 0xFF {
+                    self.framebuffer[row_start..row_end].fill(0x00);
+                } else {
+                    let inv_mask = !mask;
+                    for b in &mut self.framebuffer[row_start..row_end] {
+                        *b &= inv_mask;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fast outline rectangle from (x, y) with size (w, h).
+    pub fn draw_rect(&mut self, x: i32, y: i32, w: u32, h: u32, on: bool) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        self.draw_hline(x, y, w, on);
+        if h > 1 {
+            self.draw_hline(x, y + h as i32 - 1, w, on);
+            if h > 2 {
+                self.draw_vline(x, y + 1, h - 2, on);
+                if w > 1 {
+                    self.draw_vline(x + w as i32 - 1, y + 1, h - 2, on);
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn framebuffer(&self) -> &[u8; BUFFER_SIZE] {
+        &self.framebuffer
+    }
 }
 
 impl OriginDimensions for St7567 {
@@ -358,3 +515,91 @@ impl DrawTarget for St7567 {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use embedded_graphics::prelude::*;
+    use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
+
+    #[test]
+    fn test_draw_hline_matches_embedded_graphics() {
+        let mut d1 = St7567::new();
+        let mut d2 = St7567::new();
+
+        // Direct primitive
+        d1.draw_hline(10, 15, 50, true);
+
+        // embedded_graphics
+        Line::new(Point::new(10, 15), Point::new(59, 15))
+            .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+            .draw(&mut d2)
+            .unwrap();
+
+        assert_eq!(d1.framebuffer(), d2.framebuffer());
+    }
+
+    #[test]
+    fn test_draw_vline_matches_embedded_graphics() {
+        let mut d1 = St7567::new();
+        let mut d2 = St7567::new();
+
+        // Direct primitive spanning multiple pages
+        d1.draw_vline(25, 6, 20, true);
+
+        // embedded_graphics
+        Line::new(Point::new(25, 6), Point::new(25, 25))
+            .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+            .draw(&mut d2)
+            .unwrap();
+
+        assert_eq!(d1.framebuffer(), d2.framebuffer());
+    }
+
+    #[test]
+    fn test_fill_rect_matches_embedded_graphics() {
+        let mut d1 = St7567::new();
+        let mut d2 = St7567::new();
+
+        // List item highlight shape (e.g. 2, 14, 124, 9)
+        d1.fill_rect(2, 14, 124, 9, true);
+
+        Rectangle::new(Point::new(2, 14), Size::new(124, 9))
+            .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+            .draw(&mut d2)
+            .unwrap();
+
+        assert_eq!(d1.framebuffer(), d2.framebuffer());
+    }
+
+    #[test]
+    fn test_draw_rect_matches_embedded_graphics() {
+        let mut d1 = St7567::new();
+        let mut d2 = St7567::new();
+
+        d1.draw_rect(10, 10, 40, 20, true);
+
+        Rectangle::new(Point::new(10, 10), Size::new(40, 20))
+            .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+            .draw(&mut d2)
+            .unwrap();
+
+        assert_eq!(d1.framebuffer(), d2.framebuffer());
+    }
+
+    #[test]
+    fn test_primitives_out_of_bounds_no_panic() {
+        let mut d = St7567::new();
+        // Negative coords, zero width/height, exceeding width/height
+        d.draw_hline(-10, 20, 5, true);
+        d.draw_hline(100, 20, 50, true);
+        d.draw_hline(10, -5, 50, true);
+        d.draw_hline(10, 100, 50, true);
+        d.draw_vline(-10, 20, 5, true);
+        d.draw_vline(20, -10, 5, true);
+        d.draw_vline(20, 50, 30, true);
+        d.fill_rect(-20, -20, 200, 200, true);
+        d.draw_rect(-20, -20, 200, 200, true);
+    }
+}
+

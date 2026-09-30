@@ -56,6 +56,7 @@ pub struct MenuController {
     pub scroll_offset: usize,
     pub page_idx: usize,
     pub sub_idx: usize,
+    pub edit_val: i32,
     pub editing: bool,
     pub request_calibration: bool,
     pub request_bind: bool,
@@ -82,6 +83,7 @@ impl MenuController {
             scroll_offset: 0,
             page_idx: 0,
             sub_idx: 0,
+            edit_val: 0,
             editing: false,
             request_calibration: false,
             request_bind: false,
@@ -106,6 +108,7 @@ impl MenuController {
         self.scroll_offset = 0;
         self.page_idx = 0;
         self.sub_idx = 0;
+        self.edit_val = 0;
         self.editing = false;
         self.request_calibration = false;
         self.request_bind = false;

@@ -70,13 +70,33 @@ pub fn update_channels(now_ms: u32, channels: &[u16; crate::mixer::NUM_CHANNELS]
     }
 }
 
-pub const MAX_PARAMS: usize = 32;
-pub const MAX_PARAM_MAP: usize = 64;
-pub const MAX_ACTIVE_FOLDER_PARAMS: usize = 32;
-pub const MAX_FOLDER_ITEMS: usize = 32;
-pub const STRING_POOL_SIZE: usize = 1024;
-pub const FOLDER_STRING_POOL_SIZE: usize = 1024;
+pub const MAX_PARAMS: usize = 48;
+pub const MAX_FOLDER_ITEMS: usize = MAX_PARAMS;
+pub const MAX_ACTIVE_FOLDER_PARAMS: usize = MAX_PARAMS;
+pub const MAX_PARAM_MAP: usize = 96;
+pub const STRING_POOL_SIZE: usize = 1280;
+pub const FOLDER_STRING_POOL_SIZE: usize = STRING_POOL_SIZE;
+
+pub const MAX_FOLDER_NAME_LEN: usize = 32;
+pub const MAX_FOLDER_DEPTH: usize = 6;
 pub const CHUNK_BUF_SIZE: usize = 256;
+
+#[derive(Copy, Clone, Debug)]
+pub struct FolderStackItem {
+    pub id: u8,
+    pub name: [u8; MAX_FOLDER_NAME_LEN],
+    pub name_len: u8,
+}
+
+impl FolderStackItem {
+    pub const fn empty() -> Self {
+        Self {
+            id: 0,
+            name: [0; MAX_FOLDER_NAME_LEN],
+            name_len: 0,
+        }
+    }
+}
 
 static mut CHUNK_BUF: [u8; CHUNK_BUF_SIZE] = [0; CHUNK_BUF_SIZE];
 static mut CHUNK_LEN: usize = 0;
@@ -100,6 +120,13 @@ unsafe fn send_param_read(target: u8, param_id: u8, chunk: u8) {
 unsafe fn send_param_write(target: u8, param_id: u8, val: u8) {
     let mut buf = [0u8; 8];
     let len = protocol::build_param_write_frame(target, param_id, val, &mut buf);
+    uart::write_bytes(&buf[..len]);
+}
+
+#[inline]
+unsafe fn send_param_write_buf(target: u8, param_id: u8, payload: &[u8]) {
+    let mut buf = [0u8; 16];
+    let len = protocol::build_param_write_frame_multi(target, param_id, payload, &mut buf);
     uart::write_bytes(&buf[..len]);
 }
 
@@ -144,8 +171,9 @@ pub struct Parameter {
     pub id: u8,
     pub parent: u8,
     pub param_type: u8, // lower 7 bits = type, bit 7 = hidden flag
-    pub value: u8,
-    pub max_value: u8,
+    pub value: i32,
+    pub min_value: i32,
+    pub max_value: i32,
     pub status: u8,
     pub name_offset: u16,
     pub name_len: u8,
@@ -160,6 +188,7 @@ impl Parameter {
             parent: 0,
             param_type: 0,
             value: 0,
+            min_value: 0,
             max_value: 0,
             status: 0,
             name_offset: 0,
@@ -179,12 +208,37 @@ impl Parameter {
         self.param_type & 0x7F
     }
 
+    #[inline]
+    pub fn is_integer(&self) -> bool {
+        let t = self.clean_type();
+        matches!(
+            t,
+            protocol::CRSF_TYPE_UINT8
+                | protocol::CRSF_TYPE_INT8
+                | protocol::CRSF_TYPE_UINT16
+                | protocol::CRSF_TYPE_INT16
+        )
+    }
+
     pub fn name<'a>(&'a self, pool: &'a [u8]) -> &'a str {
         if self.name_len == 0 {
             return "";
         }
         let start = self.name_offset as usize;
         let end = (start + self.name_len as usize).min(pool.len());
+        if start < end {
+            core::str::from_utf8(&pool[start..end]).unwrap_or("")
+        } else {
+            ""
+        }
+    }
+
+    pub fn unit_str<'a>(&'a self, pool: &'a [u8]) -> &'a str {
+        if self.options_len == 0 {
+            return "";
+        }
+        let start = self.options_offset as usize;
+        let end = (start + self.options_len as usize).min(pool.len());
         if start < end {
             core::str::from_utf8(&pool[start..end]).unwrap_or("")
         } else {
@@ -234,7 +288,7 @@ impl Parameter {
 
     /// Extract option string for current `value` index into buffer.
     pub fn current_option_str<'a>(&'a self, pool: &'a [u8], buf: &'a mut [u8; 24]) -> &'a str {
-        self.option_str_for_val(pool, self.value, buf)
+        self.option_str_for_val(pool, self.value as u8, buf)
     }
 
     /// Extract info / string text from string pool.
@@ -303,13 +357,13 @@ pub struct ElrsConfigEngine {
     pub current_chunk: u8,
     pub expect_chunks_remain: u8,
     pub retry_count: u8,
-    pub folder_stack: [u8; 6],
+    pub folder_stack: [FolderStackItem; MAX_FOLDER_DEPTH],
     pub folder_stack_len: usize,
     pub current_folder: u8,
     pub folder_loading: bool,
-    pub folder_name: [u8; 16],
+    pub folder_name: [u8; MAX_FOLDER_NAME_LEN],
     pub folder_name_len: u8,
-    /// Fast folder hierarchy cache mapping param_id (1..63) -> parent_folder_id.
+    /// Fast folder hierarchy cache mapping param_id (1..MAX_PARAM_MAP-1) -> parent_folder_id.
     /// Initialized to 0xFF (unmapped). Populated during initial sequential scan or folder child lists.
     pub parent_map: [u8; MAX_PARAM_MAP],
     /// Indicates whether the active device responded to Parameter 0 (Root Folder).
@@ -340,11 +394,11 @@ impl ElrsConfigEngine {
             current_chunk: 0,
             expect_chunks_remain: 0,
             retry_count: 0,
-            folder_stack: [0; 6],
+            folder_stack: [FolderStackItem::empty(); MAX_FOLDER_DEPTH],
             folder_stack_len: 0,
             current_folder: 0,
             folder_loading: false,
-            folder_name: [0; 16],
+            folder_name: [0; MAX_FOLDER_NAME_LEN],
             folder_name_len: 0,
             parent_map: [0xFF; MAX_PARAM_MAP],
             has_root_folder: false,
@@ -552,13 +606,14 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
         CONFIG_ENGINE.parent_map[param_id as usize] = parent;
     }
 
-    let mut name_buf = [0u8; 16];
+    let mut name_buf = [0u8; MAX_FOLDER_NAME_LEN];
     let (rest_start, name_len) = extract_null_string(chunk, 2, &mut name_buf);
 
     let mut opt_slice_len = 0usize;
     let mut opt_slice_start = rest_start;
-    let mut val = 0u8;
-    let mut max_val = 0u8;
+    let mut val = 0i32;
+    let mut min_val = 0i32;
+    let mut max_val = 0i32;
     let mut status = 0u8;
 
     if rest_start < chunk.len() {
@@ -573,15 +628,76 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
             }
             opt_slice_len = opt_end.saturating_sub(rest_start);
             opt_slice_start = rest_start;
-            max_val = opt_count.saturating_sub(1);
+            min_val = 0;
+            max_val = opt_count.saturating_sub(1) as i32;
 
             let val_pos = opt_end + 1;
             if val_pos < chunk.len() {
-                val = chunk[val_pos];
+                val = chunk[val_pos] as i32;
+            }
+        } else if p_type == protocol::CRSF_TYPE_UINT8 {
+            if rest_start + 3 <= chunk.len() {
+                val = chunk[rest_start] as i32;
+                min_val = chunk[rest_start + 1] as i32;
+                max_val = chunk[rest_start + 2] as i32;
+                let unit_start = rest_start + 4;
+                if unit_start < chunk.len() {
+                    let mut unit_end = unit_start;
+                    while unit_end < chunk.len() && chunk[unit_end] != 0 {
+                        unit_end += 1;
+                    }
+                    opt_slice_start = unit_start;
+                    opt_slice_len = unit_end.saturating_sub(unit_start);
+                }
+            }
+        } else if p_type == protocol::CRSF_TYPE_INT8 {
+            if rest_start + 3 <= chunk.len() {
+                val = (chunk[rest_start] as i8) as i32;
+                min_val = (chunk[rest_start + 1] as i8) as i32;
+                max_val = (chunk[rest_start + 2] as i8) as i32;
+                let unit_start = rest_start + 4;
+                if unit_start < chunk.len() {
+                    let mut unit_end = unit_start;
+                    while unit_end < chunk.len() && chunk[unit_end] != 0 {
+                        unit_end += 1;
+                    }
+                    opt_slice_start = unit_start;
+                    opt_slice_len = unit_end.saturating_sub(unit_start);
+                }
+            }
+        } else if p_type == protocol::CRSF_TYPE_UINT16 {
+            if rest_start + 6 <= chunk.len() {
+                val = u16::from_be_bytes([chunk[rest_start], chunk[rest_start + 1]]) as i32;
+                min_val = u16::from_be_bytes([chunk[rest_start + 2], chunk[rest_start + 3]]) as i32;
+                max_val = u16::from_be_bytes([chunk[rest_start + 4], chunk[rest_start + 5]]) as i32;
+                let unit_start = rest_start + 8;
+                if unit_start < chunk.len() {
+                    let mut unit_end = unit_start;
+                    while unit_end < chunk.len() && chunk[unit_end] != 0 {
+                        unit_end += 1;
+                    }
+                    opt_slice_start = unit_start;
+                    opt_slice_len = unit_end.saturating_sub(unit_start);
+                }
+            }
+        } else if p_type == protocol::CRSF_TYPE_INT16 {
+            if rest_start + 6 <= chunk.len() {
+                val = i16::from_be_bytes([chunk[rest_start], chunk[rest_start + 1]]) as i32;
+                min_val = i16::from_be_bytes([chunk[rest_start + 2], chunk[rest_start + 3]]) as i32;
+                max_val = i16::from_be_bytes([chunk[rest_start + 4], chunk[rest_start + 5]]) as i32;
+                let unit_start = rest_start + 8;
+                if unit_start < chunk.len() {
+                    let mut unit_end = unit_start;
+                    while unit_end < chunk.len() && chunk[unit_end] != 0 {
+                        unit_end += 1;
+                    }
+                    opt_slice_start = unit_start;
+                    opt_slice_len = unit_end.saturating_sub(unit_start);
+                }
             }
         } else if p_type == protocol::CRSF_TYPE_COMMAND {
             status = chunk[rest_start];
-            val = status;
+            val = status as i32;
             let timeout_byte = if rest_start + 1 < chunk.len() {
                 chunk[rest_start + 1]
             } else {
@@ -677,14 +793,20 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
         for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
             if p.id == param_id {
                 p.value = val;
-                p.status = status;
+                p.min_value = min_val;
                 p.max_value = max_val;
+                p.status = status;
                 found = true;
                 break;
             }
         }
         if found {
-            if (p_type == protocol::CRSF_TYPE_INFO || p_type == protocol::CRSF_TYPE_STRING)
+            if (p_type == protocol::CRSF_TYPE_INFO
+                || p_type == protocol::CRSF_TYPE_STRING
+                || p_type == protocol::CRSF_TYPE_UINT8
+                || p_type == protocol::CRSF_TYPE_INT8
+                || p_type == protocol::CRSF_TYPE_UINT16
+                || p_type == protocol::CRSF_TYPE_INT16)
                 && opt_slice_len > 0
             {
                 for p in &mut CONFIG_ENGINE.params[..CONFIG_ENGINE.params_len] {
@@ -692,7 +814,9 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                         let offset = p.options_offset as usize;
                         if offset + opt_slice_len <= CONFIG_ENGINE.string_pool.len() {
                             CONFIG_ENGINE.string_pool[offset..offset + opt_slice_len]
-                                .copy_from_slice(&chunk[opt_slice_start..opt_slice_start + opt_slice_len]);
+                                .copy_from_slice(
+                                    &chunk[opt_slice_start..opt_slice_start + opt_slice_len],
+                                );
                             p.options_len = opt_slice_len as u8;
                         }
                         break;
@@ -727,6 +851,7 @@ unsafe fn parse_and_store_parameter(chunk: &[u8], param_id: u8, now_ms: u32) {
                 parent,
                 param_type: raw_type,
                 value: val,
+                min_value: min_val,
                 max_value: max_val,
                 status,
                 name_offset,
@@ -979,7 +1104,7 @@ pub fn start_config() {
         CONFIG_ENGINE.folder_stack_len = 0;
         CONFIG_ENGINE.current_folder = 0;
         CONFIG_ENGINE.folder_loading = false;
-        CONFIG_ENGINE.folder_name = [0; 16];
+        CONFIG_ENGINE.folder_name = [0; MAX_FOLDER_NAME_LEN];
         CONFIG_ENGINE.folder_name_len = 0;
         CONFIG_ENGINE.has_root_folder = false;
         CHUNK_LEN = 0;
@@ -1014,7 +1139,7 @@ pub fn select_device(idx: usize) -> bool {
         CONFIG_ENGINE.folder_stack_len = 0;
         CONFIG_ENGINE.current_folder = 0;
         CONFIG_ENGINE.folder_loading = false;
-        CONFIG_ENGINE.folder_name = [0; 16];
+        CONFIG_ENGINE.folder_name = [0; MAX_FOLDER_NAME_LEN];
         CONFIG_ENGINE.folder_name_len = 0;
         CONFIG_ENGINE.parent_map = [0xFF; MAX_PARAM_MAP];
         CONFIG_ENGINE.has_root_folder = false;
@@ -1066,7 +1191,7 @@ pub fn return_to_device_list() {
         CONFIG_ENGINE.folder_stack_len = 0;
         CONFIG_ENGINE.current_folder = 0;
         CONFIG_ENGINE.folder_loading = false;
-        CONFIG_ENGINE.folder_name = [0; 16];
+        CONFIG_ENGINE.folder_name = [0; MAX_FOLDER_NAME_LEN];
         CONFIG_ENGINE.folder_name_len = 0;
         CONFIG_ENGINE.parent_map = [0xFF; MAX_PARAM_MAP];
         CONFIG_ENGINE.has_root_folder = false;
@@ -1084,14 +1209,16 @@ pub fn return_to_device_list() {
 /// Enter a subfolder by ID and display name, streaming its items on demand.
 pub fn enter_folder(folder_id: u8, name: &str) {
     unsafe {
-        if CONFIG_ENGINE.folder_stack_len < CONFIG_ENGINE.folder_stack.len() {
-            CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len] =
-                CONFIG_ENGINE.current_folder;
+        if CONFIG_ENGINE.folder_stack_len < MAX_FOLDER_DEPTH {
+            let top = &mut CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len];
+            top.id = CONFIG_ENGINE.current_folder;
+            top.name = CONFIG_ENGINE.folder_name;
+            top.name_len = CONFIG_ENGINE.folder_name_len;
             CONFIG_ENGINE.folder_stack_len += 1;
         }
         CONFIG_ENGINE.current_folder = folder_id;
-        CONFIG_ENGINE.folder_name = [0; 16];
-        let n_len = name.len().min(16);
+        CONFIG_ENGINE.folder_name = [0; MAX_FOLDER_NAME_LEN];
+        let n_len = name.len().min(MAX_FOLDER_NAME_LEN);
         CONFIG_ENGINE.folder_name[..n_len].copy_from_slice(&name.as_bytes()[..n_len]);
         CONFIG_ENGINE.folder_name_len = n_len as u8;
 
@@ -1133,10 +1260,11 @@ pub fn exit_current_folder() -> bool {
     unsafe {
         if CONFIG_ENGINE.folder_stack_len > 0 {
             CONFIG_ENGINE.folder_stack_len -= 1;
-            let parent_id = CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len];
+            let top = &CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len];
+            let parent_id = top.id;
             CONFIG_ENGINE.current_folder = parent_id;
-            CONFIG_ENGINE.folder_name = [0; 16];
-            CONFIG_ENGINE.folder_name_len = 0;
+            CONFIG_ENGINE.folder_name = top.name;
+            CONFIG_ENGINE.folder_name_len = top.name_len;
 
             CONFIG_ENGINE.params_len = 0;
             CONFIG_ENGINE.string_pool_len = 0;
@@ -1176,14 +1304,31 @@ pub fn exit_current_folder() -> bool {
     }
 }
 
-/// Set a specific value for a select parameter index and transmit write frame to module.
-pub fn set_param_value(param_idx: usize, value: u8) {
+/// Get current folder ID (0 = root).
+pub fn get_current_folder() -> u8 {
+    unsafe { CONFIG_ENGINE.current_folder }
+}
+
+/// Set a specific value for a select or integer parameter index and transmit write frame to module.
+pub fn set_param_value(param_idx: usize, value: i32) {
     unsafe {
         if param_idx < CONFIG_ENGINE.params_len {
             let p = &mut CONFIG_ENGINE.params[param_idx];
-            if p.clean_type() == protocol::CRSF_TYPE_SELECT {
-                p.value = value.min(p.max_value);
-                send_param_write(CONFIG_ENGINE.device_id, p.id, p.value);
+            let p_type = p.clean_type();
+            let clamped = value.clamp(p.min_value, p.max_value);
+            p.value = clamped;
+            match p_type {
+                protocol::CRSF_TYPE_SELECT
+                | protocol::CRSF_TYPE_UINT8
+                | protocol::CRSF_TYPE_INT8 => {
+                    send_param_write(CONFIG_ENGINE.device_id, p.id, clamped as u8);
+                }
+                protocol::CRSF_TYPE_UINT16
+                | protocol::CRSF_TYPE_INT16 => {
+                    let bytes = (clamped as u16).to_be_bytes();
+                    send_param_write_buf(CONFIG_ENGINE.device_id, p.id, &bytes);
+                }
+                _ => {}
             }
         }
     }
@@ -1213,7 +1358,7 @@ pub fn get_folder_params(folder_id: u8, out_indices: &mut [u8; MAX_FOLDER_ITEMS]
 pub fn get_parent_folder(folder_id: u8) -> u8 {
     unsafe {
         if CONFIG_ENGINE.folder_stack_len > 0 {
-            CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len - 1]
+            CONFIG_ENGINE.folder_stack[CONFIG_ENGINE.folder_stack_len - 1].id
         } else if (folder_id as usize) < MAX_PARAM_MAP
             && CONFIG_ENGINE.parent_map[folder_id as usize] != 0xFF
         {
@@ -1230,10 +1375,10 @@ pub fn get_parent_folder(folder_id: u8) -> u8 {
 }
 
 /// Find display name of a folder by ID.
-pub fn get_folder_name<'a>(folder_id: u8, buf: &'a mut [u8; 16]) -> &'a str {
+pub fn get_folder_name<'a>(folder_id: u8, buf: &'a mut [u8; MAX_FOLDER_NAME_LEN]) -> &'a str {
     unsafe {
         if folder_id == CONFIG_ENGINE.current_folder && CONFIG_ENGINE.folder_name_len > 0 {
-            let len = (CONFIG_ENGINE.folder_name_len as usize).min(16);
+            let len = (CONFIG_ENGINE.folder_name_len as usize).min(MAX_FOLDER_NAME_LEN);
             buf[..len].copy_from_slice(&CONFIG_ENGINE.folder_name[..len]);
             core::str::from_utf8(&buf[..len]).unwrap_or("Folder")
         } else {
@@ -1254,7 +1399,7 @@ pub fn cycle_param(param_idx: usize) {
             let p = &mut CONFIG_ENGINE.params[param_idx];
             if p.param_type == protocol::CRSF_TYPE_SELECT && p.max_value > 0 {
                 p.value = (p.value + 1) % (p.max_value + 1);
-                send_param_write(CONFIG_ENGINE.device_id, p.id, p.value);
+                send_param_write(CONFIG_ENGINE.device_id, p.id, p.value as u8);
             }
         }
     }
@@ -1267,7 +1412,10 @@ pub fn trigger_command(param_idx: usize) {
             let p = &mut CONFIG_ENGINE.params[param_idx];
             if p.param_type == protocol::CRSF_TYPE_COMMAND
                 && (CONFIG_ENGINE.active_cmd == ActiveCommandState::Idle
-                    || matches!(CONFIG_ENGINE.active_cmd, ActiveCommandState::Completed { .. }))
+                    || matches!(
+                        CONFIG_ENGINE.active_cmd,
+                        ActiveCommandState::Completed { .. }
+                    ))
             {
                 let now = crate::time::millis();
                 CONFIG_ENGINE.cmd_info = [0; 24];
@@ -1357,8 +1505,8 @@ mod tests {
         parent: u8,
         param_type: u8,
         name: &str,
-        value: u8,
-        max_val: u8,
+        value: i32,
+        max_val: i32,
         options: &str,
     ) -> usize {
         let name_offset = CONFIG_ENGINE.string_pool_len as u16;
@@ -1386,8 +1534,9 @@ mod tests {
             parent,
             param_type,
             value,
+            min_value: 0,
             max_value: max_val,
-            status: value,
+            status: value as u8,
             name_offset,
             name_len: n_bytes.len() as u8,
             options_offset: opt_offset,
@@ -1706,7 +1855,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
             CONFIG_ENGINE.state = ElrsConfigState::Ready;
-            add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY, 0, "");
+            add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY as i32, 0, "");
         }
 
         // 1. Trigger command
@@ -1778,7 +1927,10 @@ mod tests {
 
         let engine = get_config_engine();
         assert!(
-            matches!(engine.active_cmd, ActiveCommandState::Completed { param_id: 1, .. }),
+            matches!(
+                engine.active_cmd,
+                ActiveCommandState::Completed { param_id: 1, .. }
+            ),
             "Completed command enters Completed state"
         );
 
@@ -1800,7 +1952,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
             CONFIG_ENGINE.state = ElrsConfigState::Ready;
-            add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY, 0, "");
+            add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY as i32, 0, "");
         }
 
         // 1. Trigger command
@@ -1833,8 +1985,13 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.cmd_info_str(), "Binding...");
         match engine.active_cmd {
-            ActiveCommandState::Running { poll_interval_ms, .. } => {
-                assert_eq!(poll_interval_ms, 500, "Dynamic poll interval should be 500ms");
+            ActiveCommandState::Running {
+                poll_interval_ms, ..
+            } => {
+                assert_eq!(
+                    poll_interval_ms, 500,
+                    "Dynamic poll interval should be 500ms"
+                );
             }
             _ => panic!("Expected Running state"),
         }
@@ -1842,12 +1999,20 @@ mod tests {
         // 3. Before 500ms expires, no STATUS_POLL should be transmitted
         uart::mock::clear();
         poll_telemetry(5509);
-        assert_eq!(uart::mock::take_tx().len(), 0, "No poll before interval expires");
+        assert_eq!(
+            uart::mock::take_tx().len(),
+            0,
+            "No poll before interval expires"
+        );
 
         // At 5510 (5010 + 500), STATUS_POLL should be transmitted
         poll_telemetry(5510);
         let tx = uart::mock::take_tx();
-        assert_eq!(tx.len(), 1, "STATUS_POLL must be sent when poll_timer expires");
+        assert_eq!(
+            tx.len(),
+            1,
+            "STATUS_POLL must be sent when poll_timer expires"
+        );
         assert_eq!(tx[0][6], protocol::STATUS_POLL);
 
         // 4. Module completes with STATUS_READY and Info = "Success"
@@ -2537,7 +2702,7 @@ mod tests {
         assert_eq!(get_parent_folder(3), 2);
 
         // Name lookup
-        let mut name_buf = [0u8; 16];
+        let mut name_buf = [0u8; 32];
         let fname = get_folder_name(2, &mut name_buf);
         assert_eq!(fname, "VTX Admin");
     }
@@ -2610,7 +2775,7 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.current_folder, 2);
         assert_eq!(engine.folder_stack_len, 1);
-        assert_eq!(engine.folder_stack[0], 0);
+        assert_eq!(engine.folder_stack[0].id, 0);
         assert!(engine.folder_loading);
         assert_eq!(
             engine.params_len, 0,
@@ -2638,7 +2803,7 @@ mod tests {
         assert_eq!(engine.params[0].name(&engine.string_pool), "Band");
 
         // Check folder and parent names
-        let mut nbuf = [0u8; 16];
+        let mut nbuf = [0u8; 32];
         assert_eq!(get_folder_name(2, &mut nbuf), "VTX Admin");
         assert_eq!(get_parent_folder(2), 0);
 
@@ -3403,4 +3568,128 @@ mod tests {
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][5], 1, "Must fall back to requesting Param 1");
     }
+
+    #[test]
+    fn test_nested_subfolder_name_retention_on_exit() {
+        reset_state();
+        let engine = unsafe { &mut CONFIG_ENGINE };
+        engine.device_id = 0xEE;
+
+        // Simulate Root (folder 0) -> enter Subfolder A (folder 2, "VTX Admin")
+        enter_folder(2, "VTX Admin");
+        assert_eq!(get_current_folder(), 2);
+        let mut fbuf = [0u8; MAX_FOLDER_NAME_LEN];
+        assert_eq!(get_folder_name(2, &mut fbuf), "VTX Admin");
+
+        // Simulate Subfolder A -> enter Subsubfolder B (folder 5, "Power Config")
+        enter_folder(5, "Power Config");
+        assert_eq!(get_current_folder(), 5);
+        assert_eq!(get_folder_name(5, &mut fbuf), "Power Config");
+
+        // Now return from Subsubfolder B -> Subfolder A
+        exit_current_folder();
+        assert_eq!(get_current_folder(), 2);
+        // CRITICAL CHECK: must display "VTX Admin", NOT default "Folder"!
+        assert_eq!(get_folder_name(2, &mut fbuf), "VTX Admin");
+
+        // Return from Subfolder A -> Root (0)
+        exit_current_folder();
+        assert_eq!(get_current_folder(), 0);
+    }
+
+    #[test]
+    fn test_uint8_and_int16_param_parsing_and_writes() {
+        reset_state();
+        let engine = unsafe { &mut CONFIG_ENGINE };
+        engine.device_id = 0xEE;
+        uart::mock::clear();
+
+        // 1. Test parsing UINT8 parameter (e.g. Output mapping / Channel 1: value=4, min=1, max=16, default=1, unit="ch")
+        // Payload format:
+        // [parent(1), type(1), name_null_term, value(1), min(1), max(1), default(1), unit_null_term]
+        let mut u8_payload = [0u8; 32];
+        u8_payload[0] = 0; // parent = root
+        u8_payload[1] = protocol::CRSF_TYPE_UINT8; // 0
+        let name = b"Output 1\0";
+        u8_payload[2..2 + name.len()].copy_from_slice(name);
+        let mut pos = 2 + name.len();
+        u8_payload[pos] = 4; // value = 4
+        u8_payload[pos + 1] = 1; // min = 1
+        u8_payload[pos + 2] = 16; // max = 16
+        u8_payload[pos + 3] = 1; // default = 1
+        pos += 4;
+        let unit = b"ch\0";
+        u8_payload[pos..pos + unit.len()].copy_from_slice(unit);
+        pos += unit.len();
+
+        unsafe { parse_and_store_parameter(&u8_payload[..pos], 10, 1000) };
+
+        assert_eq!(engine.params_len, 1);
+        let p = &engine.params[0];
+        assert_eq!(p.id, 10);
+        assert_eq!(p.param_type, protocol::CRSF_TYPE_UINT8);
+        assert!(p.is_integer());
+        assert_eq!(p.value, 4);
+        assert_eq!(p.min_value, 1);
+        assert_eq!(p.max_value, 16);
+        assert_eq!(p.unit_str(&engine.string_pool), "ch");
+
+        // Test writing new value for UINT8 parameter (set to 6)
+        set_param_value(0, 6);
+        assert_eq!(engine.params[0].value, 6);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        // TX frame: [radio_tx, len, TYPE_PARAM_WRITE, dest(0xEE), src(radio_tx), param_id(10), value(6), crc]
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_WRITE);
+        assert_eq!(tx[0][3], 0xEE);
+        assert_eq!(tx[0][5], 10);
+        assert_eq!(tx[0][6], 6);
+
+        // 2. Test parsing INT16 parameter (e.g. Offset: value = -250, min = -1000, max = 1000, def = 0, unit = "us")
+        // Big-endian 16-bit values
+        let mut i16_payload = [0u8; 32];
+        i16_payload[0] = 0; // parent = root
+        i16_payload[1] = protocol::CRSF_TYPE_INT16; // 3
+        let name2 = b"Trim\0";
+        i16_payload[2..2 + name2.len()].copy_from_slice(name2);
+        let mut pos2 = 2 + name2.len();
+        // val = -250 (0xFF06)
+        i16_payload[pos2..pos2 + 2].copy_from_slice(&(-250i16).to_be_bytes());
+        pos2 += 2;
+        // min = -1000 (0xFC18)
+        i16_payload[pos2..pos2 + 2].copy_from_slice(&(-1000i16).to_be_bytes());
+        pos2 += 2;
+        // max = 1000 (0x03E8)
+        i16_payload[pos2..pos2 + 2].copy_from_slice(&(1000i16).to_be_bytes());
+        pos2 += 2;
+        // def = 0
+        i16_payload[pos2..pos2 + 2].copy_from_slice(&(0i16).to_be_bytes());
+        pos2 += 2;
+        let unit2 = b"us\0";
+        i16_payload[pos2..pos2 + unit2.len()].copy_from_slice(unit2);
+        pos2 += unit2.len();
+
+        unsafe { parse_and_store_parameter(&i16_payload[..pos2], 11, 1000) };
+        assert_eq!(engine.params_len, 2);
+        let p2 = &engine.params[1];
+        assert_eq!(p2.id, 11);
+        assert_eq!(p2.param_type, protocol::CRSF_TYPE_INT16);
+        assert!(p2.is_integer());
+        assert_eq!(p2.value, -250);
+        assert_eq!(p2.min_value, -1000);
+        assert_eq!(p2.max_value, 1000);
+        assert_eq!(p2.unit_str(&engine.string_pool), "us");
+
+        // Test writing new value for INT16 parameter (set to 350 -> 0x015E)
+        set_param_value(1, 350);
+        assert_eq!(engine.params[1].value, 350);
+        let tx = uart::mock::take_tx();
+        assert_eq!(tx.len(), 1);
+        assert_eq!(tx[0][2], protocol::CRSF_FRAMETYPE_PARAMETER_WRITE);
+        assert_eq!(tx[0][3], 0xEE);
+        assert_eq!(tx[0][5], 11);
+        assert_eq!(tx[0][6], 0x01);
+        assert_eq!(tx[0][7], 0x5E);
+    }
 }
+
