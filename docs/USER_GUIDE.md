@@ -463,6 +463,27 @@ dfu-util -a 0 -d 314b:0106 -s 0x08000000:leave -D flysky-i6x.bin
 ```
 The radio will immediately reboot into the new firmware upon completion.
 
+> [!WARNING]
+> ### Troubleshooting DFU State Error: `DFU state(10) = dfuERROR`
+> If `dfu-util` prints:
+> ```text
+> DFU state(10) = dfuERROR, status(10) = Device's firmware is corrupt. It cannot return to run-time (non-DFU) operations
+> ```
+> **This is NOT a bug or corruption in your firmware, and your radio is NOT bricked.**
+> 
+> - **Cause & Context**: This error status is returned directly by the **STMicroelectronics factory ROM bootloader** whenever a previous USB DFU operation was halted, interrupted, or completed without sending the `:leave` command. Because the bootloader did not jump to application code, its internal state machine remains stuck in the error state `dfuERROR`.
+> - **How to Clear the Error**:
+>   1. **Software Reset (Clear Status)**: Send a DFU abort/clear command:
+>      ```bash
+>      dfu-util -a 0 -e
+>      ```
+>      *(This sends a `DFU_CLRSTATUS` request to reset the ROM state machine back to `dfuIDLE`)*.
+>   2. **Hardware Reset**: Disconnect the USB cable, power-cycle the radio, and re-enter DFU mode.
+> - **How to Prevent It**: Always append `:leave` to the target address (`-s 0x08000000:leave`). This instructs the bootloader to execute a soft reset and branch into user firmware instead of lingering in the DFU engine.
+> - **Consequences of Ignoring**: If you ignore or leave the state machine in `dfuERROR`, subsequent read (`-U`) or flash (`-D`) operations will fail on invocation until `dfu-util` issues a clear-status cycle or the USB interface is reset.
+>
+> *(Note: The message `Warning: Invalid DFU suffix signature` is also completely harmless—raw `.bin` files created by compilers omit the optional 16-byte PC DFU CRC trailer).*
+
 ### 4. Restore / Revert Anytime
 You can restore your original stock or OpenI6X backup file at any time:
 ```bash
