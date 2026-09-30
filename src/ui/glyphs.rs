@@ -122,7 +122,7 @@ pub fn draw_switch_arrow(lcd: &mut St7567, x: i32, y: i32, pos: SwitchPos) {
 
 /// Draw a horizontal battery gauge with outline and up to 3 discrete charge bars.
 /// - Dimensions: 11x7 px (tip at x, body at x+1..x+10, y..y+6).
-/// - `bars`: 0 (empty outline), 1, 2, or 3 bars filled left-to-right.
+/// - `bars`: 0 (empty outline), 1, 2, or 3 bars filled right-to-left (emptying left-to-right from tip).
 #[inline]
 pub fn draw_battery_gauge(lcd: &mut St7567, x: i32, y: i32, bars: u8) {
     // Battery terminal tip on left (x, y + 2, h = 3)
@@ -131,14 +131,17 @@ pub fn draw_battery_gauge(lcd: &mut St7567, x: i32, y: i32, bars: u8) {
     // Battery body outline (x + 1, y, w = 10, h = 7)
     lcd.draw_rect(x + 1, y, 10, 7, true);
 
-    // Charge level bars (left-to-right inside body: x = x+2..x+9, y = y+1..y+5)
+    // Charge level bars: filled right-to-left (so battery empties from the tip back towards the base)
+    // - Bar 1: Base/right (x = x+8..x+9, y = y+1..y+5)
+    // - Bar 2: Middle (x = x+5..x+6, y = y+1..y+5)
+    // - Bar 3: Tip/left (x = x+2..x+3, y = y+1..y+5)
     if bars >= 1 {
-        lcd.fill_rect(x + 2, y + 1, 2, 5, true);
+        lcd.fill_rect(x + 8, y + 1, 2, 5, true);
     }
     if bars >= 2 {
         lcd.fill_rect(x + 5, y + 1, 2, 5, true);
     }
     if bars >= 3 {
-        lcd.fill_rect(x + 8, y + 1, 2, 5, true);
+        lcd.fill_rect(x + 2, y + 1, 2, 5, true);
     }
 }
