@@ -17,20 +17,19 @@ use crate::ui::widgets;
 pub fn render(lcd: &mut St7567, rf_chs: &[u16; NUM_CHANNELS], is_binding: bool, page_part: usize) {
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
 
-    // page_part 0: CH 1..9 (Col 0: 1..5, Col 1: 6..9)
-    // page_part 1: CH 10..18 (Col 0: 10..14, Col 1: 15..18)
-    let (base_ch, footer_page, footer_title) = if page_part == 0 {
-        (0, "P2/5", "CH 1-9 MONITOR")
+    // page_part 0: CH 1..10 (Col 0: 1..5, Col 1: 6..10)
+    // page_part 1: CH 11..18 (Col 0: 11..14, Col 1: 15..18)
+    let (footer_page, footer_title, base_ch, rows_per_col) = if page_part == 0 {
+        ("P2/5", "CH 1-10 MONITOR", 0, 5)
     } else {
-        (9, "P3/5", "CH 10-18 MONITOR")
+        ("P3/5", "CH 11-18 MONITOR", 10, 4)
     };
 
     for col in 0..2 {
         let col_x = if col == 0 { 2 } else { 66 };
-        let col_start = base_ch + if col == 0 { 0 } else { 5 };
-        let num_rows = if col == 0 { 5 } else { 4 };
+        let col_start = base_ch + (col * rows_per_col);
 
-        for row in 0..num_rows {
+        for row in 0..rows_per_col {
             let ch = col_start + row;
             if ch >= NUM_CHANNELS {
                 break;
@@ -72,7 +71,8 @@ pub fn render(lcd: &mut St7567, rf_chs: &[u16; NUM_CHANNELS], is_binding: bool, 
     }
 
     // Vertical divider line between columns
-    lcd.draw_vline(64, 12, 41, true);
+    let vline_h = if page_part == 0 { 41 } else { 33 };
+    lcd.draw_vline(64, 12, vline_h, true);
 
     // Standardized Footer (y = 55..63)
     if is_binding {
