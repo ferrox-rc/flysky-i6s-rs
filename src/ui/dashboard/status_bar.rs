@@ -49,7 +49,7 @@ pub fn render(
 
     // --- RF / Telemetry / Link Status (x = 64..84, y = 8) ---
     // Using FONT_4X6 (4x6 px), max 5 chars = 20px wide (e.g. "RF:OK", "NO RF", "R:100", "U:SIM").
-    // x = 64..84 leaves a 2px margin before the battery glyph at x = 86.
+    // Perfectly centered in the middle zone (x = 64..84) between model name and right-aligned battery block.
     if !rf_ok && !is_crsf {
         let id = rf::get_last_chip_id();
         let mut err_buf = *b"E:00";
@@ -79,9 +79,9 @@ pub fn render(
         Text::new("NO RF", Point::new(64, 8), text_style_small).draw(lcd).ok();
     }
 
-    // --- Battery Voltage Alarm & Display (x = 86..124, y = 8) ---
-    // Battery gauge: x = 86..96, y = 2..8 (11x7 px with tip on left).
-    // Battery text: 5-6 chars with FONT_4X6 (e.g. "4.12V" = 20px), Point(99, 8).
+    // --- Battery Voltage Alarm & Display (Right-aligned, x = 93..126, y = 8) ---
+    // Battery text: 5 chars with FONT_4X6 (20px wide, e.g. "4.12V"), Point(93, 8) -> x = 93..112.
+    // Battery gauge: x = 116..126, y = 2..8 (11x7 px with tip on left at 116, body at 117..126).
     let mut vbat_buf = [0u8; 6];
     let vbat_str = format_vbat(battery_mv, &mut vbat_buf);
     let vbat_warn_mv = (storage.radio.vbat_warn_deci as u16) * 100;
@@ -96,18 +96,18 @@ pub fn render(
         }
 
         if (blink_phase & 0x10) != 0 {
-            lcd.fill_rect(98, 1, 29, 8, true);
+            lcd.fill_rect(92, 1, 22, 8, true);
             let inv_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::Off);
-            Text::new(vbat_str, Point::new(99, 8), inv_style).draw(lcd).ok();
+            Text::new(vbat_str, Point::new(93, 8), inv_style).draw(lcd).ok();
         } else {
-            draw_battery_gauge(lcd, 86, 2, battery_mv, vbat_warn_mv, vbat_warn_mv.max(6000));
-            Text::new(vbat_str, Point::new(99, 8), text_style_small).draw(lcd).ok();
+            draw_battery_gauge(lcd, 116, 2, battery_mv, vbat_warn_mv, vbat_warn_mv.max(6000));
+            Text::new(vbat_str, Point::new(93, 8), text_style_small).draw(lcd).ok();
         }
     } else {
         *vbat_alarm_timer = 7000;
         let vbat_max_mv = 6000u16.max(vbat_warn_mv.saturating_add(800));
-        draw_battery_gauge(lcd, 86, 2, battery_mv, vbat_warn_mv, vbat_max_mv);
-        Text::new(vbat_str, Point::new(99, 8), text_style_small).draw(lcd).ok();
+        draw_battery_gauge(lcd, 116, 2, battery_mv, vbat_warn_mv, vbat_max_mv);
+        Text::new(vbat_str, Point::new(93, 8), text_style_small).draw(lcd).ok();
     }
 
     // --- Telemetry RSSI Range Alarms & Stats Tracking ---
