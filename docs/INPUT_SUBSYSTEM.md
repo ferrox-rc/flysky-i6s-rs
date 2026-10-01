@@ -79,11 +79,13 @@ The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1
 - Generates precise audio tones at 50% duty cycle (`CCR1 = ARR / 2`).
 
 ### Audio Tones & Chimes
-- **Power-On Chirp**: Friendly boot confirmation tone (`2250 Hz`, 15 ms).
+- **Power-On Welcome Fanfare**: 4-note ascending fanfare ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms) played during the startup splash screen when Tone Style is set to `Rich`. Plays a single tactile click (15 ms) when set to `Simple`.
+- **Arming / Disarming Chimes**: 2-note rising chirp (`1800 Hz` -> `2400 Hz`) on motor arm, and falling chirp (`2400 Hz` -> `1800 Hz`) on disarm.
 - **Pitch-Shifted Trim Step**: Tones scale dynamically with trim position (`1500 Hz` to `2500 Hz`).
 - **Trim Center Confirm**: High-pitched distinctive tone (`2800 Hz`, 60 ms) when crossing zero.
 - **Trim Limit Buzz**: Low warning buzz (`1100 Hz`, 45 ms) when attempting to exceed ±25 steps.
 - **Calibration Chime**: Rising 2-tone chime (`2400 Hz` -> `2800 Hz`) when calibration is saved.
+- **Watchdog Recovery Alert**: Rapid 3-beep warning pattern (`2600 Hz`, 60 ms on / 40 ms off) alerting the pilot that an in-flight watchdog reset was recovered.
 
 ---
 

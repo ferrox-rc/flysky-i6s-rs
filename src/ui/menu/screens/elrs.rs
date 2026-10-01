@@ -20,9 +20,7 @@ use crate::menu::{MenuController, MenuState, NavKeys};
 /// Helper to exit back to the previous radio setup menu.
 fn exit_to_parent_menu(ctrl: &mut MenuController, buzzer: &mut Buzzer) {
     if ctrl.return_state == MenuState::MainMenu {
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 8;
-        ctrl.scroll_offset = 5;
+        ctrl.return_to_main_menu();
     } else {
         ctrl.state = MenuState::RxSetup;
         ctrl.selected_item = 2;
@@ -92,9 +90,11 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
 
                 widgets::draw_footer(lcd, "[OK] Scan   [ESC] Back");
             } else {
-                // One or more devices discovered! Present TBS-Agent device picker
                 if ctrl.selected_item >= engine.devices_len && engine.devices_len > 0 {
                     ctrl.selected_item = engine.devices_len - 1;
+                }
+                if ctrl.scroll_offset >= engine.devices_len && engine.devices_len > 0 {
+                    ctrl.scroll_offset = engine.devices_len.saturating_sub(4);
                 }
                 widgets::navigate_4slot_list(
                     &mut ctrl.selected_item,
@@ -123,6 +123,9 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
 
                 widgets::draw_header(lcd, "CRSF DEVICES");
 
+                let has_scroll = engine.devices_len > 4;
+                let row_w: u32 = if has_scroll { 121 } else { 124 };
+
                 // Render up to 4 discovered devices
                 for slot in 0..4 {
                     let idx = ctrl.scroll_offset + slot;
@@ -132,7 +135,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     let y = 14 + (slot as i32 * 9);
                     let is_sel = idx == ctrl.selected_item;
                     let style = if is_sel {
-                        Rectangle::new(Point::new(2, y), Size::new(124, 9))
+                        Rectangle::new(Point::new(2, y), Size::new(row_w, 9))
                             .into_styled(fill_style)
                             .draw(lcd)
                             .ok();
@@ -180,10 +183,14 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     };
 
                     let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..tag_len]);
-                    let tag_x = 124 - (tag_len as i32 * 4);
+                    let tag_x = (row_w as i32) - (tag_len as i32 * 4);
                     Text::new(tag_str, Point::new(tag_x, y + 7), tag_style)
                         .draw(lcd)
                         .ok();
+                }
+
+                if has_scroll {
+                    widgets::draw_scrollbar(lcd, ctrl.selected_item, engine.devices_len, 14, 36);
                 }
 
                 widgets::draw_footer(lcd, "[OK] Select   [ESC] Back");

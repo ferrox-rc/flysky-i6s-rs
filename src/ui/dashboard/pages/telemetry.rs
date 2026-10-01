@@ -128,7 +128,7 @@ pub fn render(
         }
 
         // Standardized Footer
-        widgets::draw_footer_split(lcd, "P4/4", "CRSF LINK DIAG");
+        widgets::draw_footer_split(lcd, "P5/5", "CRSF LINK DIAG");
     } else {
         // Left Column (x = 2..62)
         // Row 1 (y = 21): RSSI
@@ -224,7 +224,7 @@ pub fn render(
         if is_binding {
             widgets::draw_footer(lcd, "[ESC] Finish Bind");
         } else {
-            widgets::draw_footer_split(lcd, "P4/4", "TELEMETRY SENSORS");
+            widgets::draw_footer_split(lcd, "P5/5", "TELEMETRY SENSORS");
         }
     }
 }

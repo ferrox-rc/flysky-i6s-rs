@@ -110,7 +110,7 @@ When entering `9. Protocol Setup` -> `[Configure Module]`, `crsf::start_config()
    Byte 5: CRC   (crc8 over [0x28, 0x00, 0xEA] -> 0x54)
    ```
    **Total Size**: 6 bytes.
-3. **Multi-Device Registration & Dynamic Pruning**: All online devices responding with `0x29 Device Info` (local transmitter module `0xEE`, remote receiver `0xEC`, flight controller `0xC8`) are deduplicated and registered into `CONFIG_ENGINE.devices` (up to 4 devices). Devices that stop responding to 1 Hz pings for > 3000 ms (3 missed pings) are automatically pruned from the active list.
+3. **Multi-Device Registration & Dynamic Pruning**: All online devices responding with `0x29 Device Info` (local transmitter module `0xEE`, remote receiver `0xEC`, flight controller `0xC8`, VTX, ESCs, etc.) are deduplicated and registered into `CONFIG_ENGINE.devices` (up to 16 devices). Devices that stop responding to 1 Hz pings for > 3000 ms (3 missed pings) are automatically pruned from the active list.
 4. **Pacing**: `elrs_tick()` re-broadcasts the discovery ping every **1000 ms** (1 Hz), ensuring newly bound receivers or powered devices are discovered or pruned dynamically.
 
 ---

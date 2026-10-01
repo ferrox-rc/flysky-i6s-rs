@@ -28,10 +28,7 @@ pub fn update_select(
     buzzer: &mut Buzzer,
 ) {
     if keys.cancel {
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 0;
-        ctrl.scroll_offset = 0;
-        ctrl.waiting_release = true;
+        ctrl.return_to_main_menu();
         buzzer.click();
         return;
     }
@@ -118,9 +115,7 @@ pub fn update_setup(
     if !ctrl.editing {
         if keys.cancel {
             storage::save_active_model(storage);
-            ctrl.state = MenuState::MainMenu;
-            ctrl.selected_item = 1;
-            ctrl.waiting_release = true;
+            ctrl.return_to_main_menu();
             buzzer.click();
             return;
         }
@@ -142,7 +137,7 @@ pub fn update_setup(
                     buzzer.click();
                 }
                 1 => {
-                    storage.models[active_idx].model_type = (storage.models[active_idx].model_type + 1) % 4;
+                    storage.models[active_idx].model_type = (storage.models[active_idx].model_type + 1) % 5;
                     storage::save_active_model(storage);
                     buzzer.click();
                 }
@@ -340,7 +335,8 @@ pub fn update_setup(
                     0 => "AIRPLANE",
                     1 => "GLIDER",
                     2 => "HELICOPTER",
-                    _ => "MULTI / QUAD",
+                    3 => "MULTI / QUAD",
+                    _ => "GENERAL",
                 };
                 Text::new("Type:", Point::new(4, y + 7), style).draw(lcd).ok();
                 Text::new(type_str, Point::new(40, y + 7), style).draw(lcd).ok();

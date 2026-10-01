@@ -27,10 +27,7 @@ pub fn update_radio_setup(
     buzzer: &mut Buzzer,
 ) {
     if keys.cancel {
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 7;
-        ctrl.scroll_offset = 4;
-        ctrl.waiting_release = true;
+        ctrl.return_to_main_menu();
         buzzer.click();
         return;
     }
@@ -265,10 +262,7 @@ pub fn update_rx_setup(
             ctrl.editing = false;
             buzzer.click();
         } else {
-            ctrl.state = MenuState::MainMenu;
-            ctrl.selected_item = 8;
-            ctrl.scroll_offset = 5;
-            ctrl.waiting_release = true;
+            ctrl.return_to_main_menu();
             buzzer.click();
             return;
         }

@@ -306,7 +306,7 @@ impl Parameter {
     }
 }
 
-pub const MAX_DISCOVERED_DEVICES: usize = 4;
+pub const MAX_DISCOVERED_DEVICES: usize = 16;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct DiscoveredDevice {
@@ -3690,6 +3690,137 @@ mod tests {
         assert_eq!(tx[0][5], 11);
         assert_eq!(tx[0][6], 0x01);
         assert_eq!(tx[0][7], 0x5E);
+    }
+
+    #[test]
+    fn test_multi_device_discovery_capacity_and_scroll() {
+        reset_state();
+        set_millis(1000);
+        start_config();
+        uart::mock::clear();
+
+        let engine = get_config_engine();
+        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.devices_len, 0);
+
+        // Discovery responses for 16 diverse devices (TX, RX, FC, VTX, 4xESCs, PDB, OSD, SatRX, BT, GPS, Sound, Lights, Retracts)
+        let device_specs: [(u8, &[u8]); 16] = [
+            (0xEE, b"TX Module"),
+            (0xEC, b"RX Main"),
+            (0xC8, b"FlightCtrl"),
+            (0xCE, b"VTX 5.8G"),
+            (0xB0, b"ESC 1 Port"),
+            (0xB2, b"ESC 2 Stbd"),
+            (0xB4, b"ESC 3 InL"),
+            (0xB6, b"ESC 4 InR"),
+            (0x08, b"PowerBox PDB"),
+            (0x80, b"HD OSD"),
+            (0xED, b"RX Backup 900"),
+            (0xEA, b"BT Bridge"),
+            (0x02, b"GPS Compass"),
+            (0x0A, b"Sound Engine"),
+            (0x0B, b"Nav Lights"),
+            (0x0C, b"Gear Sequencer"),
+        ];
+
+        for (i, &(addr, name)) in device_specs.iter().enumerate() {
+            let mut info_pkt = [0u8; 64];
+            info_pkt[0] = CRSF_SYNC_BYTE;
+            info_pkt[2] = protocol::CRSF_FRAMETYPE_DEVICE_INFO;
+            info_pkt[3] = protocol::CRSF_ADDRESS_RADIO_TRANSMITTER; // dest (0xEA)
+            info_pkt[4] = addr; // orig
+            let mut pos = 5;
+            info_pkt[pos..pos + name.len()].copy_from_slice(name);
+            pos += name.len();
+            info_pkt[pos] = 0; // null terminator
+            pos += 1;
+            info_pkt[pos..pos + 4].copy_from_slice(b"SER1"); // serial (4B)
+            pos += 4;
+            info_pkt[pos..pos + 4].copy_from_slice(b"HW01"); // hw ver (4B)
+            pos += 4;
+            info_pkt[pos..pos + 4].copy_from_slice(b"SW01"); // sw ver (4B)
+            pos += 4;
+            info_pkt[pos] = (i + 1) as u8; // param count
+            pos += 1;
+            info_pkt[pos] = 0; // protocol ver (1B)
+            pos += 1;
+            info_pkt[1] = (pos - 1) as u8; // length byte (type + payload + crc)
+            let crc = crc8(&info_pkt[2..pos]);
+            info_pkt[pos] = crc;
+            pos += 1;
+
+            uart::mock::push_rx_bytes(&info_pkt[..pos]);
+            poll_telemetry(1000 + ((i + 1) as u32 * 10));
+        }
+
+        let engine = get_config_engine();
+        assert_eq!(
+            engine.devices_len, 16,
+            "Engine must discover and store all 16 devices"
+        );
+        for (i, &(addr, name)) in device_specs.iter().enumerate() {
+            assert_eq!(engine.devices[i].address, addr);
+            assert_eq!(
+                &engine.devices[i].name[..name.len()],
+                name,
+                "Device {} name mismatch",
+                i
+            );
+            assert_eq!(engine.devices[i].param_count, (i + 1) as u8);
+        }
+
+        // Test safe rejection of 17th device (table capacity limit MAX_DISCOVERED_DEVICES = 16)
+        let mut overflow_pkt = [0u8; 64];
+        overflow_pkt[0] = CRSF_SYNC_BYTE;
+        overflow_pkt[2] = protocol::CRSF_FRAMETYPE_DEVICE_INFO;
+        overflow_pkt[3] = protocol::CRSF_ADDRESS_RADIO_TRANSMITTER;
+        overflow_pkt[4] = 0x55; // 17th device
+        let mut pos = 5;
+        overflow_pkt[pos..pos + 5].copy_from_slice(b"Extra");
+        pos += 5;
+        overflow_pkt[pos] = 0;
+        pos += 1;
+        overflow_pkt[pos..pos + 4].copy_from_slice(b"SER2");
+        pos += 4;
+        overflow_pkt[pos..pos + 4].copy_from_slice(b"HW02");
+        pos += 4;
+        overflow_pkt[pos..pos + 4].copy_from_slice(b"SW02");
+        pos += 4;
+        overflow_pkt[pos] = 5; // param count
+        pos += 1;
+        overflow_pkt[pos] = 0; // protocol ver
+        pos += 1;
+        overflow_pkt[1] = (pos - 1) as u8;
+        let crc = crc8(&overflow_pkt[2..pos]);
+        overflow_pkt[pos] = crc;
+        pos += 1;
+
+        uart::mock::push_rx_bytes(&overflow_pkt[..pos]);
+        poll_telemetry(2000);
+
+        let engine = get_config_engine();
+        assert_eq!(
+            engine.devices_len, 16,
+            "17th device must be safely ignored without buffer overflow"
+        );
+
+        // Test selecting device 4 (ESC 1, index 4, address 0xB0)
+        assert!(select_device(4));
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0xB0);
+        assert_eq!(engine.param_count, 5);
+
+        // Test returning to list and selecting device 15 (Gear Sequencer, index 15, address 0x0C)
+        return_to_device_list();
+        let engine = get_config_engine();
+        assert_eq!(engine.devices_len, 16);
+        assert!(select_device(15));
+        let engine = get_config_engine();
+        assert_eq!(engine.device_id, 0x0C);
+        assert_eq!(engine.param_count, 16);
+
+        // Out-of-bounds selection index returns false
+        assert!(!select_device(16));
     }
 }
 

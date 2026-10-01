@@ -94,15 +94,15 @@ Radio (FS-i6X)                               External ELRS TX Module
 4. The radio broadcasts discovery pings (`0x28 Ping`) and opens the **`CRSF DEVICES`** selection screen:
    ```text
    +-----------------------------------+
-   | CRSF DEVICES                      |
+   | CRSF DEVICES                   |# |
    | > RM RP2                     [TX] |
    |   RM RP4TD-M 2400            [RX] |
    |   Betaflight                 [FC] |
-   |                                   |
+   |   Radiomaster VTX           [VTX] |
    | [OK] Select            [ESC] Back |
    +-----------------------------------+
    ```
-5. Use **`[UP]`** / **`[DOWN]`** to highlight the device you wish to configure (e.g. external transmitter `[TX]` or over-the-air receiver `[RX]`). Devices are discovered dynamically via 1 Hz broadcast pings; if a device disconnects or is powered off, it is automatically pruned after 3 seconds.
+5. Use **`[UP]`** / **`[DOWN]`** to scroll through discovered devices. Up to **16 devices** can be discovered simultaneously across the CRSF bus (e.g. transmitter module, receivers, flight controller, VTX, ESCs, telemetry sensors, lighting controllers, or sound modules). When more than 4 devices are present, a right-edge vertical scrollbar is automatically displayed and the row selection highlight dynamically adapts so text and role tags never overlap the scrollbar track. Devices are discovered dynamically via 1 Hz broadcast pings; if a device disconnects or is powered off, it is automatically pruned after 3 seconds.
 6. Press **`[OK]`** to select that device and load its parameters immediately at full wire speed.
 
 #### Step 2: Hierarchical Folder Navigation

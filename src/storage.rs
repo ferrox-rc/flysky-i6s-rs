@@ -147,7 +147,7 @@ impl MixLine {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ModelConfig {
     pub name: [u8; 10],         // 0..10: 10-char ASCII name
-    pub model_type: u8,         // 10: 0: Airplane, 1: Glider, 2: Heli, 3: Quad
+    pub model_type: u8,         // 10: 0: Airplane, 1: Glider, 2: Heli, 3: Quad, 4: General
     pub _pad0: u8,              // 11: align rx_id to 4 bytes
     pub rx_id: u32,             // 12..16: Model Match bound receiver ID
     pub trims: [i8; 4],         // 16..20: Roll, Pitch, Throttle, Yaw (-25..+25)
