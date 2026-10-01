@@ -887,9 +887,9 @@ fn main() -> ! {
     if (initial_keys & (1 << 10)) != 0 && !was_watchdog_reset {
         calib_wizard.start(&mut buzzer);
     }
-    // 10. Hold splash screen for ~600ms total elapsed time since LCD initialization
+    // 10. Hold splash screen for ~1200ms (1.2s) total elapsed time since LCD initialization
     if !was_watchdog_reset && !calib_wizard.is_active() {
-        while time::millis().wrapping_sub(splash_start_ms) < 600 {
+        while time::millis().wrapping_sub(splash_start_ms) < 1200 {
             watchdog::feed();
         }
     }
