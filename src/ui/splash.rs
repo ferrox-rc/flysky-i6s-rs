@@ -29,6 +29,8 @@ pub fn draw_splash(lcd: &mut St7567) {
     let sub_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     Text::new("flysky-i6x-rs", Point::new(38, 50), sub_style).draw(lcd).ok();
 
-    // 4. Draw Version Tag "v0.18.1" in FONT_4X6 (28px wide, centered at x = 50, baseline y = 59)
-    Text::new("v0.18.1", Point::new(50, 59), sub_style).draw(lcd).ok();
+    // 4. Draw Version Tag dynamically centered horizontally (FONT_4X6 is 4px wide)
+    const VERSION_TAG: &str = env!("FIRMWARE_VERSION");
+    const VERSION_X: i32 = ((128 - (VERSION_TAG.len() * 4)) / 2) as i32;
+    Text::new(VERSION_TAG, Point::new(VERSION_X, 59), sub_style).draw(lcd).ok();
 }

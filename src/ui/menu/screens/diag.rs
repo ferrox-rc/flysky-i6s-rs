@@ -89,7 +89,7 @@ pub fn update_system_info(
 
     Text::new("Firmware: ", Point::new(4, 25), text_style).draw(lcd).ok();
     Text::new(
-        concat!("v", env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")"),
+        concat!(env!("FIRMWARE_VERSION"), " (", env!("GIT_HASH"), ")"),
         Point::new(48, 25),
         text_style,
     )
