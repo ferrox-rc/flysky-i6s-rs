@@ -129,7 +129,14 @@ impl FlightPipeline {
             state.sticks.pitch,
             thr_curved,
             state.sticks.yaw,
-            &[state.pots.vr1, state.pots.vr2],
+            &[
+                state.pots.vr1,
+                state.pots.vr2,
+                state.pots.vr3,
+                state.pots.vr4,
+                state.pots.vr5,
+                state.pots.vr6,
+            ],
             &state.switches,
             active_model,
             trims,
@@ -831,7 +838,7 @@ fn main() -> ! {
     watchdog::start();
 
     // 7. Initialize ADC1 + DMA1 autonomous continuous scanner
-    adc::init();
+    adc::init(storage.radio.ext_adc != 0);
     watchdog::feed();
     {
         let now = time::millis();

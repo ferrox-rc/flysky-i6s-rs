@@ -46,6 +46,10 @@ pub enum MixSource {
     ThrUnipolar = 30,
     Se = 31,
     Sf = 32,
+    Vrc = 33,
+    Vrd = 34,
+    Vre = 35,
+    Vrf = 36,
 }
 
 /// Wing and tail aircraft mixing templates.
@@ -202,7 +206,7 @@ pub fn is_timer_active(
 pub fn evaluate_source(
     src: u8,
     cond_sticks: &[i16; 4],
-    pots: &[i16; 2],
+    pots: &[i16; 6],
     switches: &Switches,
     channels: &[i32; NUM_CHANNELS],
 ) -> i32 {
@@ -261,6 +265,10 @@ pub fn evaluate_source(
                 MIXER_MAX as i32
             }
         }
+        33 => pots[2] as i32, // VRC (Header P7 AD12)
+        34 => pots[3] as i32, // VRD (Header P7 AD13)
+        35 => pots[4] as i32, // VRE (Header P7 AD14)
+        36 => pots[5] as i32, // VRF (Header P7 AD15)
         _ => MIXER_CENTER as i32,
     }
 }
@@ -272,7 +280,7 @@ pub fn compute_channels(
     raw_pitch: i16,
     curved_throttle: u16, // 0..1000 from throttle curve engine
     raw_yaw: i16,
-    pots: &[i16; 2],
+    pots: &[i16; 6],
     switches: &Switches,
     model: &ModelConfig,
     trims: &TrimController,
@@ -507,7 +515,7 @@ mod tests {
     #[test]
     fn test_mixer_sources_se_sf() {
         let cond_sticks = [0i16; 4];
-        let pots = [0i16; 2];
+        let pots = [0i16; 6];
         let channels = [0i32; NUM_CHANNELS];
 
         let mut switches = Switches::DEFAULT;
@@ -540,6 +548,23 @@ mod tests {
     }
 
     #[test]
+    fn test_mixer_sources_vrc_vrf() {
+        let cond_sticks = [0i16; 4];
+        let pots = [100i16, 200i16, -500i16, 750i16, -1000i16, 1000i16];
+        let switches = Switches::DEFAULT;
+        let channels = [0i32; NUM_CHANNELS];
+
+        // Source 33: VRC (pots[2])
+        assert_eq!(evaluate_source(33, &cond_sticks, &pots, &switches, &channels), -500);
+        // Source 34: VRD (pots[3])
+        assert_eq!(evaluate_source(34, &cond_sticks, &pots, &switches, &channels), 750);
+        // Source 35: VRE (pots[4])
+        assert_eq!(evaluate_source(35, &cond_sticks, &pots, &switches, &channels), -1000);
+        // Source 36: VRF (pots[5])
+        assert_eq!(evaluate_source(36, &cond_sticks, &pots, &switches, &channels), 1000);
+    }
+
+    #[test]
     fn test_compute_channels_normal_centered() {
         let model = ModelConfig::default_for_index(0);
         let trims = TrimController::new();
@@ -551,7 +576,7 @@ mod tests {
             se: SwitchPos::Up,
             sf: SwitchPos::Up,
         };
-        let pots = [0i16, 0i16];
+        let pots = [0i16; 6];
 
         // Neutral inputs: roll=0, pitch=0, throttle=500 (idle = 0), yaw=0
         let chs = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
@@ -586,7 +611,7 @@ mod tests {
             se: SwitchPos::Up,
             sf: SwitchPos::Up,
         };
-        let pots = [0i16, 0i16];
+        let pots = [0i16; 6];
 
         // Full roll right (1000)
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -628,7 +653,7 @@ mod tests {
             se: SwitchPos::Up,
             sf: SwitchPos::Up,
         };
-        let pots = [0i16, 0i16];
+        let pots = [0i16; 6];
 
         // Pitch up (1000), Roll zero -> Both elevons deflect together with 50% throw
         let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -669,7 +694,7 @@ mod tests {
             se: SwitchPos::Up,
             sf: SwitchPos::Up,
         };
-        let pots = [0i16, 0i16];
+        let pots = [0i16; 6];
 
         // Pitch up (1000), Yaw zero -> Both V-tail ruddervators deflect up together with 50% authority
         let chs = compute_channels(0, 1000, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -706,7 +731,7 @@ mod tests {
             se: SwitchPos::Up,
             sf: SwitchPos::Up,
         };
-        let pots = [0i16, 0i16];
+        let pots = [0i16; 6];
 
         // At zero throttle (curved_throttle = 0): Thr+ evaluates to 0 -> zero elevator compensation!
         let chs_idle = compute_channels(0, 0, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -748,7 +773,7 @@ mod tests {
             se: SwitchPos::Up,
             sf: SwitchPos::Up,
         };
-        let pots = [0i16, 0i16];
+        let pots = [0i16; 6];
 
         let chs = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
         assert_eq!(chs.len(), 18);
@@ -784,7 +809,7 @@ mod tests {
             se: SwitchPos::Up,
             sf: SwitchPos::Up,
         };
-        let pots = [0i16, 0i16];
+        let pots = [0i16; 6];
 
         // Roll right (+1000) with reversed CH1 should yield CHANNEL_MIN_US instead of CHANNEL_MAX_US
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -818,7 +843,7 @@ mod tests {
             se: SwitchPos::Up,
             sf: SwitchPos::Up,
         };
-        let pots = [0i16, 0i16];
+        let pots = [0i16; 6];
 
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
         // Base CH5 is 0. Roll is 1000 -> 50% weight adds +500 -> 1500 + 256 = 1756 µs

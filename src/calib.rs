@@ -30,9 +30,9 @@ pub enum CalibStep {
 
 pub struct CalibWizard {
     pub step: CalibStep,
-    centers: [u16; 6], // 0..3: Roll, Pitch, Throttle, Yaw; 4..5: VRA, VRB
-    mins: [u16; 6],
-    maxs: [u16; 6],
+    centers: [u16; 10], // 0..3: Sticks; 4..5: Stock Pots; 6..9: Ext Pots (P7)
+    mins: [u16; 10],
+    maxs: [u16; 10],
     prev_keys: u16,
     waiting_release: bool,
     timer_ms: u16,
@@ -48,9 +48,9 @@ impl CalibWizard {
     pub const fn new() -> Self {
         Self {
             step: CalibStep::Inactive,
-            centers: [2048; 6],
-            mins: [4095; 6],
-            maxs: [0; 6],
+            centers: [2048; 10],
+            mins: [4095; 10],
+            maxs: [0; 10],
             prev_keys: 0xFFFF,
             waiting_release: false,
             timer_ms: 0,
@@ -60,9 +60,9 @@ impl CalibWizard {
     /// Start the calibration wizard.
     pub fn start(&mut self, buzzer: &mut Buzzer) {
         self.step = CalibStep::Center;
-        self.centers = [2048; 6];
-        self.mins = [4095; 6];
-        self.maxs = [0; 6];
+        self.centers = [2048; 10];
+        self.mins = [4095; 10];
+        self.maxs = [0; 10];
         self.prev_keys = 0xFFFF; // Block any immediate edge trigger
         self.waiting_release = true; // User must release OK before proceeding
         self.timer_ms = 0;
@@ -110,6 +110,10 @@ impl CalibWizard {
         // [3] PA3: Yaw
         // [4] PA6: VRA
         // [5] PA7: VRB
+        // [6] PC2: VRC (AD12 on Header P7)
+        // [7] PC3: VRD (AD13 on Header P7)
+        // [8] PC4: VRE (AD14 on Header P7)
+        // [9] PC5: VRF (AD15 on Header P7)
         let current_raw = [
             raw_adc[0],
             raw_adc[1],
@@ -117,6 +121,10 @@ impl CalibWizard {
             raw_adc[3],
             raw_adc[6],
             raw_adc[7],
+            raw_adc[11],
+            raw_adc[12],
+            raw_adc[13],
+            raw_adc[14],
         ];
 
         match self.step {
@@ -217,6 +225,24 @@ impl CalibWizard {
                                     center,
                                     center.saturating_add(span_pos),
                                 );
+                            }
+                        }
+
+                        // Ext Pots: if ext_adc is active, update any ext pot moved by >= 400 counts
+                        if storage.radio.ext_adc != 0 {
+                            for i in 0..4 {
+                                let p_idx = 6 + i;
+                                let span = self.maxs[p_idx].saturating_sub(self.mins[p_idx]);
+                                if span >= 400 {
+                                    let center = self.centers[p_idx];
+                                    let span_neg = ((center.saturating_sub(self.mins[p_idx]) as u32 * 63) / 64) as u16;
+                                    let span_pos = ((self.maxs[p_idx].saturating_sub(center) as u32 * 63) / 64) as u16;
+                                    storage.radio.ext_pots[i] = ChannelCalib::new(
+                                        center.saturating_sub(span_neg),
+                                        center,
+                                        center.saturating_add(span_pos),
+                                    );
+                                }
                             }
                         }
 

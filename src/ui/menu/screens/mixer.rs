@@ -614,7 +614,7 @@ pub fn update_wing_mixer(
                     .ok();
 
                 Text::new("<-", Point::new(54, y + 7), style).draw(lcd).ok();
-                let s_idx = (mix.source as usize).min(32);
+                let s_idx = (mix.source as usize).min(36);
                 Text::new(SOURCE_NAMES[s_idx], Point::new(70, y + 7), style)
                     .draw(lcd)
                     .ok();
@@ -687,10 +687,10 @@ pub fn update_mixer_line_edit(
             }
             1 => {
                 if keys.up {
-                    mix.source = (mix.source + 1) % 33;
+                    mix.source = (mix.source + 1) % 37;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.source = if mix.source == 0 { 32 } else { mix.source - 1 };
+                    mix.source = if mix.source == 0 { 36 } else { mix.source - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -774,7 +774,7 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                let s_idx = (mix.source as usize).min(32);
+                let s_idx = (mix.source as usize).min(36);
                 widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
             }
             2 => {

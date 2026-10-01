@@ -74,7 +74,7 @@ pub fn update_aux_channels(
             buzzer.click();
         }
     } else {
-        const AUX_SOURCES: [u8; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32];
+        const AUX_SOURCES: [u8; 17] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 33, 34, 35, 36];
         let cur_val = storage.models[active_idx].aux_channels[ctrl.selected_item];
         let cur_pos = AUX_SOURCES.iter().position(|&s| s == cur_val).unwrap_or(0);
         if keys.up {
@@ -112,7 +112,7 @@ pub fn update_aux_channels(
         }
         let ch_label = ascii_as_str(&ch_buf);
 
-        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(32);
+        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(36);
         widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(SOURCE_NAMES[src_idx]), 48);
     }
 

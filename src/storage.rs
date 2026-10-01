@@ -58,7 +58,9 @@ pub struct RadioConfig {
     pub rx_out_mode: u8,           // 68 (0: PWM, 1: PPM, default 0)
     pub rx_serial_proto: u8,       // 69 (0: i-BUS, 1: S.BUS, default 0)
     pub ext_switches: u8,          // 70 (0: Disabled, 1: Enabled / PC12+PC15)
-    pub _reserved: [u8; 57],       // 71..128
+    pub ext_adc: u8,               // 71 (0: Disabled, 1: Enabled / Header P7 AD12-AD15)
+    pub ext_pots: [ChannelCalib; 4], // 72..104 (32 bytes: VRC, VRD, VRE, VRF)
+    pub _reserved: [u8; 24],       // 104..128
 }
 
 impl RadioConfig {
@@ -114,7 +116,30 @@ impl RadioConfig {
             rx_out_mode: 0,
             rx_serial_proto: 0,
             ext_switches: 0,
-            _reserved: [0; 57],
+            ext_adc: 0,
+            ext_pots: [
+                ChannelCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRC (PC2)
+                ChannelCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRD (PC3)
+                ChannelCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRE (PC4)
+                ChannelCalib::new(
+                    crate::adc::ADC_MIN,
+                    crate::adc::ADC_CENTER,
+                    crate::adc::ADC_MAX,
+                ), // VRF (PC5)
+            ],
+            _reserved: [0; 24],
         }
     }
 }
@@ -324,6 +349,16 @@ impl RadioStorage {
                 pot.max = crate::adc::ADC_MAX;
             }
         }
+        if self.radio.ext_adc > 1 {
+            self.radio.ext_adc = 0;
+        }
+        for pot in self.radio.ext_pots.iter_mut() {
+            if pot.min >= pot.center || pot.center >= pot.max || pot.max > crate::adc::ADC_MAX {
+                pot.min = crate::adc::ADC_MIN;
+                pot.center = crate::adc::ADC_CENTER;
+                pot.max = crate::adc::ADC_MAX;
+            }
+        }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
             if m.rf_protocol > 1 {
@@ -363,12 +398,12 @@ impl RadioStorage {
                 m.aux_channels = [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0];
             }
             for src in m.aux_channels.iter_mut() {
-                if *src > 32 {
+                if *src > 36 {
                     *src = 0;
                 }
             }
             for mix in m.mixes.iter_mut() {
-                if mix.target_ch > 18 || mix.source > 32 || mix.mode > 2 || mix.switch > 14 {
+                if mix.target_ch > 18 || mix.source > 36 || mix.mode > 2 || mix.switch > 14 {
                     *mix = MixLine::disabled();
                 }
             }
@@ -1027,6 +1062,8 @@ mod tests {
         storage.radio.servo_rate_hz = 65535;
         storage.radio.rx_out_mode = 255;
         storage.radio.rx_serial_proto = 255;
+        storage.radio.ext_switches = 255;
+        storage.radio.ext_adc = 255;
 
         for m in storage.models.iter_mut() {
             m.arm_switch = 255;
@@ -1058,6 +1095,8 @@ mod tests {
         assert_eq!(storage.radio.rx_out_mode, 0);
         assert_eq!(storage.radio.rx_serial_proto, 0);
         assert_eq!(storage.radio.ext_switches, 0);
+        assert_eq!(storage.radio.ext_adc, 0);
+        assert_eq!(storage.radio.ext_pots[0].center, crate::adc::ADC_CENTER);
 
         for (idx, m) in storage.models.iter().enumerate() {
             assert!(m.arm_switch <= 14, "arm_switch must be sanitized <= 14");

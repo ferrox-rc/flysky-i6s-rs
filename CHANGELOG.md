@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `Analog Diag` Page 2 visual monitor for real-time `SW:SE` and `SW:SF` logic states, bars, and enablement status.
   - Added dynamic 6-switch display (`SA`..`SF`) on the main flight gimbals dashboard when auxiliary switches are enabled, retaining the 4-switch layout when disabled.
   - Added SE/SF assignment options in auxiliary channel mapper (`CH5`..`CH18`).
+- **Hardware Extension Suite: P7 Header ADC Inputs AD12..AD15 / VRC..VRF ([`src/adc.rs`](src/adc.rs), [`src/storage.rs`](src/storage.rs), [`src/input.rs`](src/input.rs), [`src/mixer.rs`](src/mixer.rs), [`src/calib.rs`](src/calib.rs), [`src/ui/`](src/ui/))**:
+  - Configured GPIO pins `PC2` (`AD12`), `PC3` (`AD13`), `PC4` (`AD14`), and `PC5` (`AD15`) in Analog Mode (`MODER = 11`, `PUPDR = 00`) for auxiliary potentiometers, sliders, or 3-position switches via resistor ladders.
+  - Implemented 15-channel autonomous DMA1 ADC circular scanning (`ADC1_CHSELR = 0xF7FF`) with runtime switching between 11 standard channels (`0x07FF`) and 15 channels (`0xF7FF`).
+  - Added non-volatile toggle `ext_adc` (`[OFF / AD12-AD15]`) and 4-axis calibration storage `ext_pots: [ChannelCalib; 4]` to `RadioConfig`, preserving the strict 128-byte layout.
+  - Added normalized -1000..+1000 scaling in `input::poll()` for `VRC`..`VRF` (neutral 0 when disabled).
+  - Added mixer sources `Vrc` (33), `Vrd` (34), `Vre` (35), and `Vrf` (36) available in auxiliary channel mapping (`CH5`..`CH18`) and matrix mixer lines.
+  - Integrated 4 external analog channels into the interactive Calibration Wizard (`calib.rs`), dynamically capturing min/center/max when moved >= 400 ADC counts.
+  - Added `Analog Diag` Page 3/4 `EXT ANALOG (P7)` with live bar gauges, raw 0..4095 counts, and enablement indicator.
+  - Added `P7 Header: [OFF / AD12-AD15]` toggle option to global Radio Setup.
 
 ## [0.19.1] - 2026-10-01
 

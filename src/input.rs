@@ -30,11 +30,15 @@ pub struct Sticks {
     pub yaw: i16,      // CH4 (RUD): -1000 (left) .. +1000 (right)
 }
 
-/// Normalized potentiometer rotary dials (-1000 .. +1000).
+/// Normalized potentiometer rotary dials and auxiliary analog inputs (-1000 .. +1000).
 #[derive(Copy, Clone, Debug)]
 pub struct Pots {
-    pub vr1: i16, // VRA
-    pub vr2: i16, // VRB
+    pub vr1: i16, // VRA (PA6)
+    pub vr2: i16, // VRB (PA7)
+    pub vr3: i16, // VRC (Header P7 AD12 / PC2)
+    pub vr4: i16, // VRD (Header P7 AD13 / PC3)
+    pub vr5: i16, // VRE (Header P7 AD14 / PC4)
+    pub vr6: i16, // VRF (Header P7 AD15 / PC5)
 }
 
 /// Physical switch states on the radio.
@@ -189,8 +193,13 @@ pub struct InputCalibration {
     pub yaw: AxisCalib,
     pub vra: AxisCalib,
     pub vrb: AxisCalib,
+    pub vrc: AxisCalib,
+    pub vrd: AxisCalib,
+    pub vre: AxisCalib,
+    pub vrf: AxisCalib,
     pub filtered_battery_mv: u32,
     pub ext_switches: bool,
+    pub ext_adc: bool,
 }
 
 impl InputCalibration {
@@ -202,8 +211,13 @@ impl InputCalibration {
             yaw: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             vra: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             vrb: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            vrc: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            vrd: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            vre: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            vrf: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             filtered_battery_mv: 0,
             ext_switches: false,
+            ext_adc: false,
         }
     }
 }
@@ -220,6 +234,7 @@ pub fn apply_calibration(config: &crate::storage::RadioConfig) {
     let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
 
     calib.ext_switches = config.ext_switches != 0;
+    calib.ext_adc = config.ext_adc != 0;
 
     // Roll: PA0 (RH) - inverted on FlySky mechanical gimbal
     calib.roll.invert = true;
@@ -255,6 +270,27 @@ pub fn apply_calibration(config: &crate::storage::RadioConfig) {
     calib.vrb.min = config.pots[1].min;
     calib.vrb.center = config.pots[1].center;
     calib.vrb.max = config.pots[1].max;
+
+    // Ext Pots: VRC (PC2), VRD (PC3), VRE (PC4), VRF (PC5) on Header P7
+    calib.vrc.invert = false;
+    calib.vrc.min = config.ext_pots[0].min;
+    calib.vrc.center = config.ext_pots[0].center;
+    calib.vrc.max = config.ext_pots[0].max;
+
+    calib.vrd.invert = false;
+    calib.vrd.min = config.ext_pots[1].min;
+    calib.vrd.center = config.ext_pots[1].center;
+    calib.vrd.max = config.ext_pots[1].max;
+
+    calib.vre.invert = false;
+    calib.vre.min = config.ext_pots[2].min;
+    calib.vre.center = config.ext_pots[2].center;
+    calib.vre.max = config.ext_pots[2].max;
+
+    calib.vrf.invert = false;
+    calib.vrf.min = config.ext_pots[3].min;
+    calib.vrf.center = config.ext_pots[3].center;
+    calib.vrf.max = config.ext_pots[3].max;
 }
 
 /// Enable or disable external switches SE & SF reading at runtime.
@@ -267,6 +303,18 @@ pub fn set_ext_switches_enabled(enabled: bool) {
 pub fn is_ext_switches_enabled() -> bool {
     let calib = unsafe { &*INPUT_MANAGER.0.get() };
     calib.ext_switches
+}
+
+/// Enable or disable P7 header AD12..AD15 analog reading at runtime.
+pub fn set_ext_adc_enabled(enabled: bool) {
+    let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
+    calib.ext_adc = enabled;
+}
+
+/// Check if P7 header AD12..AD15 analog reading is currently enabled.
+pub fn is_ext_adc_enabled() -> bool {
+    let calib = unsafe { &*INPUT_MANAGER.0.get() };
+    calib.ext_adc
 }
 
 /// Initialize input subsystem, load Flash calibration, and measure resting center for spring-loaded gimbals.
@@ -352,10 +400,25 @@ pub fn poll() -> InputState {
         yaw: calib.yaw.normalize(raw[3]),
     };
 
-    // Pots: VRA on PA6, VRB on PA7
+    // Pots: VRA on PA6, VRB on PA7, VRC..VRF on PC2..PC5 (Header P7)
+    let (vr3, vr4, vr5, vr6) = if calib.ext_adc {
+        (
+            calib.vrc.normalize(raw[11]),
+            calib.vrd.normalize(raw[12]),
+            calib.vre.normalize(raw[13]),
+            calib.vrf.normalize(raw[14]),
+        )
+    } else {
+        (0, 0, 0, 0)
+    };
+
     let pots = Pots {
         vr1: calib.vra.normalize(raw[6]), // PA6 (VRA)
         vr2: calib.vrb.normalize(raw[7]), // PA7 (VRB)
+        vr3,
+        vr4,
+        vr5,
+        vr6,
     };
 
     // Switches:
@@ -505,5 +568,13 @@ mod tests {
         assert!(is_ext_switches_enabled());
         set_ext_switches_enabled(false);
         assert!(!is_ext_switches_enabled());
+    }
+
+    #[test]
+    fn test_ext_adc_toggle() {
+        set_ext_adc_enabled(true);
+        assert!(is_ext_adc_enabled());
+        set_ext_adc_enabled(false);
+        assert!(!is_ext_adc_enabled());
     }
 }

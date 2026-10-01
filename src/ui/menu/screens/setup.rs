@@ -31,7 +31,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 10;
+    const SETUP_ITEMS: usize = 11;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -121,6 +121,13 @@ pub fn update_radio_setup(
                 crate::input::set_ext_switches_enabled(storage.radio.ext_switches != 0);
                 storage::save_radio_config(storage);
             }
+            10 => {
+                buzzer.click();
+                storage.radio.ext_adc = if storage.radio.ext_adc == 0 { 1 } else { 0 };
+                crate::adc::set_p7_enabled(storage.radio.ext_adc != 0);
+                crate::input::set_ext_adc_enabled(storage.radio.ext_adc != 0);
+                storage::save_radio_config(storage);
+            }
             _ => {}
         }
     }
@@ -192,6 +199,10 @@ pub fn update_radio_setup(
             9 => {
                 let sw_str = if storage.radio.ext_switches != 0 { "PC12+PC15" } else { "OFF" };
                 widgets::draw_list_row(lcd, slot, is_sel, "Ext Sw:", Some(sw_str), 62);
+            }
+            10 => {
+                let adc_str = if storage.radio.ext_adc != 0 { "AD12-AD15" } else { "OFF" };
+                widgets::draw_list_row(lcd, slot, is_sel, "P7 Header:", Some(adc_str), 62);
             }
             _ => {}
         }
