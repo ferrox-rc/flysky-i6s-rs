@@ -89,6 +89,48 @@ pub fn draw_channel_gauge(
     lcd.fill_rect(cursor_center - 1, y + 1, 3, height.saturating_sub(2), true);
 }
 
+/// Draw a compact horizontal dual split bar for rotary pots (VRa and VRb).
+/// - Dimensions: width x 7 px. Top lane is VRa, bottom lane is VRb.
+/// - Each lane features a center tick and sliding 3px cursor (-1000..+1000).
+pub fn draw_split_pot_bar(
+    lcd: &mut St7567,
+    x: i32,
+    y: i32,
+    width: u32,
+    vr1: i16,
+    vr2: i16,
+) {
+    if width < 8 {
+        return;
+    }
+    // Top border, middle divider, and bottom border
+    lcd.draw_hline(x, y, width, true);
+    lcd.draw_hline(x, y + 3, width, true);
+    lcd.draw_hline(x, y + 6, width, true);
+
+    // Left and right end caps
+    lcd.draw_vline(x, y, 7, true);
+    lcd.draw_vline(x + width as i32 - 1, y, 7, true);
+
+    // Center ticks for both top and bottom lanes
+    let center_x = x + (width as i32 / 2);
+    lcd.set_pixel(center_x, y + 1, true);
+    lcd.set_pixel(center_x, y + 5, true);
+
+    // Travel range for sliding cursors
+    let min_pos = x + 2;
+    let max_pos = x + width as i32 - 3;
+    let travel = (max_pos - min_pos).max(1);
+
+    // Top cursor: VRa (y + 1..y + 2, 3px wide)
+    let c1 = min_pos + (((vr1 as i32 + 1000) * travel + 1000) / 2000);
+    lcd.fill_rect(c1 - 1, y + 1, 3, 2, true);
+
+    // Bottom cursor: VRb (y + 4..y + 5, 3px wide)
+    let c2 = min_pos + (((vr2 as i32 + 1000) * travel + 1000) / 2000);
+    lcd.fill_rect(c2 - 1, y + 4, 3, 2, true);
+}
+
 /// Draw a left-to-right throttle progress bar (-1000 is 0%, +1000 is 100%).
 pub fn draw_progress_bar(
     lcd: &mut St7567,
@@ -154,6 +196,101 @@ pub fn navigate_4slot_list(
             *scroll_offset = count.saturating_sub(4);
         }
         buzzer.play_tone(2200, 30);
+    }
+}
+
+/// Handle 3-slot circular scrolling list navigation with tone feedback.
+pub fn navigate_3slot_list(
+    selected: &mut usize,
+    scroll_offset: &mut usize,
+    count: usize,
+    up_pressed: bool,
+    down_pressed: bool,
+    buzzer: &mut Buzzer,
+) {
+    if count == 0 {
+        return;
+    }
+    if down_pressed {
+        if *selected + 1 < count {
+            *selected += 1;
+            if *selected >= *scroll_offset + 3 {
+                *scroll_offset = *selected - 2;
+            }
+        } else {
+            *selected = 0;
+            *scroll_offset = 0;
+        }
+        buzzer.play_tone(2200, 30);
+    }
+    if up_pressed {
+        if *selected > 0 {
+            *selected -= 1;
+            if *selected < *scroll_offset {
+                *scroll_offset = *selected;
+            }
+        } else {
+            *selected = count - 1;
+            *scroll_offset = count.saturating_sub(3);
+        }
+        buzzer.play_tone(2200, 30);
+    }
+}
+
+/// Draw a vertical scrollbar on the right edge of the screen (x = 125..127).
+pub fn draw_scrollbar(
+    lcd: &mut St7567,
+    selected: usize,
+    count: usize,
+    top_y: i32,
+    height: u32,
+) {
+    if count <= 1 {
+        return;
+    }
+    // 1px track line on x = 126
+    lcd.draw_vline(126, top_y, height, true);
+
+    // Thumb height: proportional or minimum 6px
+    let thumb_h = ((height * 3) / count as u32).clamp(6, height);
+    let travel = height.saturating_sub(thumb_h);
+    let thumb_y = top_y + ((selected as u32 * travel) / (count as u32 - 1)) as i32;
+
+    lcd.fill_rect(125, thumb_y, 3, thumb_h, true);
+}
+
+/// Render a single list item row within a 3-slot view (14px row height) with optional 12x12 icon.
+pub fn draw_icon_row<F>(
+    lcd: &mut St7567,
+    slot: usize,
+    is_selected: bool,
+    draw_icon: Option<F>,
+    label: &str,
+    value: Option<&str>,
+    value_x: i32,
+) where
+    F: FnOnce(&mut St7567, Point, BinaryColor),
+{
+    let y = 13 + (slot as i32 * 14);
+    let (text_color, icon_color) = if is_selected {
+        lcd.fill_rect(2, y, 121, 13, true);
+        (BinaryColor::Off, BinaryColor::Off)
+    } else {
+        (BinaryColor::On, BinaryColor::On)
+    };
+
+    let text_style = MonoTextStyle::new(&FONT_6X10, text_color);
+
+    let text_x = if let Some(draw_fn) = draw_icon {
+        draw_fn(lcd, Point::new(4, y + 1), icon_color);
+        19
+    } else {
+        4
+    };
+
+    Text::new(label, Point::new(text_x, y + 10), text_style).draw(lcd).ok();
+    if let Some(val) = value {
+        Text::new(val, Point::new(value_x, y + 10), text_style).draw(lcd).ok();
     }
 }
 

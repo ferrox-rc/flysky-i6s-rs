@@ -32,7 +32,8 @@ pub fn render(
         0 => "AIRPLANE",
         1 => "GLIDER",
         2 => "HELI",
-        _ => "QUAD",
+        3 => "QUAD",
+        _ => "GENERAL",
     };
     Text::new(type_str, Point::new(74, 21), text_style).draw(lcd).ok();
 
@@ -78,6 +79,6 @@ pub fn render(
     if is_binding {
         widgets::draw_footer(lcd, "[ESC] Finish Bind");
     } else {
-        widgets::draw_footer_split(lcd, "P3/4", "MODEL DASHBOARD");
+        widgets::draw_footer_split(lcd, "P4/5", "MODEL DASHBOARD");
     }
 }

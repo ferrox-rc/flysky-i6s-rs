@@ -126,12 +126,15 @@ UID (at 0x1FFFF7AC) -> LCG Random Seed -> 16 Unique Channels (1..164 with min sp
 The ST7567 parallel LCD driver maintains a **1024-byte framebuffer** in SRAM (`128 * 64 / 8`). Updating the entire screen takes < 1.2 ms via direct 8-bit GPIO port writes (`GPIOE->ODR`).
 - **Throttled Refresh Rate (30 Hz)**: Throttled via the hardware SysTick timer (`time::millis()`) to a steady 30 Hz (~33 ms). This completely decouples graphical drawing from the multi-kHz flight control loop, eliminating servo latency and stutter.
 - **Electronic Volume (EV) Contrast Adjustment**: Digitally adjustable LCD contrast (`15..=55`, default 37 / `0x25`) in `Radio Setup` with instant live hardware preview and Flash persistence.
-- **Multi-Page Flight Dashboard**: 4 switchable screens cycled by tapping `[BIND]`:
-  1. **Page 1/4 (Gimbals & Trims)**: Live stick sliders, center markers, trim position ticks, and switch/pot readouts.
-  2. **Page 2/4 (14-CH Dual Column Monitor)**: Simultaneous graphic bar indicators and exact microsecond pulse readouts across all 14 channels.
-  3. **Page 3/4 (Model Dashboard)**: Full 10-character model name, aircraft type, bound receiver ID, throttle curve configuration, and telemetry status.
-  4. **Page 4/4 (Telemetry Sensors)**: Dedicated diagnostics showing real-time RSSI, link state, packet odometer counters (`TX`/`RX`), battery voltages (`RX`/`TX`), and session extremes (`mRSS`/`mRX`).
-- **Scrollable Menus**: Standardized 4-item scrollable viewports across all submenus with 9px row heights and auto-repeating navigation keys.
+- **Ferrox-RC Startup Splash Screen**: 28x27 kinetic delta emblem, firmware name, and build version displayed for 1200 ms with concurrent, cadence-independent 4-note ascending welcome fanfare ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms).
+- **Multi-Page Flight Dashboard**: 5 switchable screens cycled by tapping `[BIND]` or pressing `[UP]` / `[DOWN]`:
+  1. **Page 1/5 (Gimbals & Trims)**: Live stick sliders with Mode 2 right-aligned throttle, center markers, trim ticks, physical switch arrow glyphs (`^`/`-`/`v`), and dual split horizontal bar for VRa / VRb with center ticks.
+  2. **Page 2/5 (Primary Channels 1..10)**: Real-time graphic bars and exact microsecond pulse readouts (988..2012 µs) across primary flight channels.
+  3. **Page 3/5 (Auxiliary Channels 11..18)**: Real-time graphic bars and microsecond pulse readouts across auxiliary expansion channels.
+  4. **Page 4/5 (Model Dashboard)**: Full 10-character model name with 12x12 model type glyph (Airplane, Glider, Heli, Quad, General/Boats), bound receiver ID, throttle curve configuration, and live flight timers.
+  5. **Page 5/5 (Telemetry Sensors)**: Dedicated diagnostics showing real-time RSSI, link state, packet odometer counters (`TX`/`RX`), battery voltages (`RX`/`TX`), and session extremes (`mRSS`/`mRX`).
+- **Dynamic Horizontal Battery Gauge**: High-contrast battery icon in the status bar with live 3-stage charge bars (empties left-to-right from tip as voltage drops, and fills right-to-left from base).
+- **3-Slot Icon Menu & Proportional Scrollbar**: 12x12 MDI glyphs, high-contrast selection highlights, proportional right-edge scrollbar, and return position preservation across all submenus.
 
 ---
 
@@ -270,11 +273,17 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] CRSF protocol specification and manual bench verification guide (`docs/CRSF_PROTOCOL_SPEC.md`).
 - [x] Dual-target host unit test harness (`cargo test-host`) with 36 automated unit tests across curves, trims, mixer, and protocol state machines (`docs/TESTING.md`).
 
-### Phase 17: Modern UI Glyphs & Visual Experience (IN PROGRESS / BRANCH: `feature/modern-ui-glyphs`)
-- [x] MDI 12px vector icon integration (`embedded-icon`) across Settings Menu items.
-- [x] 3-slot graphical list navigation (14px row height) with smooth viewport scrolling.
-- [x] Right-edge proportional scrollbar with position indicators (`1/13`).
-- [x] Flight dashboard status bar battery icon and inverted visual alert badges.
+### Phase 17: Modern UI Glyphs & Visual Experience (COMPLETED)
+- [x] Ferrox-RC startup splash screen with 28x27 kinetic delta emblem, firmware identifier, and version display (1200 ms).
+- [x] Synchronized power-on welcome fanfare (4-note ascending chime $C_6 \to E_6 \to G_6 \to C_7$, 660 ms) with monotonic cadence independence.
+- [x] 12x12 Material Design vector icon glyphs for model types (Airplane, Heli, Quad, Glider, General) and system features.
+- [x] 3-slot graphical list navigation (14px row height) with smooth viewport scrolling and return position preservation.
+- [x] Right-edge proportional scrollbar widget with position indicator (`1/13`).
+- [x] 5-page flight dashboard with 18-channel split monitor (CH 1..10 on P2/5, CH 11..18 on P3/5).
+- [x] Dynamic horizontal battery gauge with live 3-stage charge bars (fills right-to-left from base, empties left-to-right from tip).
+- [x] Dual split horizontal potentiometer bar for VRa (top) and VRb (bottom) with center ticks on P1/5.
+- [x] Mode 2 right-aligned throttle bar and physical switch position arrow glyphs (`^`/`-`/`v`).
+- [x] `ModelType::General` support for boats, rovers, and robotics surface craft.
 
 ### Phase 18: Voice Audio Subsystem & Hardware Mod (BRANCH: `feat/dfplayer-voice-audio`)
 - [x] DFPlayer Mini hardware serial audio driver on `USART` / dedicated pin.
@@ -377,6 +386,13 @@ dfu-util -a 0 -s 0x08000000:leave -D flysky-i6x.bin
 # For APM32F072:
 dfu-util -a 0 -d 314b:0106 -s 0x08000000:leave -D flysky-i6x.bin
 ```
+
+> [!TIP]
+> **DFU Error State (`DFU state(10) = dfuERROR`)?**
+> If `dfu-util` reports `Device's firmware is corrupt. It cannot return to run-time operations`, this is **not** a firmware bug or hardware fault. It is generated by the chip's factory ROM bootloader when a prior transfer ended without `:leave` or was interrupted.
+> - **Clear the error**: Run `dfu-util -a 0 -e` to send a `DFU_CLRSTATUS` reset.
+> - **Prevention**: Always include `:leave` on `-s 0x08000000:leave` so the bootloader exits cleanly.
+> - **Consequence of ignoring**: Subsequent flash or read attempts will halt until the status is cleared.
 
 ### Step 4: Revert to OpenTX / Stock Anytime
 Because the hardware DFU bootloader is stored in permanent, read-only system ROM by STMicroelectronics, the transmitter is **unbrickable**. You can restore your full flash backup at any time:

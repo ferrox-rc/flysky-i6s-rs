@@ -5,6 +5,36 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - Unreleased
+
+### Added
+- **Ferrox-RC Power-On Splash Screen & Synchronized Fanfare ([`src/ui/splash.rs`](src/ui/splash.rs), [`src/ui/glyphs.rs`](src/ui/glyphs.rs), [`src/main.rs`](src/main.rs))**:
+  - Kinetic 28x27 Ferrox-RC delta logo emblem rendered directly on LCD initialization with firmware name (`flysky-i6x-rs`) and version display.
+  - 1200 ms non-blocking splash screen hold while ADC, DMA, and RF peripherals initialize in parallel.
+  - Concurrently triggered 4-note ascending fanfare chime ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms) under `ToneStyle::Rich` (or tactile click under `Simple`).
+  - Monotonic SysTick delta-time updates (`now.wrapping_sub(buzzer_last_ms)`) maintaining consistent musical cadence independent of MCU load or flash reads.
+  - DO-178C safety principle: warm watchdog recovery completely bypasses splash hold and melody to restore active RF control in $<2$ ms.
+- **12x12 Material Design Glyph Icon System ([`src/ui/glyphs.rs`](src/ui/glyphs.rs))**:
+  - Dedicated 12x12 vector glyphs for all model types: Airplane, Helicopter, Multirotor/Quad, Glider, and General/Boat.
+  - System and telemetry glyphs for RF signal, battery level, timers, gimbals, channels, switches, settings, curves, and matrix mixer.
+- **3-Slot Main Settings Icon Menu & Proportional Scrollbar ([`src/ui/menu/mod.rs`](src/ui/menu/mod.rs), [`src/ui/menu/screens/main_menu.rs`](src/ui/menu/screens/main_menu.rs), [`src/ui/widgets.rs`](src/ui/widgets.rs))**:
+  - Replaced legacy text list with a modern 3-slot graphical list viewport (14px row height) featuring 12x12 MDI glyphs and high-contrast selection highlights.
+  - Right-edge proportional scrollbar widget displaying relative list position (`1/13`).
+  - Menu return preservation: exiting any sub-menu preserves the exact cursor and scroll slot rather than resetting to slot 0.
+- **5-Page Flight Dashboard & 18-Channel Split Monitor ([`src/ui/dashboard/mod.rs`](src/ui/dashboard/mod.rs), [`src/ui/dashboard/pages/channels.rs`](src/ui/dashboard/pages/channels.rs))**:
+  - Split 18-channel live monitor into Page 2/5 (Primary Channels 1..10) and Page 3/5 (Auxiliary Channels 11..18), providing dedicated horizontal bar graphs and exact microsecond readouts (988..2012 µs).
+  - Mode 2 natural stick layout: right-aligned throttle bar on Page 1/5.
+  - Dual split horizontal potentiometer bar on Page 1/5: top bar displays VRa and bottom bar displays VRb, each with center tick marks.
+  - High-visibility switch position arrow glyphs (`^` UP, `-` MID, `v` DOWN).
+- **Dynamic Horizontal Battery Gauge ([`src/ui/widgets.rs`](src/ui/widgets.rs), [`src/ui/dashboard/mod.rs`](src/ui/dashboard/mod.rs))**:
+  - High-visibility horizontal battery icon in the top status bar.
+  - Live 3-stage charge bars: fills right-to-left from base as voltage rises, and empties left-to-right from tip as voltage drops.
+- **`ModelType::General` Support ([`src/storage.rs`](src/storage.rs), [`src/main.rs`](src/main.rs), [`src/ui/menu/screens/model_setup.rs`](src/ui/menu/screens/model_setup.rs))**:
+  - Added `General` model type for surface models (boats, rovers, cars, robotics) with dedicated ship icon glyph.
+  - Pre-flight throttle safety interlocks adapted to bypass raised throttle warnings for spring-centered surface throttles.
+- **DFU Bootloader Troubleshooting Documentation ([`docs/USER_GUIDE.md`](docs/USER_GUIDE.md), [`README.md`](README.md))**:
+  - Documented recovery from `dfuERROR` / corrupt firmware state via `dfu-util -a 0 -e` clear status command.
+
 ## [0.18.1] - 2026-09-30
 
 ### Fixed

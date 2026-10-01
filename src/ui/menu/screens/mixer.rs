@@ -35,10 +35,7 @@ pub fn update_dual_rate(
             ctrl.editing = false;
         } else {
             storage::save_active_model(storage);
-            ctrl.state = MenuState::MainMenu;
-            ctrl.selected_item = 2;
-            ctrl.scroll_offset = 0;
-            ctrl.waiting_release = true;
+            ctrl.return_to_main_menu();
             buzzer.click();
             return;
         }
@@ -251,9 +248,7 @@ pub fn update_throttle_curve(
     } else {
         if keys.cancel {
             storage::save_active_model(storage);
-            ctrl.state = MenuState::MainMenu;
-            ctrl.selected_item = 3;
-            ctrl.waiting_release = true;
+            ctrl.return_to_main_menu();
             buzzer.click();
             return;
         }
@@ -511,10 +506,7 @@ pub fn update_wing_mixer(
     } else {
         if keys.cancel {
             storage::save_active_model(storage);
-            ctrl.state = MenuState::MainMenu;
-            ctrl.selected_item = 4;
-            ctrl.scroll_offset = 0;
-            ctrl.waiting_release = true;
+            ctrl.return_to_main_menu();
             buzzer.click();
             return;
         }

@@ -1,11 +1,12 @@
 //! Top status bar widget for the flight dashboard.
 
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
+    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
     text::Text,
 };
+use crate::ui::glyphs::draw_battery_gauge;
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -34,6 +35,7 @@ pub fn render(
     telem_seen: &mut bool,
 ) {
     let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let is_crsf = storage.active_model().rf_protocol == 1;
 
     // --- Model Name (x = 2..60, y = 9) ---
@@ -45,37 +47,41 @@ pub fn render(
     let m_display = if raw_name.is_empty() { m_fallback } else { raw_name };
     Text::new(m_display, Point::new(2, 9), text_style).draw(lcd).ok();
 
-    // --- RF / Telemetry / Link Status (x = 65..95, y = 9) ---
+    // --- RF / Telemetry / Link Status (x = 64..84, y = 8) ---
+    // Using FONT_4X6 (4x6 px), max 5 chars = 20px wide (e.g. "RF:OK", "NO RF", "R:100", "U:SIM").
+    // x = 64..84 leaves a 2px margin before the battery glyph at x = 86.
     if !rf_ok && !is_crsf {
         let id = rf::get_last_chip_id();
         let mut err_buf = *b"E:00";
         err_buf[2] = HEX_CHARS[((id >> 4) & 0x0F) as usize];
         err_buf[3] = HEX_CHARS[(id & 0x0F) as usize];
         let err_str = ascii_as_str(&err_buf);
-        Text::new(err_str, Point::new(68, 9), text_style).draw(lcd).ok();
+        Text::new(err_str, Point::new(64, 8), text_style_small).draw(lcd).ok();
     } else if is_binding {
-        Text::new("BIND", Point::new(68, 9), text_style).draw(lcd).ok();
+        Text::new("BIND", Point::new(64, 8), text_style_small).draw(lcd).ok();
     } else if usb::is_sim_mode() {
-        Text::new("U:SIM", Point::new(65, 9), text_style).draw(lcd).ok();
+        Text::new("U:SIM", Point::new(64, 8), text_style_small).draw(lcd).ok();
     } else if telem.connected {
         let mut rssi_buf = *b"R:  %";
         let r = telem.rssi.min(100);
         if r >= 100 {
-            Text::new("R:100", Point::new(65, 9), text_style).draw(lcd).ok();
+            Text::new("R:100", Point::new(64, 8), text_style_small).draw(lcd).ok();
         } else {
             write_dec2(r, &mut rssi_buf[2..4]);
             let r_str = ascii_as_str(&rssi_buf);
-            Text::new(r_str, Point::new(65, 9), text_style).draw(lcd).ok();
+            Text::new(r_str, Point::new(64, 8), text_style_small).draw(lcd).ok();
         }
     } else if is_crsf {
-        Text::new("CRSF", Point::new(66, 9), text_style).draw(lcd).ok();
+        Text::new("CRSF", Point::new(64, 8), text_style_small).draw(lcd).ok();
     } else if rf::is_bound() {
-        Text::new("RF:OK", Point::new(65, 9), text_style).draw(lcd).ok();
+        Text::new("RF:OK", Point::new(64, 8), text_style_small).draw(lcd).ok();
     } else {
-        Text::new("NO RF", Point::new(65, 9), text_style).draw(lcd).ok();
+        Text::new("NO RF", Point::new(64, 8), text_style_small).draw(lcd).ok();
     }
 
-    // --- Battery Voltage Alarm & Display (x = 98..127, y = 9) ---
+    // --- Battery Voltage Alarm & Display (x = 86..124, y = 8) ---
+    // Battery gauge: x = 86..96, y = 2..8 (11x7 px with tip on left).
+    // Battery text: 5-6 chars with FONT_4X6 (e.g. "4.12V" = 20px), Point(99, 8).
     let mut vbat_buf = [0u8; 6];
     let vbat_str = format_vbat(battery_mv, &mut vbat_buf);
     let vbat_warn_mv = (storage.radio.vbat_warn_deci as u16) * 100;
@@ -90,15 +96,27 @@ pub fn render(
         }
 
         if (blink_phase & 0x10) != 0 {
-            lcd.fill_rect(97, 0, 31, 10, true);
-            let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-            Text::new(vbat_str, Point::new(98, 9), inv_style).draw(lcd).ok();
+            lcd.fill_rect(98, 1, 29, 8, true);
+            let inv_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::Off);
+            Text::new(vbat_str, Point::new(99, 8), inv_style).draw(lcd).ok();
         } else {
-            Text::new(vbat_str, Point::new(98, 9), text_style).draw(lcd).ok();
+            draw_battery_gauge(lcd, 86, 2, 0);
+            Text::new(vbat_str, Point::new(99, 8), text_style_small).draw(lcd).ok();
         }
     } else {
         *vbat_alarm_timer = 7000;
-        Text::new(vbat_str, Point::new(98, 9), text_style).draw(lcd).ok();
+        // Divide voltage range into 3 discrete bars above the warning threshold.
+        // E.g., for default 4.4V warning: 4.4..4.8V = 1 bar, 4.8..5.2V = 2 bars, >= 5.2V = 3 bars.
+        let step_mv = 400u16;
+        let bars = if battery_mv >= vbat_warn_mv + 2 * step_mv {
+            3
+        } else if battery_mv >= vbat_warn_mv + step_mv {
+            2
+        } else {
+            1
+        };
+        draw_battery_gauge(lcd, 86, 2, bars);
+        Text::new(vbat_str, Point::new(99, 8), text_style_small).draw(lcd).ok();
     }
 
     // --- Telemetry RSSI Range Alarms & Stats Tracking ---

@@ -12,7 +12,7 @@ use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::menu::format::{ascii_as_str, u16_to_dec_4, SOURCE_NAMES};
 use crate::menu::widgets;
-use crate::menu::{MenuController, MenuState, NavKeys};
+use crate::menu::{MenuController, NavKeys};
 use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS};
 use crate::storage::{self, RadioStorage};
 
@@ -53,10 +53,7 @@ pub fn update_aux_channels(
             ctrl.editing = false;
         } else {
             storage::save_active_model(storage);
-            ctrl.state = MenuState::MainMenu;
-            ctrl.selected_item = 5;
-            ctrl.scroll_offset = 0;
-            ctrl.waiting_release = true;
+            ctrl.return_to_main_menu();
             buzzer.click();
             return;
         }
@@ -137,10 +134,7 @@ pub fn update_channel_reverse(
 
     if keys.cancel {
         storage::save_active_model(storage);
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 6;
-        ctrl.scroll_offset = 0;
-        ctrl.waiting_release = true;
+        ctrl.return_to_main_menu();
         buzzer.click();
         return;
     }
@@ -185,10 +179,7 @@ pub fn update_channel_monitor(
     buzzer: &mut Buzzer,
 ) {
     if keys.cancel {
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 9;
-        ctrl.scroll_offset = 6;
-        ctrl.waiting_release = true;
+        ctrl.return_to_main_menu();
         buzzer.click();
         return;
     }

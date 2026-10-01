@@ -647,8 +647,11 @@ fn run_preflight_check(
         let state = input::poll();
         let keys = boot::scan_keys();
 
+        let is_general = storage.active_model().model_type == 4;
         let is_calibrated = storage.radio.sticks[2].min > 200;
-        let thr_unsafe = if is_calibrated {
+        let thr_unsafe = if is_general {
+            false
+        } else if is_calibrated {
             state.sticks.throttle > -900
         } else {
             state.raw[2] > 1400
@@ -795,21 +798,62 @@ fn main() -> ! {
     // Initialize SysTick 1.000 ms hardware monotonic timekeeper
     time::init();
 
-    // 3. Initialize ST7567 128×64 LCD (clears framebuffer and flushes before turning on backlight)
-    let mut lcd = St7567::new();
+    // 3. Load persistent radio storage and 20-model configuration
+    let storage = storage::get_storage();
+    storage::load_storage_into(storage);
 
-    // 4. Start deterministic 2.0s Hardware Watchdog (IWDG) via PAC
+    // 4. Initialize Buzzer & Tone Style
+    let mut buzzer = buzzer::Buzzer::new();
+    buzzer.init();
+    buzzer.enabled = storage.radio.audio_enabled != 0;
+    buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
+
+    // 5. Initialize ST7567 128×64 LCD (clears framebuffer and flushes before turning on backlight)
+    let mut lcd = St7567::new();
+    lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
+    lcd.set_contrast(storage.radio.lcd_contrast);
+
+    // Render Ferrox-RC Splash Screen and trigger welcome chime simultaneously (bypassed on warm watchdog recovery)
+    let splash_start_ms = time::millis();
+    let mut buzzer_last_ms = splash_start_ms;
+    if was_watchdog_reset {
+        // Fast alarm warning chirp indicating watchdog recovery occurred
+        buzzer.play_tone_pattern(2600, 60, 40, 3);
+    } else {
+        ui::splash::draw_splash(&mut lcd);
+        lcd.flush();
+        buzzer.chime_welcome();
+    }
+
+    // 6. Start deterministic 2.0s Hardware Watchdog (IWDG) via PAC
     watchdog::start();
 
-    // 5. Initialize ADC1 + DMA1 autonomous continuous scanner
+    // 7. Initialize ADC1 + DMA1 autonomous continuous scanner
     adc::init();
     watchdog::feed();
+    {
+        let now = time::millis();
+        let dt = now.wrapping_sub(buzzer_last_ms) as u16;
+        if dt > 0 {
+            buzzer.tick(dt);
+            buzzer_last_ms = now;
+        }
+    }
 
-    // 6. Initialize input calibration and capture resting stick centers
+    // 8. Initialize input calibration and capture resting stick centers
     input::init();
+    input::apply_calibration(&storage.radio);
     watchdog::feed();
+    {
+        let now = time::millis();
+        let dt = now.wrapping_sub(buzzer_last_ms) as u16;
+        if dt > 0 {
+            buzzer.tick(dt);
+            buzzer_last_ms = now;
+        }
+    }
 
-    // 7. Initialize A7105 RF transceiver & AFHDS 2A stack
+    // 9. Initialize A7105 RF transceiver & AFHDS 2A stack
     let uid = chip::read_uid(&mcu_profile);
     let w0 = u32::from_le_bytes([uid[0], uid[1], uid[2], uid[3]]);
     let w1 = u32::from_le_bytes([uid[4], uid[5], uid[6], uid[7]]);
@@ -824,25 +868,14 @@ fn main() -> ! {
         rf::set_bind_mode(true);
     }
     watchdog::feed();
-
-    // 8. Initialize Buzzer & Digital Trims
-    let mut buzzer = buzzer::Buzzer::new();
-    buzzer.init();
-    watchdog::feed();
-
-    // 9. Load persistent radio storage and 20-model configuration
-    let storage = storage::get_storage();
-    storage::load_storage_into(storage);
-    input::apply_calibration(&storage.radio);
-    buzzer.enabled = storage.radio.audio_enabled != 0;
-    buzzer.tone_style = buzzer::ToneStyle::from_u8(storage.radio.tone_style);
-    if was_watchdog_reset {
-        // Fast alarm warning chirp indicating watchdog recovery occurred
-        buzzer.play_tone_pattern(2600, 60, 40, 3);
-    } else {
-        buzzer.chime_welcome();
+    {
+        let now = time::millis();
+        let dt = now.wrapping_sub(buzzer_last_ms) as u16;
+        if dt > 0 {
+            buzzer.tick(dt);
+            buzzer_last_ms = now;
+        }
     }
-    watchdog::feed();
 
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
@@ -866,10 +899,6 @@ fn main() -> ! {
         storage.radio.rx_serial_proto,
     );
 
-    // Apply saved backlight brightness level & LCD contrast
-    lcd.set_backlight_level(storage.radio.backlight_brightness * 10);
-    lcd.set_contrast(storage.radio.lcd_contrast);
-
     let mut calib_wizard = calib::CalibWizard::new();
     let mut menu_controller = menu::MenuController::new();
 
@@ -877,9 +906,22 @@ fn main() -> ! {
     if (initial_keys & (1 << 10)) != 0 && !was_watchdog_reset {
         calib_wizard.start(&mut buzzer);
     }
-    watchdog::feed();
 
-    // 10. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
+    // 10. Hold splash screen for ~1200ms (1.2s) total elapsed time since LCD initialization,
+    // continuously advancing buzzer playback to maintain musical cadence
+    if !was_watchdog_reset && !calib_wizard.is_active() {
+        while time::millis().wrapping_sub(splash_start_ms) < 1200 {
+            watchdog::feed();
+            let now = time::millis();
+            let dt = now.wrapping_sub(buzzer_last_ms) as u16;
+            if dt >= 5 {
+                buzzer.tick(dt);
+                buzzer_last_ms = now;
+            }
+        }
+    }
+
+    // 11. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     // Bypassed on watchdog reset to immediately resume RF control in flight
     run_preflight_check(storage, &mut buzzer, &mut lcd, &calib_wizard, was_watchdog_reset);
 

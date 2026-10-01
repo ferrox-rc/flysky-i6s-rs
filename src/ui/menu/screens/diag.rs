@@ -14,7 +14,7 @@ use crate::chip;
 use crate::display::St7567;
 use crate::menu::format::{ascii_as_str, u16_to_dec_4};
 use crate::menu::widgets;
-use crate::menu::{MenuController, MenuState, NavKeys};
+use crate::menu::{MenuController, NavKeys};
 
 #[inline(never)]
 pub fn update_diag_anas(
@@ -25,10 +25,7 @@ pub fn update_diag_anas(
     buzzer: &mut Buzzer,
 ) {
     if keys.cancel {
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 11;
-        ctrl.scroll_offset = 8;
-        ctrl.waiting_release = true;
+        ctrl.return_to_main_menu();
         buzzer.click();
         return;
     }
@@ -76,10 +73,7 @@ pub fn update_system_info(
     buzzer: &mut Buzzer,
 ) {
     if keys.cancel {
-        ctrl.state = MenuState::MainMenu;
-        ctrl.selected_item = 12;
-        ctrl.scroll_offset = 9;
-        ctrl.waiting_release = true;
+        ctrl.return_to_main_menu();
         buzzer.click();
         return;
     }
