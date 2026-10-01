@@ -1,12 +1,12 @@
 # FLIGHT CONTROL & 18-CHANNEL MIXING ARCHITECTURE
 
-Comprehensive reference for input conditioning (Dual Rates & Exponential), auxiliary channel assignment, built-in wing and tail templates, and the EdgeTX/OpenTX-inspired 18-channel freeform matrix mixer on the FlySky FS-i6X.
+Comprehensive reference for input conditioning (Dual Rates & Exponential), auxiliary channel assignment, built-in wing and tail templates, and the EdgeTX/OpenTX-inspired 18-channel freeform matrix mixer on the FlySky FS-i6S.
 
 ---
 
 ## 1. Overview & Control Pipeline
 
-The mixing system in `flysky-i6x-rs` implements an interrupt-safe, deterministic, zero-heap 4-stage pipeline that runs every main execution cycle (~500 Hz):
+The mixing system in `flysky-i6s-rs` implements an interrupt-safe, deterministic, zero-heap 4-stage pipeline that runs every main execution cycle (~500 Hz):
 
 ```mermaid
 flowchart TD

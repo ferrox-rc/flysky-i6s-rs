@@ -1,125 +1,280 @@
-//! Key matrix scanning and DFU bootloader detection.
+//! Boot manager, Rear Button scanning, and DFU bootloader detection for FlySky FS-i6S.
+//!
+//! Provides three distinct zero-disassembly mechanisms to enter the STM32 factory ROM DFU bootloader:
+//! 1. Cold-Boot Rear Button Combo: Hold Rear Left (`PA9`) + Rear Right (`PA10`) during power-on.
+//! 2. Touch Menu Reboot: Settings -> System Info -> [Reboot to DFU Mode] writes `0xDEADBEEF`
+//!    to SRAM flag `0x2000_3FF0` and performs a warm reboot into DFU.
+//! 3. USB CDC Serial CLI Command: Sending `dfu` or `reboot bootloader` over USB serial.
 
-use stm32f0xx_hal::pac;
 use crate::chip::{self, McuProfile};
+
+#[cfg(not(test))]
+use stm32f0xx_hal::pac;
+
+#[cfg(test)]
+use core::sync::atomic::{AtomicBool, AtomicU32};
+
+/// Magic token in high SRAM used to signal a warm reboot directly into the DFU bootloader.
+pub const DFU_MAGIC_FLAG: u32 = 0xDEAD_BEEF;
+
+/// Address in top 16 bytes of STM32F072 16KB SRAM (0x2000_0000 .. 0x2000_4000).
+pub const DFU_FLAG_ADDR: *mut u32 = 0x2000_3FF0 as *mut u32;
+
+#[cfg(test)]
+static TEST_SRAM_FLAG: AtomicU32 = AtomicU32::new(0);
+#[cfg(test)]
+static TEST_REAR_LEFT: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static TEST_REAR_RIGHT: AtomicBool = AtomicBool::new(false);
+
+/// Atomic holder for touch-injected navigation & virtual trim keys.
+static TOUCH_NAV_KEYS: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0);
 
 #[inline(always)]
 fn delay_cycles(n: u32) {
+    #[cfg(not(test))]
     cortex_m::asm::delay(n);
+    #[cfg(test)]
+    let _ = n;
 }
 
-/// Initialize GPIO clocks and pins for keys and trims.
+/// Initialize GPIO clocks and pins for the FS-i6S rear tactile buttons:
+/// - PA9: Rear Left Button (Active LOW with internal pull-up) -> Cancel / Back
+/// - PA10: Rear Right Button (Active LOW with internal pull-up) -> OK / Select
 pub fn init_keys() {
-    let rcc = unsafe { &*pac::RCC::ptr() };
-    let gpioc = unsafe { &*pac::GPIOC::ptr() };
-    let gpiod = unsafe { &*pac::GPIOD::ptr() };
-    let gpiof = unsafe { &*pac::GPIOF::ptr() };
+    #[cfg(not(test))]
+    {
+        let rcc = unsafe { &*pac::RCC::ptr() };
+        let gpioa = unsafe { &*pac::GPIOA::ptr() };
 
-    unsafe {
-        // Enable GPIOC, GPIOD, GPIOF clocks (bits 19, 20, 22)
-        rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 19) | (1 << 20) | (1 << 22)));
+        unsafe {
+            // Enable GPIOA clock (bit 17 in RCC_AHBENR)
+            rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 17)));
 
-        // Configure PC6, PC7, PC8 as outputs (MODER = 01)
-        gpioc.moder.modify(|r, w| {
-            let val = r.bits();
-            w.bits((val & !(0x3F << 12)) | (0x15 << 12))
-        });
+            // Configure PA9 and PA10 as inputs (MODER bits 19:18 = 00, 21:20 = 00)
+            gpioa.moder.modify(|r, w| w.bits(r.bits() & !(0x0F << 18)));
 
-        // Set PC6, PC7, PC8 initially HIGH
-        gpioc.bsrr.write(|w| w.bits((1 << 6) | (1 << 7) | (1 << 8)));
+            // Configure PA9 and PA10 with internal pull-ups (PUPDR bits 19:18 = 01, 21:20 = 01)
+            gpioa.pupdr.modify(|r, w| {
+                let val = r.bits();
+                w.bits((val & !(0x0F << 18)) | (0x05 << 18))
+            });
+        }
+    }
 
-        // Configure PD12..PD15 as inputs (MODER = 00) with pull-ups (PUPDR = 01)
-        gpiod.moder.modify(|r, w| w.bits(r.bits() & !(0xFF << 24)));
-        gpiod.pupdr.modify(|r, w| {
-            let val = r.bits();
-            w.bits((val & !(0xFF << 24)) | (0x55 << 24))
-        });
-
-        // Configure PF2 (Bind button) as input with pull-up (MODER = 00, PUPDR = 01)
-        gpiof.moder.modify(|r, w| w.bits(r.bits() & !(3 << 4)));
-        gpiof.pupdr.modify(|r, w| {
-            let val = r.bits();
-            w.bits((val & !(3 << 4)) | (1 << 4))
-        });
+    #[cfg(test)]
+    {
+        // Reset test state
+        TOUCH_NAV_KEYS.store(0, core::sync::atomic::Ordering::SeqCst);
     }
 }
 
-/// Scan key matrix and return a 16-bit bitfield of pressed buttons:
-/// - bit 0:  Col 0 Line 0 (PC6, PD12) -> Roll R
-/// - bit 1:  Col 0 Line 1 (PC6, PD13) -> Roll L (Inward trim for Roll)
-/// - bit 2:  Col 0 Line 2 (PC6, PD14) -> Pitch U
-/// - bit 3:  Col 0 Line 3 (PC6, PD15) -> Pitch D
-/// - bit 4:  Col 1 Line 0 (PC7, PD12) -> Throttle U
-/// - bit 5:  Col 1 Line 1 (PC7, PD13) -> Throttle D
-/// - bit 6:  Col 1 Line 2 (PC7, PD14) -> Yaw R (Inward trim for Yaw)
-/// - bit 7:  Col 1 Line 3 (PC7, PD15) -> Yaw L
-/// - bit 8:  Col 2 Line 0 (PC8, PD12) -> Down
-/// - bit 9:  Col 2 Line 1 (PC8, PD13) -> Up
-/// - bit 10: Col 2 Line 2 (PC8, PD14) -> OK / Enter
-/// - bit 11: Col 2 Line 3 (PC8, PD15) -> Cancel / Exit
-/// - bit 12: Dedicated Bind key (PF2)
+/// Inject virtual touch keys and gestures into the main `scan_keys()` bitfield.
+pub fn set_touch_keys(keys: u16) {
+    TOUCH_NAV_KEYS.store(keys, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Read physical rear tactile buttons:
+/// Returns `(rear_left_pressed, rear_right_pressed)`.
+pub fn read_rear_buttons() -> (bool, bool) {
+    #[cfg(not(test))]
+    {
+        let gpioa = unsafe { &*pac::GPIOA::ptr() };
+        let idr = gpioa.idr.read().bits();
+        // PA9 is bit 9 (Active LOW), PA10 is bit 10 (Active LOW)
+        let left = (idr & (1 << 9)) == 0;
+        let right = (idr & (1 << 10)) == 0;
+        (left, right)
+    }
+
+    #[cfg(test)]
+    {
+        (
+            TEST_REAR_LEFT.load(core::sync::atomic::Ordering::SeqCst),
+            TEST_REAR_RIGHT.load(core::sync::atomic::Ordering::SeqCst),
+        )
+    }
+}
+
+/// Scan physical rear buttons and merge with virtual touch keys.
+///
+/// Output 16-bit key bitfield:
+/// - bit 0:  Roll R (virtual trim)
+/// - bit 1:  Roll L (virtual trim)
+/// - bit 2:  Pitch U (virtual trim)
+/// - bit 3:  Pitch D (virtual trim)
+/// - bit 4:  Throttle U (virtual trim)
+/// - bit 5:  Throttle D (virtual trim)
+/// - bit 6:  Yaw R (virtual trim)
+/// - bit 7:  Yaw L (virtual trim)
+/// - bit 8:  Down (touch gesture swipe down or tap down)
+/// - bit 9:  Up (touch gesture swipe up or tap up)
+/// - bit 10: OK / Select (PA10 Rear Right button OR touch tap/swipe)
+/// - bit 11: Cancel / Back (PA9 Rear Left button OR touch tap/swipe)
+/// - bit 12: Bind
 pub fn scan_keys() -> u16 {
-    let mut result = 0u16;
-    let gpioc = unsafe { &*pac::GPIOC::ptr() };
-    let gpiod = unsafe { &*pac::GPIOD::ptr() };
-    let gpiof = unsafe { &*pac::GPIOF::ptr() };
+    let (rear_left, rear_right) = read_rear_buttons();
+    let mut result = TOUCH_NAV_KEYS.load(core::sync::atomic::Ordering::Relaxed);
 
-    unsafe {
-        let cols = [6, 7, 8];
-        for (col_idx, &col) in cols.iter().enumerate() {
-            // Drive active column LOW (BRy = bit col + 16)
-            gpioc.bsrr.write(|w| w.bits(1 << (col + 16)));
-            delay_cycles(150); // allow line capacitance to discharge
-
-            // Read lines PD12..PD15 (active LOW)
-            let idr = gpiod.idr.read().bits();
-            let lines = ((idr >> 12) & 0x0F) as u8;
-            let pressed = (!lines) & 0x0F;
-
-            result |= (pressed as u16) << (col_idx * 4);
-
-            // Restore column to HIGH (BSy = bit col)
-            gpioc.bsrr.write(|w| w.bits(1 << col));
-            delay_cycles(100);
-        }
-
-        // Check Bind button (PF2, active LOW)
-        let fidr = gpiof.idr.read().bits();
-        if (fidr & (1 << 2)) == 0 {
-            result |= 1 << 12; // Bind pressed
-        }
+    if rear_right {
+        result |= 1 << 10; // OK
+    }
+    if rear_left {
+        result |= 1 << 11; // Cancel
     }
 
     result
 }
 
-/// Check if the DFU bootloader key combination is held:
-/// Both horizontal trims pushed inward towards power switch:
-/// Roll Left (bit 1) + Yaw Right (bit 6).
-pub fn is_dfu_requested(keys: u16) -> bool {
-    let rh_inward = (keys & (1 << 1)) != 0; // Roll Left
-    let lh_inward = (keys & (1 << 6)) != 0; // Yaw Right
+/// Check if the cold-boot DFU entry combination is held:
+/// Both Rear Left (`PA9`) and Rear Right (`PA10`) held simultaneously at power-on.
+pub fn is_dfu_combo_held() -> bool {
+    let (left, right) = read_rear_buttons();
+    left && right
+}
 
-    rh_inward && lh_inward
+/// Compatibility check for DFU request from key bitfield.
+/// Triggers when both Rear Left (bit 11) and Rear Right (bit 10) are active.
+pub fn is_dfu_requested(keys: u16) -> bool {
+    (keys & ((1 << 10) | (1 << 11))) == ((1 << 10) | (1 << 11))
+}
+
+/// Trigger a warm reboot into the STM32 factory ROM DFU bootloader.
+///
+/// Sets `0xDEADBEEF` at SRAM `0x2000_3FF0`, keeps `PB15` power latch HIGH,
+/// and triggers an immediate software reset.
+pub fn reboot_to_dfu() -> ! {
+    crate::power::latch_on();
+
+    #[cfg(not(test))]
+    unsafe {
+        core::ptr::write_volatile(DFU_FLAG_ADDR, DFU_MAGIC_FLAG);
+        cortex_m::peripheral::SCB::sys_reset();
+    }
+
+    #[cfg(test)]
+    {
+        TEST_SRAM_FLAG.store(DFU_MAGIC_FLAG, core::sync::atomic::Ordering::SeqCst);
+        panic!("simulated reboot_to_dfu");
+    }
 }
 
 /// Power-on boot check for DFU entry.
+///
+/// Checks:
+/// 1. SRAM warm-reboot flag at `0x2000_3FF0 == 0xDEADBEEF`: If set, clear flag and jump to DFU.
+/// 2. Zero-disassembly cold-boot combo: If both Rear Left (`PA9`) and Rear Right (`PA10`)
+///    are held at power-on for ~20ms, latch `PB15` HIGH and jump to DFU.
 pub fn check_dfu_entry(profile: &McuProfile) {
+    let _ = profile;
+    // 1. Check warm-reboot DFU flag in SRAM
+    #[cfg(not(test))]
+    unsafe {
+        if core::ptr::read_volatile(DFU_FLAG_ADDR) == DFU_MAGIC_FLAG {
+            core::ptr::write_volatile(DFU_FLAG_ADDR, 0); // clear flag
+            crate::power::latch_on();
+            chip::enter_dfu_bootloader(profile);
+        }
+    }
+
+    #[cfg(test)]
+    {
+        if TEST_SRAM_FLAG.load(core::sync::atomic::Ordering::SeqCst) == DFU_MAGIC_FLAG {
+            TEST_SRAM_FLAG.store(0, core::sync::atomic::Ordering::SeqCst);
+            return;
+        }
+    }
+
+    // 2. Initialize GPIOA for rear buttons
     init_keys();
 
-    // Wait ~20ms for power rails and switch contacts to settle at power-on
+    // Wait ~20ms for power rails and contacts to settle
     delay_cycles(40_000);
 
+    // Debounce check for Rear Left (PA9) + Rear Right (PA10)
     let mut match_count = 0;
     for _ in 0..5 {
-        let keys = scan_keys();
-        if is_dfu_requested(keys) {
+        if is_dfu_combo_held() {
             match_count += 1;
         }
         delay_cycles(2_000);
     }
 
     if match_count >= 3 {
+        crate::power::latch_on();
+        #[cfg(not(test))]
         chip::enter_dfu_bootloader(profile);
+    }
+}
+
+#[cfg(test)]
+pub fn test_set_rear_buttons(left: bool, right: bool) {
+    TEST_REAR_LEFT.store(left, core::sync::atomic::Ordering::SeqCst);
+    TEST_REAR_RIGHT.store(right, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub fn test_set_sram_dfu_flag(flag: u32) {
+    TEST_SRAM_FLAG.store(flag, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub fn test_get_sram_dfu_flag() -> u32 {
+    TEST_SRAM_FLAG.load(core::sync::atomic::Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rear_buttons_mapping() {
+        init_keys();
+
+        // Neither pressed
+        test_set_rear_buttons(false, false);
+        assert_eq!(scan_keys() & ((1 << 10) | (1 << 11)), 0);
+
+        // Rear Left (Cancel) pressed
+        test_set_rear_buttons(true, false);
+        let keys = scan_keys();
+        assert_ne!(keys & (1 << 11), 0);
+        assert_eq!(keys & (1 << 10), 0);
+
+        // Rear Right (OK) pressed
+        test_set_rear_buttons(false, true);
+        let keys = scan_keys();
+        assert_eq!(keys & (1 << 11), 0);
+        assert_ne!(keys & (1 << 10), 0);
+
+        // Both pressed (DFU combo)
+        test_set_rear_buttons(true, true);
+        assert!(is_dfu_combo_held());
+    }
+
+    #[test]
+    fn test_touch_keys_merge() {
+        init_keys();
+        test_set_rear_buttons(false, false);
+
+        set_touch_keys((1 << 8) | (1 << 9)); // Up and Down from touch
+        let keys = scan_keys();
+        assert_ne!(keys & (1 << 8), 0);
+        assert_ne!(keys & (1 << 9), 0);
+
+        // Rear right merges with touch keys
+        test_set_rear_buttons(false, true);
+        let keys = scan_keys();
+        assert_ne!(keys & (1 << 10), 0);
+        assert_ne!(keys & (1 << 8), 0);
+    }
+
+    #[test]
+    fn test_sram_flag_detection() {
+        let profile = chip::get_mcu_profile();
+        test_set_sram_dfu_flag(DFU_MAGIC_FLAG);
+        assert_eq!(test_get_sram_dfu_flag(), DFU_MAGIC_FLAG);
+        check_dfu_entry(&profile);
+        assert_eq!(test_get_sram_dfu_flag(), 0); // Cleared after detection
     }
 }

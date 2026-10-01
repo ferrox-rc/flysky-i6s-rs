@@ -1,6 +1,6 @@
-# FLYSKY FS-I6X USER GUIDE & OPERATIONS MANUAL
+# FLYSKY FS-I6S USER GUIDE & OPERATIONS MANUAL
 
-A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS-i6X transmitter.
+A comprehensive guide to operating the `flysky-i6s-rs` firmware on the FlySky FS-i6S transmitter.
 
 ---
 
@@ -8,7 +8,7 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
 
 ```
                   +-----------------------------------+
-                  |         FlySky FS-i6X (Rust)      |
+                  |         FlySky FS-i6S (Rust)      |
                   |                                   |
                   |  [SW A]   [SW B]  [SW C]   [SW D] |
                   |  (2-pos) (3-pos) (3-pos)  (2-pos) |
@@ -20,36 +20,50 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
                   |    Throttle (V)    Pitch / ELE (V)|
                   |    Yaw / RUD (H)   Roll / AIL (H) |
                   |                                   |
-                  |     [T-TRIM]          [E-TRIM]    |
-                  |     [R-TRIM]          [A-TRIM]    |
+                  |     (Power L)         (Power R)   |
+                  |     [Blue LED]       [Blue LED]   |
                   |                                   |
-                  |            [ ST7567 LCD ]         |
-                  |              128x64 Mono          |
+                  |      +---------------------+      |
+                  |      |  ST7567 LCD 128x64  |      |
+                  |      |  Capacitive Touch   |      |
+                  |      +---------------------+      |
                   |                                   |
-                  |  [BIND]    [UP]    [DOWN]    [OK] |
-                  |  (Direct)          [CANCEL / ESC] |
+                  |     [REAR LEFT]     [REAR RIGHT]  |
+                  |     (PA9: Cancel)   (PA10: OK)    |
                   +-----------------------------------+
 ```
 
-### Keypad & Navigation Buttons
-- **`[UP]`** / **`[DOWN]`**:
-  - **On Flight Screen**: Cycles through the 5 dashboard pages (`1/5` -> `2/5` -> `3/5` -> `4/5` -> `5/5` with `[DOWN]`, and reverse with `[UP]`).
-  - **In Menus & Editors**: Navigate menu items, cycle characters, increment/decrement values.
-  - **Auto-Repeat**: Holding **`[UP]`** or **`[DOWN]`** for >= 300 ms automatically repeats every **70 ms** for rapid scrolling through lists, swift character selection, and fast curve point editing.
-- **`[OK]`**: Enter submenu, toggle setting, confirm values, advance character cursor in naming editor.
-  - **Hold `[OK]` for 1.2 seconds** on any flight dashboard page: Opens the **Settings Menu**.
-  - **Hold `[OK]` during Power-On**: Launches **Stick Calibration** immediately.
-- **`[CANCEL]` (`[ESC]`)**:
-  - **On Flight Screen (Hold >= 1.0s)**: Opens the **HUD Timer Reset Modal** with a real-time progress bar. Holding for 1.0s resets the flight timer back to its configured duration (or 0:00 for count-up), sounds a high chime, and flashes a `"TIMER RESET!"` confirmation. Releasing early aborts without resetting.
-  - **In Menus**: Return to previous screen, exit edit mode, abort calibration, or complete one-way receiver binding.
-- **`[BIND]` (Dedicated Button with Clean Separation Logic)**:
-  - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 5 flight dashboard pages (`1/5` -> `2/5` -> `3/5` -> `4/5` -> `5/5` -> `1/5`).
-  - **Hold (`>= 1.0s`) on Flight Screen**: Initiates AFHDS 2A receiver binding.
-  - **Hold during Power-On**: Launches AFHDS 2A binding subprogram immediately at boot.
-  - **In Menus & Editors**: Functions as **`[TAB]` / Cursor Advance** (advances name characters or curve points) without triggering RF binding.
+### Powering On & Off (Electronic Power Latch)
+- **Power On**: Press and hold the dual power buttons until the blue ring LEDs illuminate and the Ferrox-RC startup splash screen appears. The electronic power latch on `PB15` automatically energizes the internal power rails.
+- **Power Off (Hold >= 1.5s)**: Press and hold the power button for 1.5 seconds. An animated shutdown progress bar appears on screen. When the progress bar completes, all modified settings and model data are safely committed to Flash storage, and the firmware cuts the `PB15` power latch to completely turn off the radio. Releasing the button early aborts the shutdown without loss of settings.
+
+### Capacitive Touchscreen & Rear Navigation Buttons
+- **Touch Gestures**:
+  - **Swipe UP / DOWN**: Scroll lists, cycle through the 5 flight dashboard pages (`1/5` .. `5/5`), or increment/decrement values.
+  - **Swipe RIGHT**: Select item, confirm value, enter submenu (**`[OK]`**).
+  - **Swipe LEFT**: Return to previous screen, exit edit mode (**`[CANCEL]`**).
+- **Direct Tap Zones in Menus**:
+  - **Top Row ($y < 22$)**: Navigate Up / Decrement value.
+  - **Bottom Row ($y > 44$)**: Navigate Down / Increment value.
+  - **Left Edge ($x < 32$)**: Cancel / Return.
+  - **Right Edge ($x > 96$)**: OK / Enter.
+  - **Center Zone**: OK / Enter.
+- **Dashboard Center Tap**:
+  - Tapping the center of the main flight screen opens the **Settings Menu**.
+- **Rear Tactile Push-Buttons**:
+  - **Rear Left Button (`PA9`)**: Functions as **`[CANCEL]` / Back / Exit**. On the flight dashboard, holding for >= 1.0s opens the HUD Timer Reset Modal and resets the flight timer.
+  - **Rear Right Button (`PA10`)**: Functions as **`[OK]` / Select / Enter**. On the flight dashboard, holding for >= 1.2s opens the Settings Menu. Holding during power-on triggers immediate stick calibration.
+  - **Cold DFU Combo**: Holding **`PA9` + `PA10`** simultaneously during power-on triggers the zero-disassembly jump into the factory ROM DFU bootloader.
+
+### Digital Trimming
+1. **Stick Modifier Mode (Ergonomic In-Flight Trimming)**:
+   - **Hold Rear Left (`PA9`)** + Left Stick: Vertical deflections adjust Throttle Trim; Horizontal deflections adjust Yaw Trim.
+   - **Hold Rear Right (`PA10`)** + Right Stick: Vertical deflections adjust Pitch Trim; Horizontal deflections adjust Roll Trim.
+2. **Virtual Touch Perimeter Targets**:
+   - Tapping along the screen borders of the flight dashboard directly steps the corresponding trim (Left = Throttle, Right = Pitch, Bottom = Yaw/Roll).
 
 ### Power-On Startup & Splash Screen
-- **Ferrox-RC Splash Screen**: When the transmitter powers on, the LCD immediately displays the 28x27 Ferrox-RC kinetic delta emblem, firmware identifier (`flysky-i6x-rs`), and build version for 1200 ms while ADC, DMA, and RF peripherals initialize in the background.
+- **Ferrox-RC Splash Screen**: When the transmitter powers on, the LCD immediately displays the 28x27 Ferrox-RC kinetic delta emblem, firmware identifier (`flysky-i6s-rs`), and build version for 1200 ms while ADC, DMA, and RF peripherals initialize in the background.
 - **Synchronized Welcome Fanfare**: Concurrently with the splash screen, the buzzer plays a 4-note ascending fanfare ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms) under the `Rich` tone style (or a single tactile click under `Simple`). The cadence is driven by monotonic SysTick elapsed time for consistent musical timing.
 - **Watchdog Recovery Bypass (<2 ms)**: In the event of an in-flight watchdog reset, splash delays and melodic chimes are completely bypassed. An urgent 3-beep warning pattern sounds, and active RF control is restored in under 2 ms.
 
@@ -344,7 +358,7 @@ Launches the interactive 2-step calibration wizard (see Section 5 below).
 
 ## 5. Flight Timer Subsystem & Pilot Audio Ergonomics
 
-The `flysky-i6x-rs` firmware features an EdgeTX/OpenTX-parity flight timer engine designed to prevent unexpected battery depletion, track flight pack duration, and support diverse aircraft categories (fixed-wing, sailplane, and multirotor).
+The `flysky-i6s-rs` firmware features an EdgeTX/OpenTX-parity flight timer engine designed to prevent unexpected battery depletion, track flight pack duration, and support diverse aircraft categories (fixed-wing, sailplane, and multirotor).
 
 ### 1. Timer Modes & Triggers (`T-Trig:`)
 Configurable per-model in **`MODEL SETUP`** -> **`T-Trig:`**:
@@ -385,7 +399,7 @@ The audio engine provides distinctive non-blocking tone patterns during flight:
 - **Overdue Count-Up**: After reaching zero, the timer continues counting upward into negative time (`-00:01`, `-00:02`...) and blinks/inverts on the LCD footer, informing the pilot exactly how far overdue the flight is.
 
 ### 5. Non-Visual Potentiometer Center Detent Haptics
-Because the FS-i6X hardware potentiometers (`VRA` and `VRB`) lack physical center detents, the firmware monitors knob rotation in real time:
+Because the FS-i6S hardware potentiometers (`VRA` and `VRB`) lack physical center detents, the firmware monitors knob rotation in real time:
 - Whenever `VRA` or `VRB` crosses through mechanical center ($0$), a subtle audio click (`2200 Hz`, 10 ms) sounds.
 - Enables pilots wearing FPV goggles or maintaining visual line-of-sight on their model to center flaps, gimbal pitch, or gain dials without glancing at the screen.
 
@@ -439,42 +453,35 @@ The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean 
 
 ## 8. Firmware Flashing, Full Flash Backup, & DFU Recovery
 
-The FlySky FS-i6X can be backed up and flashed directly over USB without specialized hardware programmer probes:
+The FlySky FS-i6S can be backed up and flashed directly over USB with **zero disassembly**:
 
 ### 1. Enter Factory ROM DFU Bootloader
 
-#### A. Initial Flash from Stock FlySky Factory Firmware (R53 Bootloader Access)
-The stock FlySky factory firmware does not include the software key-check logic to jump into the DFU bootloader. Therefore, entering DFU mode for the very first time requires access to the hardware `BOOT0` line:
-1. Ensure the transmitter is switched **OFF** and remove the rear case screws.
-2. Carefully separate the rear case. Be aware of the battery wires connected between the two halves. Once separated, locate the two unpopulated solder pads labeled **`R53`** on the back of the motherboard (near the microcontroller). It is best to connect the USB cable to the rear case now.
-3. Momentarily bridge/short the two `R53` pads using tweezers, a jumper wire, or a screwdriver tip.
-4. While holding the bridge across `R53`, have the USB cable connected to your PC and switch the transmitter power switch **ON**.
-5. Bridging `R53` pulls the MCU's `BOOT0` pin to 3.3V, causing the chip to boot directly into its factory ROM DFU bootloader (`0483:df11` for STM32, `314b:0106` for APM32). The transmitter screen remains blank, and the PC detects the device as `STM32 BOOTLOADER`.
-6. Once powered on, you can remove the bridge across `R53`. You do not need to keep it bridged while flashing.
+You can enter DFU mode using any of three convenient methods:
 
-> [!TIP]
-> For board photos and detailed platform walk-throughs, refer to the [OpenI6X Flashing & Upgrading Documentation](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading).
+#### A. Zero-Disassembly Cold-Boot Combo (Recommended)
+1. Ensure the transmitter is powered **OFF**.
+2. Press and hold both rear tactile push-buttons simultaneously (**Rear Left `PA9` + Rear Right `PA10`**).
+3. While holding both rear buttons, press the power button to turn on the transmitter.
+4. The power latch on `PB15` automatically latches power ON, and the MCU jumps straight into the permanent STM32 factory ROM DFU bootloader (`0483:df11`). The PC immediately detects `STM32 BOOTLOADER`.
 
-#### B. Upgrading from OpenI6X or flysky-i6x-rs (No Disassembly Needed)
-Once custom firmware has been flashed to the radio, hardware pad bridging is never needed again:
-- With the transmitter powered off, hold **Roll Left + Yaw Right** inward towards the power switch while switching on the radio.
-- The LCD screen remains blank, and the transmitter enumerates over USB as `0483:df11` (STM32 BOOTLOADER).
+#### B. Software Touch Menu
+From the running firmware, navigate to **`Settings -> Diag (System Information)`**, scroll to **`[OK] Reboot DFU`**, and tap/press OK. The firmware writes `0xDEADBEEF` to SRAM `0x2000_3FF0`, maintains power on `PB15`, and warm-reboots directly into ROM DFU.
 
-### 2. Backup Entire Flash (CRITICAL BEFORE FIRST FLASH)
-Before flashing any custom firmware, pull your entire 128 KB on-chip Flash memory to a local file for 100% safe, instant reversion:
+#### C. USB Serial CLI Command
+When connected via USB CDC serial (`SERIAL` or `COMPOSITE` mode), simply send `dfu` or `reboot bootloader` in the terminal.
+
+### 2. Backup Entire Flash (Recommended Before First Flash)
+Before flashing custom firmware, pull your entire 128 KB on-chip Flash memory to a local file for 100% safe, instant reversion:
 ```bash
 # Backup complete 128 KB on-chip Flash (firmware + calibration + models)
 dfu-util -a 0 -s 0x08000000:131072 -U stock_backup.bin
 ```
 
-### 3. Flash flysky-i6x-rs Firmware
+### 3. Flash flysky-i6s-rs Firmware
 Flash the compiled binary via `dfu-util`:
 ```bash
-# For STM32F072:
-dfu-util -a 0 -s 0x08000000:leave -D flysky-i6x.bin
-
-# For APM32F072:
-dfu-util -a 0 -d 314b:0106 -s 0x08000000:leave -D flysky-i6x.bin
+dfu-util -a 0 -s 0x08000000:leave -D flysky-i6s.bin
 ```
 The radio will immediately reboot into the new firmware upon completion.
 
@@ -500,7 +507,7 @@ The radio will immediately reboot into the new firmware upon completion.
 > *(Note: The message `Warning: Invalid DFU suffix signature` is also completely harmless—raw `.bin` files created by compilers omit the optional 16-byte PC DFU CRC trailer).*
 
 ### 4. Restore / Revert Anytime
-You can restore your original stock or OpenI6X backup file at any time:
+You can restore your original stock backup file at any time:
 ```bash
 dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
 ```
@@ -535,7 +542,7 @@ The firmware includes five levels of proactive safety protection inspired by Ope
 ### 5. In-Flight Watchdog Recovery & Fast Return-to-Control
 - **Hardware Protection**: An Independent Hardware Watchdog (`pac::IWDG`) runs autonomously off an isolated 40 kHz LSI oscillator with a 2.0-second timeout.
 - **Warm Reboot Detection**: If an unexpected MCU reset occurs (e.g. from ESD, power rail fluctuation, or timing transient), the radio detects the watchdog reset signature in `RCC_CSR`.
-- **Interlock Bypass**: Unlike traditional firmware that traps the pilot on a startup warning screen because the throttle is up mid-flight, `flysky-i6x-rs` automatically bypasses power-on throttle/switch interlocks and the DFU delay during watchdog recovery.
+- **Interlock Bypass**: Unlike traditional firmware that traps the pilot on a startup warning screen because the throttle is up mid-flight, `flysky-i6s-rs` automatically bypasses power-on throttle/switch interlocks and the DFU delay during watchdog recovery.
 - **Instant Flight Recovery (< 2 ms)**: Active over-the-air channel transmission resumes in under **2 milliseconds**, well before receiver failsafe triggers.
 - **Pilot Acoustic Warning**: An urgent 3-beep alarm pattern (`2600 Hz`) sounds immediately on reboot to notify the pilot of the event while maintaining uninterrupted flight control.
 
@@ -543,15 +550,15 @@ The firmware includes five levels of proactive safety protection inspired by Ope
 
 ## 10. USB Subsystem & Flight Simulator Operations
 
-The FlySky FS-i6X features a hardware USB Full-Speed port wired directly to the microcontroller (`PA11` / `PA12`). The `flysky-i6x-rs` firmware supports native plug-and-play USB Joystick control, Virtual COM Port telemetry, and silent RF running.
+The FlySky FS-i6S features a hardware USB Full-Speed port wired directly to the microcontroller (`PA11` / `PA12`). The `flysky-i6s-rs` firmware supports native plug-and-play USB Joystick control, Virtual COM Port telemetry, and silent RF running.
 
 ### 1. Flight Simulator Setup (Liftoff, Velocidrone, RealFlight)
 1. In **`RADIO SETUP`**, ensure **`USB Mode`** is set to **`JOYSTICK`** (or `COMPOSITE`).
-2. Connect a standard Micro-USB cable between the FS-i6X and your computer.
-3. The radio automatically enumerates as **`FS-i6X Joystick`** on Windows, Linux, and macOS without requiring any drivers.
+2. Connect a standard Micro-USB cable between the FS-i6S and your computer.
+3. The radio automatically enumerates as **`FS-i6S Joystick`** on Windows, Linux, and macOS without requiring any drivers.
 4. Open your flight simulator (e.g. Liftoff, Velocidrone, RealFlight, FPV Freerider):
    - Navigate to the simulator's Controller Settings.
-   - Select `FS-i6X Joystick`.
+   - Select `FS-i6S Joystick`.
    - Calibrate the 4 main axes: Throttle, Roll, Pitch, and Yaw.
    - Assign switches (SwA..SwD) to simulator functions like Arm, Flight Mode (Acro/Angle), or Turtle Mode.
 
@@ -567,12 +574,13 @@ When connected via USB in `JOYSTICK` mode:
 
 ### 3. Virtual COM Port & Telemetry Streaming
 In **`SERIAL`** or **`COMPOSITE`** mode, the radio exposes a standard virtual serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows):
-- **Clean Interactive CLI**: Connecting with a serial terminal (`sudo picocom /dev/ttyACM0 --imap lfcrlf`) connects silently without buffer spew. Pressing `[Enter]` displays the `i6x> ` prompt:
+- **Clean Interactive CLI**: Connecting with a serial terminal (`sudo picocom /dev/ttyACM0 --imap lfcrlf`) connects silently without buffer spew. Pressing `[Enter]` displays the `i6s> ` prompt:
   - `help`: List available commands.
   - `status`: Show firmware version, RF protocol, and battery/telemetry overview.
   - `channels`: Print real-time pulse widths in JSON format `{"ch":[...]}`.
   - `telem`: Print a single JSON telemetry line on demand.
   - `stream`: Start continuous 10 Hz JSON telemetry streaming (press any key to stop).
+  - `dfu`: Reboot into STM32 factory ROM DFU bootloader.
   - `reboot`: Trigger a software system reset.
 - **Universal Telemetry Streaming (10 Hz)**: Streams structured JSON Lines (`ndjson`) universally parseable by Python, Node.js, or WebSerial:
   ```json

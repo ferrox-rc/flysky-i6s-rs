@@ -13,7 +13,7 @@ use embedded_graphics::{
 };
 
 use flysky_i6s_rs::{
-    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, storage, time, trim,
+    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, power, rf, storage, time, touch, trim,
     ui, usb, watchdog,
 };
 pub use ui::menu;
@@ -211,6 +211,7 @@ struct BackgroundIdleManager {
     inactivity_beep_timer: u32,
     last_display_ms: u32,
     menu_was_active: bool,
+    pub power_manager: power::PowerManager,
 }
 
 impl BackgroundIdleManager {
@@ -246,6 +247,7 @@ impl BackgroundIdleManager {
             inactivity_beep_timer: 0,
             last_display_ms: 0,
             menu_was_active: false,
+            power_manager: power::PowerManager::new(),
         }
     }
 
@@ -269,6 +271,7 @@ impl BackgroundIdleManager {
         rf_ok: bool,
     ) {
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();
+        self.power_manager.update(dt_ms, storage, buzzer);
 
         // 1. Resynchronize arm tracking when exiting settings menu
         if self.menu_was_active && !menu_active {
@@ -616,9 +619,13 @@ impl BackgroundIdleManager {
                 let pct = ((self.cancel_hold_ms as u32 * 100) / 1000).min(100) as u8;
                 draw_timer_reset_modal(lcd, pct, false);
             }
-
-            lcd.flush();
         }
+
+        if self.power_manager.shutdown_progress_pct() > 0 {
+            draw_shutdown_modal(lcd, self.power_manager.shutdown_progress_pct());
+        }
+
+        lcd.flush();
     }
 }
 
@@ -775,9 +782,32 @@ fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
     }
 }
 
+/// Draw centered modal overlay for power button shutdown hold progress.
+fn draw_shutdown_modal(lcd: &mut St7567, progress_pct: u8) {
+    lcd.fill_rect(18, 19, 92, 26, false);
+    lcd.draw_rect(18, 19, 92, 26, true);
+
+    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    Text::new("SHUTDOWN...", Point::new(28, 29), text_style)
+        .draw(lcd)
+        .ok();
+
+    // Progress bar container: 74 x 6, positioned at (27, 33)
+    lcd.draw_rect(27, 33, 74, 6, true);
+
+    // Progress fill: up to 70px wide
+    let fill_w = ((progress_pct as u32 * 70) / 100).min(70);
+    if fill_w > 0 {
+        lcd.fill_rect(29, 35, fill_w, 2, true);
+    }
+}
+
 #[entry]
 fn main() -> ! {
-    // 0. Standalone feed immediately refreshes any watchdog running across soft reboot
+    // 0. Electronic power latch: MUST be the first instruction to hold power rail ON!
+    power::init();
+
+    // Standalone feed immediately refreshes any watchdog running across soft reboot
     watchdog::feed();
 
     // Check if reboot was triggered by hardware watchdog (IWDG or WWDG) and clear RCC flags.
@@ -799,6 +829,9 @@ fn main() -> ! {
 
     // Initialize SysTick 1.000 ms hardware monotonic timekeeper
     time::init();
+
+    // Initialize FT6236 Capacitive Touchscreen on I2C1 (PB8 SCL, PB9 SDA @ 400kHz, PA15 RST, PC12 INT)
+    touch::ft6236::init();
 
     // 3. Load persistent radio storage and 20-model configuration
     let storage = storage::get_storage();
@@ -942,14 +975,22 @@ fn main() -> ! {
         let now = time::millis();
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
 
-        let keys = boot::scan_keys();
+        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
+
+        // Poll touchscreen when interrupt asserted
+        let touch_sample = if touch::ft6236::is_touch_int_asserted() {
+            touch::ft6236::read_touch()
+        } else {
+            None
+        };
+        let current_sticks = input::poll().sticks;
+        let keys = touch::nav::update_inputs(touch_sample.as_ref(), &current_sticks, menu_active);
+
         if dt_ms > 0 {
             last_tick_ms = now;
             buzzer.tick(dt_ms);
             trims.update(keys, dt_ms, &mut buzzer);
         }
-
-        let menu_active = menu_controller.is_active() || calib_wizard.is_active();
 
         // Tier 1: High-Rate Flight Pipeline Tick (multi-kHz)
         let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, &mut buzzer);

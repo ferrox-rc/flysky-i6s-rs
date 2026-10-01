@@ -1,20 +1,25 @@
-# flysky-i6x-rs
+# flysky-i6s-rs
 
-A minimalist, clean-slate RC transmitter firmware for the **FlySky FS-i6X**, written in `no_std` Rust.
+A minimalist, clean-slate RC transmitter firmware for the **FlySky FS-i6S**, written in `no_std` Rust.
 
-Focused on the built-in **A7105** 2.4 GHz RF transceiver (**AFHDS2A** protocol), **i-BUS** telemetry, and the **128×64 LCD** interface.
+Focused on the built-in **A7105** 2.4 GHz RF transceiver (**AFHDS 2A** protocol), **FT6236 Capacitive Touchscreen**, **Electronic Power Management**, and **128×64 LCD** interface.
 
 ---
 
 ## 1. Overview & Philosophy
 
-The FS-i6X open-source journey was pioneered by the remarkable work of the [OpenI6X](https://github.com/OpenI6X/opentx) project, which successfully brought OpenTX/EdgeTX to this hardware and reverse-engineered the radio architecture.
+The FlySky FS-i6S features an elegant industrial design with an integrated capacitive touchscreen, electronic power latching, dual rear buttons, and ergonomic gimbals.
 
-`flysky-i6x-rs` explores a complementary design philosophy: an experimental, clean-slate firmware written in bare-metal `no_std` Rust designed with:
+`flysky-i6s-rs` provides a clean-slate, standalone firmware written in bare-metal `no_std` Rust designed with:
 - **Zero-Heap, Deterministic Memory:** Fully static allocation with bare-metal `no_std`, eliminating dynamic allocation overhead, allocator stalls, and heap fragmentation.
-- **Lock-Free Concurrency & Watchdog Recovery:** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic double-buffering. 2.0s independent hardware watchdog (`pac::IWDG`) with LSI clock isolation, debug halt freezing, bounded sync, and <2 ms in-flight warm reset recovery that bypasses startup interlocks to prevent lockouts.
-- **Strict Scope:** Dedicated support for the built-in hardware (A7105 AFHDS2A + i-BUS), 4-axis gimbals, switches, trims, 20-model storage, 14-channel matrix mixer, and a 128×64 monochrome UI.
-- **Lightweight Footprint:** **~89.4 KB Binary** (91.3 KB flash total out of 120 KB partition, leaving >30.8 KB / 25.7% headroom) and **~3.0 KB static RAM** + 1 KB LCD framebuffer + 1 KB USB PMA (leaving >81% SRAM free with >6.3 KB stack safety margin).
+- **Lock-Free Concurrency & Watchdog Recovery:** Deterministic priority-driven interrupt scheduling (`TIM16` 260 Hz packet sync, `EXTI2` RF ready) paired with lock-free atomic triple-buffering. 2.0s independent hardware watchdog (`pac::IWDG`) with LSI clock isolation, debug halt freezing, bounded sync, and <2 ms in-flight warm reset recovery that bypasses startup interlocks to prevent lockouts.
+- **Hardware Integration for FS-i6S:**
+  - **Electronic Power Latching (`PB15` / `PB14` / `PD10` / `PD11`):** Instant power rail lock at boot, soft-power hold detection (>= 1.5s) with safe Flash flush, and blue power button LED indication.
+  - **FocalTech FT6236 Capacitive Touchscreen (`PB8` / `PB9` / `PA15` / `PC12`):** Hardware I2C1 Fast Mode driver @ 400 kHz, gesture decoding (Swipe Up/Down/Left/Right), direct tap zones, and virtual dashboard trims.
+  - **Rear Tactile Buttons (`PA9` / `PA10`):** Direct hardware buttons for Cancel/Back (`PA9`) and OK/Select (`PA10`), combined with stick deflections for instant digital trims.
+  - **Zero-Disassembly DFU Bootloader:** Cold boot combo (hold Rear Buttons `PA9` + `PA10`), touch menu reboot option, and USB CDC serial commands (`dfu`).
+- **Strict Scope:** Dedicated support for built-in hardware (A7105 AFHDS 2A + i-BUS), external CRSF/ELRS modules, 4-axis gimbals, switches, 20-model storage, 14-channel matrix mixer, and 128×64 monochrome UI.
+- **Lightweight Footprint:** **~106.2 KB Binary** (out of 120 KB flash partition, leaving >13.8 KB headroom) and **~8.8 KB static RAM** (leaving >7.1 KB stack safety margin in 16 KB SRAM).
 
 ---
 
@@ -23,6 +28,15 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 | Peripheral | Controller / Spec | MCU Pins & Ports | Notes |
 | :--- | :--- | :--- | :--- |
 | **MCU** | STM32F072VB (Cortex-M0 @ 48 MHz) | ARMv6-M (`thumbv6m-none-eabi`) | 128 KB Flash (120 KB code + 8 KB storage), 16 KB SRAM |
+| **Power Latch** | Electronic Power Switch | `PB15` (Output) | Driven HIGH immediately on boot in `power::init()`; held HIGH across DFU jump |
+| **Power Button**| Soft Power Shutdown Sense | `PB14` (Input, Active Low) | Monitored by `PowerManager`; hold >= 1.5s triggers safe Flash flush & shutdown |
+| **Power LEDs** | Dual Blue Button LEDs | `PD10`, `PD11` (Outputs) | Driven HIGH when powered on |
+| **Touchscreen** | **FocalTech FT6236** Capacitive | **I2C1** + GPIOs | 400 kHz Fast Mode, 7-byte packet reader, 90° coordinate swap to 128x64 |
+| | I2C SCL / SDA | `PB8` (SCL) / `PB9` (SDA) | Hardware I2C1 (AF1) |
+| | Hardware Reset (RST) | `PA15` (Active Low) | 5 ms hardware reset pulse on initialization |
+| | Touch Interrupt (INT) | `PC12` (Active Low) | Signals available touch packets; polled at single-cycle speed |
+| **Rear Buttons** | Dual Tactile Switches | `PA9` (Left) / `PA10` (Right) | Active LOW with internal pull-ups; `PA9` = Cancel, `PA10` = OK |
+| **DFU Bootloader**| STM32 ROM DFU Bootloader | `0x1FFF_C800` | Zero-disassembly cold combo: hold `PA9` + `PA10` at power-on; soft DFU via SRAM `0x2000_3FF0` |
 | **Watchdog** | Hardware Independent Watchdog | `pac::IWDG` (40 kHz LSI) | 2.0s hard timeout, `DBGMCU_APB1_FZ` halt freeze, sub-2ms in-flight warm recovery (`RCC_CSR`) |
 | **RF Transceiver** | Amiccom **A7105** 2.4 GHz | **SPI1** + GPIOs | SPI1 (SCK, MOSI, MISO) |
 | | Chip Select (CSN) | `PE12` (Active Low) | Fast GPIO output |
@@ -36,18 +50,12 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 | | Read/Write (RW) | `PB5` | Kept Low for write mode |
 | | Chip Select (CS) | `PD2` | Active Low (held Low for bus access) |
 | | Strobe (RD / E) | `PD7` | 6800-series latch strobe (High -> Low pulse) |
-| | Backlight (Stock) | `PF3` | **Active HIGH** (drives NPN transistor base) |
-| | Backlight (Modded)| `PC9` | `TIM3_CH4` PWM dimming mod (pioneered by OpenI6X) |
+| | Backlight | `PF3` / `PC9` | Active HIGH (`PF3`) / Hardware PWM (`PC9` `TIM3_CH4`) |
 | **Analog Inputs** | 12-bit ADC1 via DMA | 11 Channels scanned | Continuous circular DMA1 Ch1 buffer |
 | | Sticks (RH, RV, LV, LH) | `PA0`, `PA1`, `PA2`, `PA3` | Channels 0 (Roll), 1 (Pitch), 2 (Thr), 3 (Yaw) |
 | | Potentiometers (VRA, VRB)| `PA6`, `PA7` | Channels 6 (VR1 / Left), 7 (VR2 / Right) |
 | | Switches (SA, SB, SC, SD)| `PA4`, `PA5`, `PB0`, `PB1` | Channels 4 (2-pos), 5 (3-pos), 8 (3-pos), 9 (2-pos) |
-| | Battery Sense | `PC0` | Channel 10 (voltage divider: `(raw * 100) / 421 + 20`) |
-| **Digital Keys** | 3 Columns × 4 Rows Matrix | Keypad & Trims | Polled at ~50–100 Hz |
-| | Matrix Columns (R1..R3)| `PC6`, `PC7`, `PC8` | Driven Low sequentially |
-| | Matrix Rows (L1..L4) | `PD12`, `PD13`, `PD14`, `PD15` | Inputs with internal pull-ups |
-| | Inward Trim Keys | `PC6`+`PD13` & `PC7`+`PD14` | Roll Left (RHL) + Yaw Right (LHR) |
-| | Dedicated Bind Key | `PF2` | Active Low (pull-up enabled) |
+| | Battery Sense | `PC0` | Channel 10 ($10\text{ k}\Omega / 5.1\text{ k}\Omega$ divider: `(raw * 977064) / 409500`) |
 | **Storage** | On-chip Flash (Pages 60–63)| `0x0801_E000 .. 0x0801_FFFF` (8 KB) | Append-only sequential storage (Keys 0..20, ~2.8 ms save) |
 | **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External CRSF / ELRS module bay; interrupt RX with 128B ring buffer & ORE recovery |
 | **USB Controller** | Native USB Full-Speed (12 Mbps)| `PA11` (D-) / `PA12` (D+) | Joystick HID, CDC-ACM Serial, Composite, Off |
@@ -59,7 +67,7 @@ The FS-i6X open-source journey was pioneered by the remarkable work of the [Open
 
 ```mermaid
 flowchart TD
-    subgraph Core ["FlySky FS-i6X Reactive Architecture (48 MHz)"]
+    subgraph Core ["FlySky FS-i6S Reactive Architecture (48 MHz)"]
         SCHED["Deterministic Hardware Interrupt & Safety Concurrency Model"]
     end
 
@@ -79,15 +87,16 @@ flowchart TD
         FL2["Dual Rates & Integer Cubic Expo Math"]
         FL3["14-Ch Matrix Mixer & Aircraft Templates"]
         FL4["Catmull-Rom Spline Throttle Curves"]
-        FL5["Double-Buffered PENDING_CHANNELS Update (sub-30 µs)"]
+        FL5["Triple-Buffered PENDING_CHANNELS Update (sub-30 µs)"]
     end
 
     subgraph P0 ["Priority 0: Throttled UI & Background Loop (~500 Hz)"]
-        UI1["Keypad & Trim Matrix Scan (90ms Repeat)"]
-        UI2["Buzzer Tone State Machine (TIM1 PWM)"]
-        UI3["ST7567 Parallel LCD Framebuffer Render (30 Hz)"]
-        UI4["Append-Only Sequential Storage (Pages 60-63)"]
-        UI5["Hardware Watchdog Pet (pac::IWDG 2.0s)"]
+        UI1["FT6236 I2C Touch Poll & Rear Button Scan"]
+        UI2["Power Latch & PB14 Hold Shutdown Monitor"]
+        UI3["Buzzer Tone State Machine (TIM1 PWM)"]
+        UI4["ST7567 Parallel LCD Framebuffer Render (30 Hz)"]
+        UI5["Append-Only Sequential Storage (Pages 60-63)"]
+        UI6["Hardware Watchdog Pet (pac::IWDG 2.0s)"]
     end
 
     SCHED --> P3
@@ -321,8 +330,8 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [ ] Auxiliary channel rate-limiter ("Servo Slow") for realistic flap deployment and gear doors without aerodynamic ballooning.
 
 ### Current Firmware Footprint
-- **Application Flash ROM**: **~101.6 KB** (.text 87,056B + .rodata 8,072B + .data 6,292B + .vector_table 192B = 101.6 KB total) used out of **120 KB** partition (**>18.4 KB / 15.3% free headroom**).
-- **Static RAM**: **~7.3 KB** (`.data` 6,292B + `.bss` 1,000B) out of **16 KB** available (**>54% SRAM free** with **>8.7 KB** guaranteed stack safety margin).
+- **Application Flash ROM**: **~106.2 KB** (.text + .rodata + .data = ~106.2 KB total) used out of **120 KB** partition (**>13.8 KB / 11.5% free headroom**).
+- **Static RAM**: **~8.8 KB** (`.data` 7,856B + `.bss` 1,004B) out of **16 KB** available (**>44% SRAM free** with **>7.1 KB** guaranteed stack safety margin).
 - **Non-Volatile Storage**: **8,192 bytes** (Pages 60–63) managed as an append-only log with automatic wear levelling.
 
 ---
@@ -331,70 +340,59 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 
 | Action | Control | Notes |
 | :--- | :--- | :--- |
-| **Cycle Flight Pages** | **`[UP]` / `[DOWN]` or Tap `[BIND]`** | Steps through Page 1/4 (Gimbals & Timer), Page 2/4 (14-CH Monitor), Page 3/4 (Model Dashboard), and Page 4/4 (Telemetry Dashboard) |
-| **Reset Flight Timer** | **Hold `[CANCEL]` (>= 1.0s)** | Displays centered HUD progress bar on flight screen; resets timer with chime on 1.0s completion |
-| **Open Settings Menu** | **Hold `OK` for 1.2s** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, Protocol Setup, Monitors, Calib, Diag, & Info |
-| **Rapid Menu / Value Scroll** | **Hold `UP` or `DOWN`** | Auto-repeats every 70 ms after 300 ms hold across all menus, character editing, and curve points |
-| **Direct Calibration (Boot)**| **Hold `OK` during Power-On** | Launches 2-step calibration wizard immediately on boot |
-| **Initiate Receiver Binding**| **Hold `BIND` (>= 1.0s)** | Starts AFHDS 2A binding from any flight page (or hold during power-on) |
-| **Abort / Cancel Binding** | **Press `Cancel` (`ESC`)** | Exits binding mode immediately and restores normal RF |
-| **Tab / Advance Cursor** | **`OK` or `BIND` in Editors** | Advances character cursor in naming editor, point selection in curve editor, and field toggle in Protocol Setup |
-| **Enter DFU Bootloader (Boot)** | **Inward Trims + Power ON** | Push Roll Left & Yaw Right inward while switching on (Primary hardware recovery/flashing mode) |
-| **Digital Trims** | **4 Trim Rockers** | Single click + 90ms auto-repeat with audio pitch scaling |
+| **Power On** | **Power Buttons** | Press & hold power buttons until blue LEDs illuminate and welcome screen appears |
+| **Power Off** | **Hold Power Button (>= 1.5s)**| Displays animated shutdown modal; safely flushes Flash and cuts power rail via `PB15` |
+| **Cycle Flight Pages** | **Swipe UP / DOWN or Edge Tap** | Cycles through Page 1/5 (Gimbals & Timer), Page 2/5 (14-CH Monitor), Page 3/5 (Aux Chs), Page 4/5 (Model Dashboard), Page 5/5 (Telemetry) |
+| **Open Settings Menu** | **Center Tap on Screen or Hold OK (PA10)** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, Protocol Setup, Monitors, Calib, Diag, & Info |
+| **Menu Navigation** | **Swipe / Tap Zones / Rear Buttons** | Top = Up, Bottom = Down, Left = Cancel, Right = OK; Rear Left (`PA9`) = Cancel, Rear Right (`PA10`) = OK |
+| **Digital Trims: Stick Modifier** | **Rear Buttons + Gimbal Deflection** | Hold Rear Left (`PA9`) + Left Stick (Throttle/Yaw); hold Rear Right (`PA10`) + Right Stick (Pitch/Roll) |
+| **Digital Trims: Virtual Touch** | **Perimeter Tap Targets** | Left border = Throttle trim, Right border = Pitch trim, Bottom border = Yaw/Roll trims |
+| **Enter DFU Bootloader (Cold Boot)**| **Hold Rear Buttons (`PA9` + `PA10`)** | Zero-disassembly cold-boot combo at power-on to jump directly into factory ROM DFU |
+| **Enter DFU Bootloader (Software)** | **Diag Menu or USB CLI** | `Diag -> [OK] Reboot DFU` or USB serial command `dfu` / `reboot bootloader` |
+| **Reset Flight Timer** | **Hold `[CANCEL]` / Rear Left (>= 1.0s)** | Displays centered HUD progress bar on flight screen; resets timer on 1.0s completion |
+| **Direct Calibration (Boot)**| **Hold `OK` / Rear Right during Power-On** | Launches 2-step calibration wizard immediately on boot |
 
 ---
 
 ## 9. Flashing, Full Flash Backup, & Reversion
 
-The stock FlySky FS-i6X features a built-in Micro-USB port wired directly to the microcontroller. Flashing or backing up requires no ST-Link probe or permanent hardware modifications:
+The stock FlySky FS-i6S features an on-board Micro-USB port wired directly to the STM32F072 microcontroller. Flashing requires **zero disassembly**:
 
 ### Step 1: Enter Factory ROM DFU Mode
 
-The method to enter DFU bootloader mode depends on whether you are currently on stock FlySky factory firmware or already running custom firmware:
+You can enter DFU mode using any of three convenient methods:
 
-#### A. First-Time Flashing from Stock Factory Firmware (R53 Bootloader Access)
-Because the original stock FlySky factory firmware does not include a software key check to trigger the DFU bootloader, entering DFU mode for the first time requires hardware access to the `BOOT0` line via the **`R53`** solder pads:
-1. Ensure the transmitter is switched **OFF** and remove the rear case screws.
-2. Carefully separate the rear case. Be aware of the battery wires connected between the two halves. Once separated, locate the two unpopulated solder pads labeled **`R53`** on the back of the motherboard (near the microcontroller). It is best to connect the USB cable to the rear case now.
-3. Momentarily bridge/short the two `R53` pads using tweezers, a jumper wire, or a screwdriver tip.
-4. While holding the bridge across `R53`, have the USB cable connected to your PC and switch the transmitter power switch **ON**.
-5. Bridging `R53` pulls the MCU's `BOOT0` pin to 3.3V, causing the chip to boot directly into its factory ROM DFU bootloader (`0483:df11` for STM32, `314b:0106` for APM32). The transmitter screen remains blank, and the PC detects the device as `STM32 BOOTLOADER`.
-6. Once powered on, you can remove the bridge across `R53`. You do not need to keep it bridged while flashing.
+#### A. Zero-Disassembly Cold-Boot Combo (Recommended)
+1. Ensure the transmitter is powered **OFF**.
+2. Press and hold both rear tactile push-buttons simultaneously (**Rear Left `PA9` + Rear Right `PA10`**).
+3. While holding both rear buttons, press the power button to turn on the transmitter.
+4. The power latch on `PB15` automatically latches power ON, and the MCU jumps straight into the permanent STM32 factory ROM DFU bootloader (`0483:df11`). The PC immediately detects `STM32 BOOTLOADER`.
 
-> [!TIP]
-> For board photos, pad locations, and Windows driver setup (Zadig / STM32CubeProgrammer), refer to the comprehensive [OpenI6X Flashing & Upgrading Guide](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading).
+#### B. Software Menu Trigger
+From the running firmware, navigate to **`Settings -> Diag (System Information)`**, scroll to **`[OK] Reboot DFU`**, and tap/press OK. The firmware writes `0xDEADBEEF` to SRAM `0x2000_3FF0`, maintains power on `PB15`, and warm-reboots directly into ROM DFU.
 
-#### B. Upgrading from Custom Firmware (OpenI6X or flysky-i6x-rs)
-Once custom firmware is installed, **no disassembly or opening the case is ever needed again**:
-1. Ensure the transmitter is switched **OFF**.
-2. Push both horizontal trim buttons inward towards the power switch (**Roll Left** + **Yaw Right**) and switch the radio **ON**.
-3. The firmware immediately triggers the software DFU bootloader jump and enumerates over USB.
+#### C. USB Serial CLI Command
+When connected via USB CDC serial (`SERIAL` or `COMPOSITE` mode), simply send `dfu` or `reboot bootloader` in the terminal.
 
-### Step 2: Backup Entire Flash Memory (CRITICAL BEFORE FIRST FLASH)
-Before flashing any custom firmware, pilots should pull their complete 128 KB on-chip Flash memory (including stock firmware, factory calibration, and existing model data) directly to a file for 100% safe, instant reversion:
+### Step 2: Backup Entire Flash Memory (Recommended Before First Flash)
+Before flashing custom firmware, pilots can pull their complete 128 KB on-chip Flash memory (including stock firmware, factory calibration, and existing model data) directly to a file:
 ```bash
 # Pull complete 128 KB on-chip Flash to a local backup file:
 dfu-util -a 0 -s 0x08000000:131072 -U stock_backup.bin
 ```
 
-### Step 3: Flash flysky-i6x-rs
+### Step 3: Flash flysky-i6s-rs
 Flash the compiled release binary via USB DFU:
 ```bash
-# For STM32F072:
-dfu-util -a 0 -s 0x08000000:leave -D flysky-i6x.bin
-
-# For APM32F072:
-dfu-util -a 0 -d 314b:0106 -s 0x08000000:leave -D flysky-i6x.bin
+# Flash release binary:
+dfu-util -a 0 -s 0x08000000:leave -D flysky-i6s.bin
 ```
 
 > [!TIP]
 > **DFU Error State (`DFU state(10) = dfuERROR`)?**
-> If `dfu-util` reports `Device's firmware is corrupt. It cannot return to run-time operations`, this is **not** a firmware bug or hardware fault. It is generated by the chip's factory ROM bootloader when a prior transfer ended without `:leave` or was interrupted.
-> - **Clear the error**: Run `dfu-util -a 0 -e` to send a `DFU_CLRSTATUS` reset.
-> - **Prevention**: Always include `:leave` on `-s 0x08000000:leave` so the bootloader exits cleanly.
-> - **Consequence of ignoring**: Subsequent flash or read attempts will halt until the status is cleared.
+> If `dfu-util` reports `Device's firmware is corrupt. It cannot return to run-time operations`, run `dfu-util -a 0 -e` to send a `DFU_CLRSTATUS` reset. Always include `:leave` on `-s 0x08000000:leave` so the bootloader exits cleanly.
 
-### Step 4: Revert to OpenTX / Stock Anytime
+### Step 4: Revert to Stock Anytime
 Because the hardware DFU bootloader is stored in permanent, read-only system ROM by STMicroelectronics, the transmitter is **unbrickable**. You can restore your full flash backup at any time:
 ```bash
 dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
@@ -404,13 +402,13 @@ dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
 
 ## 10. Development Methodology, Automated Testing, & AI Assistance
 
-This project was built through a **human-directed, AI-assisted development workflow** ("vibe-coding" with rigorous physical hardware bench testing and automated test harnesses). Having previously contributed to OpenI6X, domain knowledge of the FS-i6X hardware, pinouts, and protocol timings was used to direct LLM pair-programming tools to rapidly implement the `no_std` Rust architecture.
+This project was built through a **human-directed, AI-assisted development workflow** ("vibe-coding" with rigorous physical hardware bench testing and automated test harnesses).
 
 ### Automated Testing & Dual-Target Harness
-To guarantee mathematical correctness and protocol compliance without requiring a physical radio or slow hardware emulators, `flysky-i6x-rs` features a **zero-file-move dual-target test harness**:
-- **Host Unit Test Execution**: Running `cargo test-host` compiles the codebase against the host target (`x86_64`) with standard library support, executing 36 unit and adversarial regression tests across flight curves, digital trims, matrix mixers, and CRSF/ELRS state machines in **sub-millisecond time**.
-- **Peripheral & Timing Decoupling**: Peripheral drivers (`uart.rs`, `time.rs`) use `#[cfg(test)]` mocks to simulate serial UART FIFO queues and advance virtual time deterministically.
-- **Physical Hardware Validation**: Every subsystem (DMA ADC scanning, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been deployed and verified on real FlySky FS-i6X hardware.
+To guarantee mathematical correctness and protocol compliance without requiring a physical radio or slow hardware emulators, `flysky-i6s-rs` features a **zero-file-move dual-target test harness**:
+- **Host Unit Test Execution**: Running `cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1` compiles the codebase against the host target (`x86_64`) with standard library support, executing 91 unit and adversarial regression tests across flight curves, digital trims, touchscreen decoding, matrix mixers, and CRSF/ELRS state machines in **sub-second time**.
+- **Peripheral & Timing Decoupling**: Peripheral drivers use `#[cfg(test)]` mocks to simulate serial UART FIFO queues, touch coordinates, and advance virtual time deterministically.
+- **Physical Hardware Validation**: Every subsystem (DMA ADC scanning, FT6236 capacitive touchscreen, electronic power latch, A7105 SPI/RF state machine, ST7567 parallel bus LCD, USB HID/CDC descriptors, USART2 CRSF/ELRS engine, and Flash storage) has been verified.
 
 For detailed test architecture, adversarial verification scenarios, and developer commands, refer to the **[Testing Methodology & Verification Guide](docs/TESTING.md)**.
 

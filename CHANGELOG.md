@@ -8,10 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-10-01
 
 ### Added
-- **Initial FlySky FS-i6S Standalone Repository Bring-Up**:
-  - Forked from `flysky-i6x-rs` v0.19.1 as a dedicated, standalone open-source firmware for the FlySky FS-i6S transmitter with touchscreen.
-  - Inherits the proven core flight architecture: Amiccom A7105 SPI1 RF transceiver & AFHDS 2A telemetry stack, Sitronix ST7567 128×64 8-bit parallel LCD driver, 11-channel autonomous DMA1 ADC scanner, 32-line Matrix Mixer, 5/9-point throttle curve spline evaluator, and Full-Speed USB controller.
+- **Initial FlySky FS-i6S Standalone Firmware Bring-Up**:
+  - Dedicated, standalone open-source firmware for the FlySky FS-i6S transmitter with touchscreen, forked from `flysky-i6x-rs` v0.19.1.
   - Initialized crate naming `flysky-i6s-rs` and initial semantic version `v0.1.0`.
+- **Electronic Power Latching & Soft Shutdown Subsystem ([`src/power.rs`](src/power.rs), [`src/main.rs`](src/main.rs))**:
+  - Hardware electronic latch on `PB15` driven HIGH as the first instruction in `main()` to maintain the transmitter power rail.
+  - Push-button shutdown monitoring on `PB14` with boot-release debounce protection and hold threshold (>= 1.5s).
+  - Safe Flash storage compaction and flush before de-asserting `PB15` to power down.
+  - Graphical shutdown confirmation modal with real-time countdown progress bar.
+  - Dual power button blue status LEDs on `PD10` and `PD11`.
+- **FocalTech FT6236 Capacitive Touchscreen Driver ([`src/touch/ft6236.rs`](src/touch/ft6236.rs), [`src/touch/mod.rs`](src/touch/mod.rs))**:
+  - Hardware I2C1 master driver on `PB8` (SCL) and `PB9` (SDA) operating at 400 kHz Fast Mode.
+  - Active-low hardware reset on `PA15` and interrupt line monitoring on `PC12`.
+  - Non-blocking 7-byte register packet reader parsing touch points, event kinds, and gesture directions.
+  - Coordinate mapping and 90° axis swap converting raw 320x320 touch coordinates to 128x64 LCD display geometry.
+- **Touch Navigation & Virtual / Modifier Digital Trims ([`src/touch/nav.rs`](src/touch/nav.rs))**:
+  - Touch-to-nav translator converting Swipe gestures (Up/Down/Left/Right) and Direct Tap zones (Top/Bottom/Left/Right/Center) into UI navigation events.
+  - Rear tactile push-buttons: Rear Left (`PA9`) mapped to Cancel/Back and Rear Right (`PA10`) mapped to OK/Select.
+  - Dual digital trim methods replacing mechanical rockers:
+    1. **Stick Modifier Mode**: Hold Rear Left (`PA9`) + Left Stick for Yaw and Throttle trims; hold Rear Right (`PA10`) + Right Stick for Roll and Pitch trims.
+    2. **Virtual Touch Targets**: Perimeter taps on the flight dashboard nudge trim axes directly.
+- **Zero-Disassembly DFU Bootloader Manager ([`src/boot.rs`](src/boot.rs), [`src/chip/mod.rs`](src/chip/mod.rs), [`src/usb/serial.rs`](src/usb/serial.rs), [`src/ui/menu/screens/diag.rs`](src/ui/menu/screens/diag.rs))**:
+  - Cold-boot combo: Hold both Rear Buttons (`PA9` + `PA10`) during power-on to jump directly into the factory ROM DFU bootloader without opening the transmitter case.
+  - Soft reboot to DFU: Magic flag `0xDEADBEEF` at SRAM `0x2000_3FF0` checked on reset.
+  - Touch Menu option: `Diagnostics -> [OK] Reboot DFU`.
+  - USB CDC CLI commands: `dfu`, `reboot bootloader`, and `reboot-bootloader`.
+  - Power latch preservation: `rcc_deinit()` preserves `GPIOB` clock (`0x0004_0014`) and re-latches `PB15` HIGH before and after RCC de-initialization so the device remains powered in ROM DFU.
+- **FS-i6S Battery Voltage Sensing Scaling ([`src/input.rs`](src/input.rs))**:
+  - Updated battery ADC divider formula for the FS-i6S $10\text{ k}\Omega / 5.1\text{ k}\Omega$ resistive divider ($V_{bat} = V_{adc} \times 2.9608$, integer ratio `(raw * 977064) / 409500`).
+- **Complete Documentation Overhaul**:
+  - Updated `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, and all guides in `docs/` to reflect the FS-i6S hardware architecture, pinout, touchscreen navigation, and electronic power management.
 
 ## [flysky-i6x-rs Heritage]
 

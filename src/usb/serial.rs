@@ -159,13 +159,13 @@ impl SerialHandler {
         if cmd.eq_ignore_ascii_case("help") {
             write_all(
                 serial,
-                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH18)\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  reboot    - Reboot transmitter\r\n",
+                b"Commands:\r\n  help      - Show this help\r\n  status    - Firmware & battery info\r\n  channels  - Dump RF channel values (CH1..CH18)\r\n  telem     - Dump single telemetry frame\r\n  stream    - Start continuous telemetry streaming (any key to stop)\r\n  dfu       - Reboot into STM32 factory ROM DFU bootloader\r\n  reboot    - Reboot transmitter\r\n",
             );
         } else if cmd.eq_ignore_ascii_case("status") {
             write_all(
                 serial,
                 concat!(
-                    "FlySky FS-i6X Rust Firmware v",
+                    "FlySky FS-i6S Rust Firmware v",
                     env!("CARGO_PKG_VERSION"),
                     "\r\n"
                 )
@@ -217,6 +217,12 @@ impl SerialHandler {
         } else if cmd.eq_ignore_ascii_case("telem off") {
             self.stream_enabled = false;
             write_all(serial, b"Telemetry streaming disabled\r\n");
+        } else if cmd.eq_ignore_ascii_case("dfu")
+            || cmd.eq_ignore_ascii_case("reboot bootloader")
+            || cmd.eq_ignore_ascii_case("reboot-bootloader")
+        {
+            write_all(serial, b"Rebooting to STM32 DFU bootloader...\r\n");
+            crate::boot::reboot_to_dfu();
         } else if cmd.eq_ignore_ascii_case("reboot") {
             write_all(serial, b"Rebooting...\r\n");
             cortex_m::peripheral::SCB::sys_reset();

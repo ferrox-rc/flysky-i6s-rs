@@ -170,8 +170,8 @@ unsafe fn rcc_deinit() {
     ptr::write_volatile(RCC_APB1RSTR, 0xFFFF_FFFF);
     ptr::write_volatile(RCC_APB1RSTR, 0x0000_0000);
 
-    // Reset peripheral clocks except SYSCFG & SRAM
-    ptr::write_volatile(RCC_AHBENR, 0x0000_0014); // SRAMEN + FLITFEN
+    // Reset peripheral clocks except SYSCFG, SRAM, and GPIOB (keeps PB15 power latch active)
+    ptr::write_volatile(RCC_AHBENR, 0x0004_0014); // GPIOBEN (bit 18) + SRAMEN (bit 2) + FLITFEN (bit 4)
     ptr::write_volatile(RCC_APB2ENR, 0x0000_0001); // SYSCFGEN
     ptr::write_volatile(RCC_APB1ENR, 0x0000_0000);
 }
@@ -179,15 +179,21 @@ unsafe fn rcc_deinit() {
 /// Perform a clean software jump to the MCU's built-in factory DFU bootloader.
 ///
 /// Matches the exact OpenI6X SystemBootloaderJump() sequence:
-/// 1. Reset RCC to default state
-/// 2. Clear SysTick timer
-/// 3. Remap System Memory to 0x0000_0000 via SYSCFG
-/// 4. Re-enable interrupts so the factory bootloader's USB stack functions!
-/// 5. Bootstrap into the bootloader reset vector.
+/// 1. Reset RCC to default state while keeping GPIOB clock active
+/// 2. Assert PB15 HIGH to keep radio powered
+/// 3. Clear SysTick timer and NVIC interrupts
+/// 4. Remap System Memory to 0x0000_0000 via SYSCFG
+/// 5. Re-enable interrupts so the factory bootloader's USB stack functions!
+/// 6. Bootstrap into the bootloader reset vector.
 pub fn enter_dfu_bootloader(profile: &McuProfile) -> ! {
+    crate::power::latch_on();
+
     unsafe {
         // 1. Reset RCC to default HSI 8MHz state
         rcc_deinit();
+
+        // Re-assert power latch after RCC reset
+        crate::power::latch_on();
 
         // 2. Clear SysTick
         const SYST_CSR: *mut u32 = 0xE000_E010 as *mut u32;

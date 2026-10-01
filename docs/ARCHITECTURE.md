@@ -1,6 +1,6 @@
 # SOFTWARE ARCHITECTURE & TIMING MODEL
 
-`flysky-i6x-rs` uses a bare-metal, `no_std` reactive architecture designed for deterministic RF packet timing and sub-millisecond control latency on the STM32F072VB Cortex-M0 microcontroller.
+`flysky-i6s-rs` uses a bare-metal, `no_std` reactive architecture designed for deterministic RF packet timing and sub-millisecond control latency on the STM32F072VB Cortex-M0 microcontroller.
 
 ---
 
@@ -33,21 +33,17 @@ flowchart TD
     end
 
     subgraph Main_Thread ["Main Execution Loop (~500 Hz)"]
-        ADC_Poll["1. Read DMA Buffer (input::poll)<br>Adaptive Jitter Filter + Calibrations"]
-        Keys["2. Scan Key Matrix (boot::scan_keys)<br>Digital Trims & Navigation Shortcuts"]
-        Trims["3. Apply Digital Trims<br>Roll, Pitch, Throttle (Option 1/2), Yaw"]
-        Curves["4. Curve Engine (curve::evaluate_curve)<br>5/9-Point Catmull-Rom Spline Interpolation"]
-        Rev["5. Channel Reversing<br>18-bit mask: pulse = 3000 - pulse"]
-        USB_Poll["6. USB Subsystem Poll (usb::poll)<br>100 Hz HID Gamepad & CDC Serial CLI"]
-        RF_Update["7. Update rf::set_channels(&rf_chs)<br>Lock-Free SPSC Triple Buffer (zero critical sections)"]
-        Menu_Router["8. Menu State Machine & Wizards<br>Model Select, Setup, Curves, Calib"]
-        LCD_Draw["9. Draw Framebuffer & Strobe LCD<br>ST7567 8-bit parallel bus (30 Hz refresh)"]
-        WDT_Feed["10. Pet Hardware Watchdog (watchdog::feed)<br>Prevents 2.0s hardware reset"]
+        WDT_Feed["0. Pet Watchdog (watchdog::feed)<br>Refreshes 2.0s hardware timer"]
+        Touch_Poll["1. FT6236 I2C1 Poll & Read<br>Touch events on PC12 assert"]
+        Nav_Update["2. touch::nav::update_inputs<br>Merges touch tap/swipe, rear keys PA9/PA10, modifier trims"]
+        Power_Tick["3. power_manager.update<br>PB14 hold detection >= 1.5s -> safe shutdown"]
+        Flight_Tick["4. FlightPipeline::tick (multi-kHz)<br>ADC scan, matrix mixer, spline curves, RF publish"]
+        Idle_Tick["5. BackgroundIdleManager::tick (30 Hz)<br>UI screens, ST7567 LCD flush, buzzer sequencer"]
     end
 
-    DMA -.-> ADC_Poll
-    ADC_Poll --> Keys --> Trims --> Curves --> Rev --> USB_Poll --> RF_Update --> Menu_Router --> LCD_Draw --> WDT_Feed
-    RF_Update -. SPSC Triple Buffer .-> TIM16
+    DMA -.-> Flight_Tick
+    WDT_Feed --> Touch_Poll --> Nav_Update --> Power_Tick --> Flight_Tick --> Idle_Tick
+    Flight_Tick -. Triple Buffer .-> TIM16
     WDT_Feed -. Reload .-> IWDG
 ```
 
@@ -59,7 +55,7 @@ flowchart TD
 - **Autonomous DMA**: `DMA1_CH1` transfers all 11 ADC channels directly into circular SRAM buffers with zero CPU intervention.
 - **Hardware Timers**: `TIM1` generates non-blocking audio frequencies on `PA8`; `TIM3` generates 1 kHz PWM brightness control on `PC9`.
 - **Low Priority (USB Physical Layer)**: The USB interrupt is assigned priority `0xC0`. Because RF interrupts have higher priority (`0x80`), USB transactions or host bus stalls can never preempt or delay an over-the-air packet.
-- **Background / Main Loop**: Decoupled control loop architecture; the real-time flight control pipeline (ADC sampling, lightweight 4-sample filtering with dynamic deadband bypass, matrix mixer, D/R & expo, throttle curves) executes in under 30 µs at multi-kHz pass rates, updating the lock-free SPSC triple buffer for RF transmission, while ST7567 LCD frame rendering (including 5-page flight dashboard and 3-slot icon menu with scrollbar) is throttled to a smooth 30 Hz (~33 ms).
+- **Background / Main Loop**: Decoupled control loop architecture; the real-time flight control pipeline executes in under 30 µs at multi-kHz pass rates, updating the lock-free SPSC triple buffer for RF transmission, while ST7567 LCD frame rendering is throttled to a smooth 30 Hz (~33 ms).
 
 ---
 
@@ -71,32 +67,35 @@ In flight-critical avionics and remote control systems, a hardware watchdog must
 flowchart TD
     subgraph Boot_Decision ["Reset Source Evaluation (RCC_CSR)"]
         Boot["MCU Boot / Reset Vector (0x0800_0000)"]
+        PowerInit["power::init()<br>Latch PB15 HIGH immediately"]
         ReadCSR["chip::check_and_clear_reset_flags()<br>Read RCC_CSR: IWDGRSTF / WWDGRSTF"]
         ClearCSR["Clear Reset Flags (RCC_CSR.RMVF = 1)"]
         IsWDT{"Watchdog Reset?"}
         
-        Boot --> ReadCSR --> ClearCSR --> IsWDT
+        Boot --> PowerInit --> ReadCSR --> ClearCSR --> IsWDT
     end
 
     subgraph Cold_Boot ["Normal Cold Power-On Boot"]
-        DFU["Check DFU Entry (Trims Inward)<br>~6.25 ms contact settling delay"]
+        DFU["Check DFU Entry (PA9+PA10 or 0xDEADBEEF)<br>~6.25 ms contact settling delay"]
         Clocks["Init 48 MHz HSE+PLL & SysTick"]
+        TouchInit["Init FT6236 I2C1 Touchscreen"]
         Storage["Load Storage & Tone Preferences"]
         Splash["Ferrox-RC Splash Screen (1200 ms)<br>Concurrent 4-Note Welcome Fanfare (buzzer::chime_welcome)"]
         Periphs["Init ADC+DMA, RF, USB, CRSF, Trims"]
         SafetyCheck["Pre-Flight Safety Check Loop<br>Throttle < -900 & Switches UP<br>Modal Trap with 1000 µs Failsafe"]
         
-        IsWDT -- "No (POR/PDR/Pin Reset)" --> DFU --> Clocks --> Storage --> Splash --> Periphs --> SafetyCheck
+        IsWDT -- "No (POR/PDR/Pin Reset)" --> DFU --> Clocks --> TouchInit --> Storage --> Splash --> Periphs --> SafetyCheck
     end
 
     subgraph Warm_Recovery ["In-Flight Watchdog Recovery (< 2 ms)"]
         FastInit["Bypass DFU Check (Init Keys GPIO Directly)<br>Inhibit Bind-on-Boot & Calib Wizard"]
         ClocksWarm["Init 48 MHz HSE+PLL & SysTick"]
+        TouchWarm["Init FT6236 Touchscreen"]
         PeriphsWarm["Init LCD, ADC+DMA, RF, Trims"]
         AlertChirp["Urgent Warning Chirp (buzzer::play_tone_pattern)<br>Non-blocking 2.6 kHz acoustic alert"]
         BypassCheck["BYPASS Pre-Flight Safety Interlocks<br>Direct into Flight Pipeline"]
         
-        IsWDT -- "Yes (IWDG/WWDG Timeout)" --> FastInit --> ClocksWarm --> PeriphsWarm --> AlertChirp --> BypassCheck
+        IsWDT -- "Yes (IWDG/WWDG Timeout)" --> FastInit --> ClocksWarm --> TouchWarm --> PeriphsWarm --> AlertChirp --> BypassCheck
     end
 
     subgraph Flight_Loop ["Active Real-Time Flight Pipeline"]
@@ -138,7 +137,7 @@ A catastrophic hazard in conventional open-source and commercial RC firmware is 
 6. The aircraft crashes before the pilot can diagnose or clear the screen.
 
 #### Solution & DO-178C Deterministic Recovery:
-In `flysky-i6x-rs`, reset recovery is treated as a safety-critical state machine:
+In `flysky-i6s-rs`, reset recovery is treated as a safety-critical state machine:
 - **RCC_CSR Reset Cause Latching**: At the absolute top of `main()`, `chip::check_and_clear_reset_flags()` reads `RCC_CSR`. It detects if the reset was initiated by `IWDGRSTF` (Independent Watchdog) or `WWDGRSTF` (Window Watchdog) and immediately clears all reset flags via `RMVF`.
 - **DFU Settling Delay Elimination**: On cold boots, `boot::check_dfu_entry` inserts a ~6.25 ms settling delay to debounce trim switches. On watchdog recovery, this check is completely bypassed, calling `boot::init_keys()` directly. This removes unnecessary latency and eliminates any possibility of accidentally entering the DFU bootloader mid-flight.
 - **Inhibition of Modal Wizards**: Bind-on-boot and direct calibration wizard entry (`initial_keys & (1 << 10)`) are inhibited during watchdog recovery, ensuring active model binding and calibration states are untouched.
@@ -160,10 +159,10 @@ In `flysky-i6x-rs`, reset recovery is treated as a safety-critical state machine
  
 Measured on release builds (`thumbv6m-none-eabi`, opt-level = "z", LTO = "fat"):
 - **Application Flash Partition (`memory.x`)**: **120 KB** (`0x0800_0000 .. 0x0801_DFFF`, Pages 0–59) allocated for firmware code.
-- **Firmware Binary**: **~89.4 KB** (.text 89,432 bytes + .data 1,876 bytes = 91.3 KB flash total).
-- **Free Program Space**: **~30.8 KB** (~25.7% free headroom) remaining within the 120 KB partition for future expansions.
+- **Firmware Binary**: **~106.2 KB** (.text 100,900 bytes + .data 7,856 bytes = 108,756 bytes flash total).
+- **Free Program Space**: **>13.8 KB** (~11.5% free headroom) remaining within the 120 KB partition for future expansions.
 - **Non-Volatile Storage (Flash Pages 60–63)**: **8 KB** (`0x0801_E000 .. 0x0802_0000`, 4 × 2048-byte pages) managed as a log-structured append-only storage engine via `sequential-storage`. Writes complete in **~2.8 ms** with zero page erases on routine updates, wear-levelled across all 4 pages.
-- **SRAM (16 KB total)**: **~3.0 KB** static allocation (`.data` 1,876 bytes + `.bss` 1,128 bytes) + 1024-byte LCD framebuffer + 1024-byte USB Packet Memory Area (PMA). **Over 81% of SRAM remains free**, with **> 6.3 KB** guaranteed stack margin preventing any stack-on-static collision.
+- **SRAM (16 KB total)**: **~8.8 KB** static allocation (`.data` 7,856 bytes + `.bss` 1,004 bytes). **Over 44% of SRAM remains free**, with **> 7.1 KB** guaranteed stack margin preventing any stack-on-static collision.
 - **Zero Heap & In-Place Loading**: Entirely static allocation; no dynamic heap allocations, no `alloc` crate, and zero pass-by-value stack instantiation for model storage structures.
 
 ---

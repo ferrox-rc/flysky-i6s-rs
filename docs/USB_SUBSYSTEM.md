@@ -1,12 +1,12 @@
 # USB Subsystem Architecture & Operations Manual
 
-A comprehensive technical reference and operations guide for the USB subsystem of `flysky-i6x-rs` on the FlySky FS-i6X transmitter.
+A comprehensive technical reference and operations guide for the USB subsystem of `flysky-i6s-rs` on the FlySky FS-i6S transmitter.
 
 ---
 
 ## 1. Overview & System Philosophy
 
-The standard FlySky FS-i6X transmitter PCB is equipped with a native USB port wired directly to the microcontroller's hardware USB Full-Speed (12 Mbps) peripheral. Building on the USB joystick emulation established by the OpenI6X project, `flysky-i6x-rs` introduces a pure `no_std` Rust USB subsystem featuring:
+The FlySky FS-i6S transmitter PCB is equipped with a native Micro-USB port wired directly to the microcontroller's hardware USB Full-Speed (12 Mbps) peripheral. `flysky-i6s-rs` introduces a pure `no_std` Rust USB subsystem featuring:
 - **Zero Heap Allocations**: Powered by `usb-device`, `stm32-usbd`, `usbd-hid`, and `usbd-serial` using static memory structures and direct hardware packet buffers.
 - **Dual-Personality Operation**:
   - **Flight Simulator Joystick (HID)**: High-rate (100 Hz), jitter-free, native 8-axis 16-button gamepad for drone and RC flight simulators.
@@ -34,7 +34,7 @@ The STM32F072VB microcontroller features a built-in USB 2.0 Full-Speed device co
 
 ### 48 MHz Clock Tree Integration
 The USB Full-Speed physical layer requires a strictly regulated 48.000 MHz clock source with < 0.25% frequency tolerance:
-1. **Clock Source**: External 8.000 MHz crystal (HSE) on the FS-i6X mainboard.
+1. **Clock Source**: External 8.000 MHz crystal (HSE) on the FS-i6S mainboard.
 2. **PLL Multiplier**: `8 MHz * 6 = 48.000 MHz`.
 3. **Clock Routing**: The PLL output is routed directly to the USB peripheral by asserting the `USBSW` bit (bit 7) in the `RCC_CFGR3` register (`0x4002_1030`) during `chip::init_system_clock()`:
    ```rust
@@ -87,17 +87,17 @@ When `JOYSTICK` or `COMPOSITE` mode is enabled, the transmitter enumerates on Wi
 - **Joystick Mode**:
   - **Vendor ID (VID)**: `0x1209` (pid.codes open hardware)
   - **Product ID (PID)**: `0x4F54` (Official OpenTX / EdgeTX Radio Joystick)
-  - **Product Name**: `FS-i6X Joystick`
+  - **Product Name**: `FS-i6S Joystick`
   - **Manufacturer**: `FlySky`
-  - **Serial Number**: `FS-I6X-SIM`
+  - **Serial Number**: `FS-I6S-SIM`
 - **Composite Mode**:
   - **Vendor ID (VID)**: `0x1209`
   - **Product ID (PID)**: `0x4968` (Official EdgeTX Radio Composite)
-  - **Product Name**: `FS-i6X Radio`
+  - **Product Name**: `FS-i6S Radio`
 - **Serial Mode**:
   - **Vendor ID (VID)**: `0x0483` (STMicroelectronics)
   - **Product ID (PID)**: `0x5740` (Standard Virtual COM Port)
-  - **Product Name**: `FS-i6X Serial`
+  - **Product Name**: `FS-i6S Serial`
 
 ### Report Descriptor (8 Axes, 16 Buttons)
 The HID descriptor adheres strictly to OpenI6X and EdgeTX mapping conventions to ensure immediate, zero-configuration compatibility across all major RC simulators:
@@ -165,33 +165,35 @@ When `SERIAL` or `COMPOSITE` mode is selected, the transmitter exposes a standar
 ### Silent Connection & Interactive CLI
 To avoid buffer fragmentation, stale bytes, or unsolicited text spew when connecting terminal emulators, the USB serial port initializes **silently**:
 - When opening a terminal (e.g. `picocom /dev/ttyACM0 --imap lfcrlf`), no unsolicited banner is blasted over the wire.
-- Pressing **`[Enter]`** displays the interactive prompt: `i6x> `.
+- Pressing **`[Enter]`** displays the interactive prompt: `i6s> `.
 - Local echo and backspace handling (`0x08`, `0x7F`) are supported.
 
 ```bash
 $ sudo picocom /dev/ttyACM0 --imap lfcrlf
 Terminal ready
 
-i6x> help
+i6s> help
 Commands:
   help      - Show this help
   status    - Firmware & battery info
-  channels  - Dump RF channel values (CH1..CH14)
+  channels  - Dump RF channel values (CH1..CH18)
   telem     - Dump single telemetry frame
   stream    - Start continuous telemetry streaming (any key to stop)
+  dfu       - Reboot into STM32 factory ROM DFU bootloader
   reboot    - Reboot transmitter
-i6x> 
+i6s> 
 ```
 
 ### Supported CLI Commands
 
 | Command | Description | Example Output |
 | :--- | :--- | :--- |
-| **`help`** | Displays available serial CLI commands | `Commands: help, status, channels, telem, stream, reboot` |
-| **`status`** | System health, firmware version, RF protocol, and telemetry | `FlySky FS-i6X Rust Firmware v...` + telemetry line |
-| **`channels`** | Real-time channel pulse widths in JSON format | `{"ch":[1500,1500,1150,1500,1000,...]}` |
+| **`help`** | Displays available serial CLI commands | `Commands: help, status, channels, telem, stream, dfu, reboot` |
+| **`status`** | System health, firmware version, RF protocol, and telemetry | `FlySky FS-i6S Rust Firmware v...` + telemetry line |
+| **`channels`** | Real-time channel pulse widths in JSON format | `{"ch":[1500,1500,1150,1500,1000,...]}` (18 channels) |
 | **`telem`** | Dumps a single telemetry frame with sensor metrics and odometer | `{"vbat":5.18,"rssi":98,"rx_v":5.02,"tx":15820,"rx":15798,"err":22,"ch":[...]}` |
 | **`stream`** | Starts continuous 10 Hz JSON telemetry streaming (press any key to stop) | `[Streaming telemetry @ 10Hz. Press any key to stop.]` |
+| **`dfu`** | Jumps directly into STM32 factory ROM DFU bootloader | `Rebooting to STM32 DFU bootloader...` |
 | **`reboot`** | Safely triggers a software system reset via NVIC | `Rebooting...` |
 
 ### Telemetry Stream Format (Universal JSON Lines)

@@ -30,18 +30,24 @@ jobs:
 
       - name: Generate Binary and Hex Artifacts
         run: |
-          cargo objcopy --release -- -O binary flysky-i6x.bin
-          cargo objcopy --release -- -O ihex flysky-i6x.hex
-          cp target/thumbv6m-none-eabi/release/flysky-i6x-rs flysky-i6x.elf
-          sha256sum flysky-i6x.bin flysky-i6x.hex flysky-i6x.elf > sha256sums.txt
+          BIN_NAME=$(cargo read-manifest | jq -r '.name')
+          ELF_PATH="target/thumbv6m-none-eabi/release/${BIN_NAME}"
+          OUT_BIN="${BIN_NAME}.bin"
+          OUT_HEX="${BIN_NAME}.hex"
+          OUT_ELF="${BIN_NAME}.elf"
+
+          cargo objcopy --release -- -O binary "${OUT_BIN}"
+          cargo objcopy --release -- -O ihex "${OUT_HEX}"
+          cp "${ELF_PATH}" "${OUT_ELF}"
+          sha256sum "${OUT_BIN}" "${OUT_HEX}" "${OUT_ELF}" > sha256sums.txt
           cat sha256sums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            flysky-i6x.bin
-            flysky-i6x.hex
-            flysky-i6x.elf
+            *.bin
+            *.hex
+            *.elf
             sha256sums.txt
           generate_release_notes: true

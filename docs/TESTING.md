@@ -1,23 +1,23 @@
 # Testing Methodology & Verification Guide
 
-This document details the automated testing architecture, peripheral mocking patterns, adversarial state machine verification, and development workflow for `flysky-i6x-rs`.
+This document details the automated testing architecture, peripheral mocking patterns, adversarial state machine verification, and development workflow for `flysky-i6s-rs`.
 
 ---
 
 ## 1. Overview & Dual-Target Architecture
 
-`flysky-i6x-rs` is a bare-metal `#![no_std]` firmware targeting the ARM Cortex-M0 microcontroller (`STM32F072VB` / `APM32F072VB`, architecture `thumbv6m-none-eabi`). 
+`flysky-i6s-rs` is a bare-metal `#![no_std]` firmware targeting the ARM Cortex-M0 microcontroller (`STM32F072VB`, architecture `thumbv6m-none-eabi`). 
 
 ### The Embedded Testing Challenge
 
 Traditional embedded unit testing suffers from several key bottlenecks:
 - **No Native OS Test Harness**: The bare-metal `thumbv6m-none-eabi` target has no standard library (`std`), memory allocator, or OS-level test runner. Bare `cargo test` fails on this target.
-- **Hardware Peripheral MMIO**: Subsystems that directly access peripheral memory-mapped registers (`USART2`, `ADC1`, `TIM16`, `GPIOE->ODR`, `IWDG`) cannot execute natively on a development host without hardware faults.
+- **Hardware Peripheral MMIO**: Subsystems that directly access peripheral memory-mapped registers (`USART2`, `ADC1`, `TIM16`, `GPIOE->ODR`, `IWDG`, `I2C1`) cannot execute natively on a development host without hardware faults.
 - **QEMU Emulation Limitations**: While QEMU supports basic Cortex-M instructions, it does not accurately model custom board peripherals, ST7567 6800-bus LCDs, or real-time baud-rate timing, and incurs significant latency in CI/local iteration.
 
 ### The Dual-Target Solution
 
-To achieve **instant, sub-millisecond local feedback** with zero hardware required, `flysky-i6x-rs` employs a **zero-file-move dual-target architecture**:
+To achieve **instant, sub-millisecond local feedback** with zero hardware required, `flysky-i6s-rs` employs a **zero-file-move dual-target architecture**:
 
 ```text
 +-----------------------------------------------------------------------------------+
@@ -34,7 +34,7 @@ To achieve **instant, sub-millisecond local feedback** with zero hardware requir
         Profile: #![no_std]                          Profile: std enabled
         Peripheral Driver: Hardware MMIO             Peripheral Driver: Mock FIFO
         Hardware: Cortex-M0 (STM32F072)              Harness: Built-in Rust Test Runner
-        Binary: flysky-i6x.bin (Flash)               Speed: 74 tests in 0.01s
+        Binary: flysky-i6s.bin (Flash)               Speed: 91 tests in 0.04s
 ```
 
 1. **`src/lib.rs` Entry Point**: Configured with `#![cfg_attr(not(test), no_std)]`. When compiling firmware binaries, the codebase compiles strictly as `#![no_std]`. When running tests on the host, standard library support (`std`) is conditionally enabled for test assertion macros, vector allocations, and test runners.
@@ -240,14 +240,14 @@ The test suite covers core flight, calculation, and protocol components:
 Every contribution, bug fix, or feature branch must pass the **Dual Verification Requirement** before merging into `dev` or `main`:
 
 ```bash
-# 1. Run all host unit tests (must pass 36/36 tests with 0 failures)
-cargo test-host
+# 1. Run all host unit tests (must pass 91/91 tests with 0 failures)
+cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1
 
 # 2. Compile bare-metal firmware (must produce 0 warnings and 0 errors)
 cargo build --release --target thumbv6m-none-eabi
 
 # 3. (Optional) Check binary size and Flash budget (<120 KB partition limit)
-arm-none-eabi-size target/thumbv6m-none-eabi/release/flysky-i6x
+size target/thumbv6m-none-eabi/release/flysky-i6s-rs
 ```
 
 ### CI / CD Integration

@@ -1,6 +1,6 @@
-# Contributing to flysky-i6x-rs
+# Contributing to flysky-i6s-rs
 
-Thank you for your interest in contributing to `flysky-i6x-rs`! This document details our Git workflow, branching conventions, and development standards.
+Thank you for your interest in contributing to `flysky-i6s-rs`! This document details our Git workflow, branching conventions, and development standards.
 
 ---
 

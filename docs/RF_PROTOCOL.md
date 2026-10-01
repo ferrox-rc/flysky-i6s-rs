@@ -76,7 +76,7 @@ All AFHDS 2A frames start with a 38-byte payload:
 
 ```mermaid
 sequenceDiagram
-    participant TX as FS-i6X Transmitter
+    participant TX as FS-i6S Transmitter
     participant RX as Receiver (e.g. FS-iA6B)
 
     Note over TX: Enter Bind Mode (Hold BIND on boot or tap BIND button)

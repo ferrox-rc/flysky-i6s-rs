@@ -99,6 +99,12 @@ pub fn update_system_info(
     Text::new("Flash:    128KB (64 Pages)", Point::new(4, 32), text_style).draw(lcd).ok();
     Text::new("SRAM:     16KB (Parity)", Point::new(4, 39), text_style).draw(lcd).ok();
     Text::new("Profiles: 20 Models", Point::new(4, 46), text_style).draw(lcd).ok();
+    Text::new("Bootloader: [OK] Reboot DFU", Point::new(4, 53), text_style).draw(lcd).ok();
 
-    widgets::draw_footer(lcd, "[ESC] Back");
+    if keys.ok {
+        buzzer.play_tone(2400, 100);
+        crate::boot::reboot_to_dfu();
+    }
+
+    widgets::draw_footer(lcd, "[OK] DFU Mode  [ESC] Back");
 }

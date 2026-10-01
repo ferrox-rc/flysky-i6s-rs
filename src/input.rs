@@ -287,14 +287,13 @@ fn decode_switch(raw: u16) -> SwitchPos {
     }
 }
 
-/// Calculate battery voltage in millivolts using the OpenI6X calibrated formula.
-/// Accounts for the 1/2 resistor divider and 0.20V series protection diode.
-fn calculate_battery_mv(raw: u16) -> u16 {
-    // OpenTX calibrated formula uses 11-bit ADC (raw / 2):
-    // instant_vbat = ((raw/2) * 200) / 421 + 20 (in 10mV steps)
-    // Directly from 12-bit raw: (raw * 100) / 421 + 20
-    let vbat_10mv = ((raw as u32 * 100) / 421) + 20;
-    (vbat_10mv * 10) as u16
+/// Calculate battery voltage in millivolts using the FlySky FS-i6S 10k/5.1k resistor divider:
+/// Vbat = Vadc * ((10000 + 5100) / 5100) = Vadc * 2.9608
+/// Vadc = (raw * 3300) / 4095
+pub fn calculate_battery_mv(raw: u16) -> u16 {
+    // (raw * 3300 * 29608) / (4095 * 10000) = (raw * 977064) / 409500
+    let vbat_mv = (raw as u32 * 977064) / 409500;
+    vbat_mv as u16
 }
 
 /// Poll the ADC and return complete, processed flight controls.
@@ -348,5 +347,27 @@ pub fn poll() -> InputState {
         switches,
         battery_mv,
         raw,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_battery_scaling_fs_i6s() {
+        // 0 ADC -> 0 mV
+        assert_eq!(calculate_battery_mv(0), 0);
+
+        // Max 12-bit ADC (4095) -> 3.3V * 2.9608 = 9770 mV (9.77V)
+        assert_eq!(calculate_battery_mv(4095), 9770);
+
+        // Half scale (2048) -> ~4.88V
+        let half = calculate_battery_mv(2048);
+        assert!(half >= 4880 && half <= 4895, "Actual half-scale: {}", half);
+
+        // Typical 4x AA nominal (5.0V): Vadc = 5.0 / 2.9608 = 1.6888V -> ADC = 1.6888 / 3.3 * 4095 = 2096
+        let v5 = calculate_battery_mv(2096);
+        assert!(v5 >= 4990 && v5 <= 5010, "Actual 5V scale: {}", v5);
     }
 }

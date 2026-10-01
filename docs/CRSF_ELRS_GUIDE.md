@@ -1,6 +1,6 @@
 # CRSF / ExpressLRS Subsystem & Native Module Configurator
 
-Technical guide and user documentation for the native Crossfire (CRSF) and ExpressLRS (ELRS) subsystem in the FlySky FS-i6X Rust firmware.
+Technical guide and user documentation for the native Crossfire (CRSF) and ExpressLRS (ELRS) subsystem in the FlySky FS-i6S Rust firmware.
 
 > [!IMPORTANT]
 > **Subsystem Status & Ground Testing Notice:**
@@ -10,7 +10,7 @@ Technical guide and user documentation for the native Crossfire (CRSF) and Expre
 
 ## 1. Hardware Interface
 
-The FlySky FS-i6X motherboard provides an internal rear module connector and back port routed to STM32F072VB peripherals:
+The FlySky FS-i6S motherboard provides an internal rear module connector and back port routed to STM32F072VB peripherals:
 
 | Pin | Function | Peripheral | Description |
 | :--- | :--- | :--- | :--- |
@@ -66,13 +66,13 @@ When `rf_protocol` is set to `1` (`CRSF / ELRS`), Page 4/4 of the flight dashboa
 
 ## 3. Native Module Configurator
 
-On standard EdgeTX and OpenTX radios, ExpressLRS module configuration is typically handled via a Lua script. Because the FS-i6X's STM32F072 microcontroller has 16 KB of SRAM, running a full Lua virtual machine is impractical on this platform.
+On standard EdgeTX and OpenTX radios, ExpressLRS module configuration is typically handled via a Lua script. Because the FS-i6S's STM32F072 microcontroller has 16 KB of SRAM, running a full Lua virtual machine is impractical on this platform.
 
-To enable full on-radio module configuration, `flysky-i6x-rs` implements the **bidirectional CRSF parameter protocol** natively in bare-metal Rust with **zero dynamic heap allocation**:
+To enable full on-radio module configuration, `flysky-i6s-rs` implements the **bidirectional CRSF parameter protocol** natively in bare-metal Rust with **zero dynamic heap allocation**:
 
 ### Parameter Exchange Protocol
 ```text
-Radio (FS-i6X)                               External ELRS TX Module
+Radio (FS-i6S)                               External ELRS TX Module
       |                                                 |
       | -------- 0x28 (DEVICE_PING) ------------------> |
       | <------- 0x29 (DEVICE_INFO: Name, Count) ------ |
@@ -138,7 +138,7 @@ Radio (FS-i6X)                               External ELRS TX Module
 
 ## 4. USB CDC Telemetry Streaming
 
-In `Serial` or `Composite` USB mode, the transmitter streams JSON telemetry over the virtual COM port (`i6x> stream` or `i6x> telem`):
+In `Serial` or `Composite` USB mode, the transmitter streams JSON telemetry over the virtual COM port (`i6s> stream` or `i6s> telem`):
 
 ```json
 {
@@ -165,8 +165,8 @@ In `Serial` or `Composite` USB mode, the transmitter streams JSON telemetry over
 
 The CLI `status` command reports the active protocol:
 ```text
-i6x> status
-FlySky FS-i6X Rust Firmware v0.18.0
+i6s> status
+FlySky FS-i6S Rust Firmware v0.1.0
 Protocol: CRSF / ExpressLRS (PD5 UART active)
 {"vbat":5.18,...}
 ```

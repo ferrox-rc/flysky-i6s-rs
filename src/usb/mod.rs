@@ -1,4 +1,4 @@
-//! USB Subsystem for FlySky FS-i6X.
+//! USB Subsystem for FlySky FS-i6S.
 //!
 //! Orchestrates the STM32F072 USB Full-Speed (12 Mbps) peripheral,
 //! HID Gamepad class (for flight simulators), and CDC-ACM Virtual COM Port (telemetry/CLI).
@@ -20,7 +20,7 @@ use usb_device::{
 use usbd_hid::hid_class::HIDClass;
 use usbd_serial::SerialPort;
 
-/// Hardware USB peripheral mapping for STM32F072 on FlySky FS-i6X.
+/// Hardware USB peripheral mapping for STM32F072 on FlySky FS-i6S.
 pub struct FlyskyUsb;
 
 unsafe impl UsbPeripheral for FlyskyUsb {
@@ -183,8 +183,8 @@ pub fn init(mode: u8) {
                     alloc,
                     0x1209,
                     0x4F54, // OpenTX / EdgeTX Radio Joystick
-                    "FS-i6X Joystick",
-                    "FS-I6X-SIM",
+                    "FS-i6S Joystick",
+                    "FS-I6S-SIM",
                 )
                 .device_class(0x00)
                 .build();
@@ -198,8 +198,8 @@ pub fn init(mode: u8) {
                     alloc,
                     0x0483,
                     0x5740, // Standard STM32 VCP
-                    "FS-i6X Serial",
-                    "FS-I6X-VCP",
+                    "FS-i6S Serial",
+                    "FS-I6S-VCP",
                 )
                 .device_class(0x02) // USB_CLASS_CDC
                 .build();
@@ -215,8 +215,8 @@ pub fn init(mode: u8) {
                     alloc,
                     0x1209,
                     0x4968, // EdgeTX Radio Composite
-                    "FS-i6X Radio",
-                    "FS-I6X-COMP",
+                    "FS-i6S Radio",
+                    "FS-I6S-COMP",
                 )
                 .composite_with_iads()
                 .build();

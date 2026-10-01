@@ -1,6 +1,6 @@
 # HARDWARE REFERENCE & BRING-UP NOTES
 
-Technical reference documentation for the FlySky FS-i6X hardware. This document builds upon the foundational hardware reverse-engineering, register mappings, and schematics pioneered by the **OpenI6X** project and the open-source RC community.
+Technical reference documentation for the FlySky FS-i6S hardware. This document details the pinout, touchscreen interface, electronic power management, register mappings, and system architecture for the FS-i6S platform.
 
 ---
 
@@ -25,30 +25,65 @@ Technical reference documentation for the FlySky FS-i6X hardware. This document 
 
 ---
 
-## 2. Keypad & Trim Matrix (3 Columns × 4 Rows)
+## 2. Power Management, Touchscreen, & Rear Buttons
 
-The radio faceplate buttons and trims are arranged in a 3×4 matrix scanned by the MCU, plus one dedicated direct button for Bind.
+The FlySky FS-i6S eliminates the mechanical 3×4 key matrix of older transmitters, introducing an electronic power management latch, a FocalTech FT6236 capacitive multi-touchscreen, and dual rear tactile push-buttons.
 
-### Matrix Wiring
+### Power Management & Soft Shutdown Circuitry
 
-- **Columns (Outputs):** `PC6` (Col 0 / R1), `PC7` (Col 1 / R2), `PC8` (Col 2 / R3)
-  - Driven LOW sequentially during scanning; kept HIGH at idle.
-- **Rows (Inputs):** `PD12` (Row 0 / L1), `PD13` (Row 1 / L2), `PD14` (Row 2 / L3), `PD15` (Row 3 / L4)
-  - Configured as inputs with internal pull-ups (`GPIO_PuPd_UP`). Active LOW when pressed.
-- **Dedicated Bind Key:** `PF2`
-  - Input with internal pull-up. Connected directly to GND when pressed (Active LOW).
+- **Electronic Power Latch (`PB15`):**
+  - Configured as GPIO Output Push-Pull (`GPIO_Mode_OUT`).
+  - **Critical Initialization:** Must be driven HIGH (`PB15 = 1`) as the absolute first instruction in `main()` (`power::init()`). If `PB15` is not driven HIGH immediately after the user releases the physical power button, the hardware power rail collapses and the radio shuts down instantly.
+  - **DFU Bootloader Persistence:** When transitioning to the factory ROM DFU bootloader, `rcc_deinit()` preserves the `GPIOB` clock gate (`RCC_AHBENR = 0x0004_0014`), and `power::latch_on()` is called before branching to System ROM so the unit remains powered over USB.
+- **Power Button Sense (`PB14`):**
+  - Configured as GPIO Input with internal pull-up (`GPIO_PuPd_UP`). Active LOW when the front power buttons are pressed.
+  - **Debounced Boot Guard:** The `PowerManager` requires the pilot to release the power button after initial power-on before arming the shutdown counter, preventing accidental immediate shutdown.
+  - **Hold-to-Shutdown (>= 1.5s):** Holding the power buttons for >= 1.5 seconds triggers an on-screen animated shutdown modal, safely flushes any unwritten Flash configuration to non-volatile storage, and de-asserts `PB15` (`PB15 = 0`) to cleanly cut battery power.
+- **Dual Blue Power LEDs (`PD10`, `PD11`):**
+  - Configured as GPIO Output Push-Pull (`GPIO_Mode_OUT`).
+  - Driven HIGH to illuminate the dual blue LED rings integrated into the front power buttons.
 
-### Matrix Key Map
+### Touchscreen Subsystem (FocalTech FT6236)
 
-| Row / Line | Column 0 (`PC6`) | Column 1 (`PC7`) | Column 2 (`PC8`) |
-| :--- | :--- | :--- | :--- |
-| **Row 0 (`PD12`)** | Roll Right (`TRM_RH_UP`) | Throttle Up (`TRM_LV_UP`) | **Down** (`KEY_DOWN`) |
-| **Row 1 (`PD13`)** | **Roll Left** (`TRM_RH_DWN`) | Throttle Down (`TRM_LV_DWN`) | **Up** (`KEY_UP`) |
-| **Row 2 (`PD14`)** | Pitch Up (`TRM_RV_UP`) | **Yaw Right** (`TRM_LH_UP`) | **OK / Enter** (`KEY_ENTER`) |
-| **Row 3 (`PD15`)** | Pitch Down (`TRM_RV_DWN`) | Yaw Left (`TRM_LH_DWN`) | **Cancel / Exit** (`KEY_EXIT`) |
+- **Controller:** FocalTech **FT6236** Capacitive Touch Screen Controller.
+- **Bus Interface:** Hardware **I2C1** operating in Fast Mode at **400 kHz**:
+  - **`PB8`**: `I2C1_SCL` (Alternate Function 1, Open-Drain with external pull-up).
+  - **`PB9`**: `I2C1_SDA` (Alternate Function 1, Open-Drain with external pull-up).
+  - **`PA15`**: Hardware Reset Line (`TOUCH_RST`, Active LOW, 5 ms low pulse on startup).
+  - **`PC12`**: Touch Interrupt Line (`TOUCH_INT`, Active LOW). Signals when fresh touch coordinates or gestures are available.
+- **Protocol & Coordinates:**
+  - I2C Device Address: `0x38` (7-bit address).
+  - A 7-byte burst read from register `0x00` extracts:
+    - Byte 1: Gesture ID (`0x10` Swipe Up, `0x14` Swipe Right, `0x18` Swipe Down, `0x1C` Swipe Left).
+    - Byte 2: Touch point count (`TD_STATUS`, 0..2).
+    - Bytes 3..4: $X$ coordinate (12-bit, MSB + LSB) and Event Flag (0 = Press Down, 1 = Lift Up, 2 = Contact, 3 = No Event).
+    - Bytes 5..6: $Y$ coordinate (12-bit, MSB + LSB).
+- **Coordinate Transformation & 90° Axis Swap:**
+  - The physical touch sensor has a native resolution of 320×320 and is mounted rotated relative to the ST7567 128×64 LCD:
+    $$ x_{lcd} = \left( \text{raw}_y \times 128 \right) / 320 $$
+    $$ y_{lcd} = 63 - \left( \text{raw}_x \times 64 \right) / 320 $$
+  - Both coordinates are clamped to $x \in [0, 127]$ and $y \in [0, 63]$.
 
-> [!NOTE]
-> **Bootloader Combo:** Pushing both horizontal trims inward towards the power switch activates **Roll Left** (`PC6` + `PD13`) and **Yaw Right** (`PC7` + `PD14`). In OpenI6X this corresponds to mask `0x1080`.
+### Rear Tactile Buttons & Digital Trims
+
+- **Rear Push-Buttons:**
+  - **`PA9`**: Rear Left Tactile Button (Active LOW, internal pull-up).
+    - In Menus / Flight: Functions as **Cancel / Back / Exit**.
+    - Digital Trim Mode: Left Stick Trim Modifier.
+  - **`PA10`**: Rear Right Tactile Button (Active LOW, internal pull-up).
+    - In Menus / Flight: Functions as **OK / Select / Confirm**.
+    - Digital Trim Mode: Right Stick Trim Modifier.
+- **Zero-Disassembly DFU Bootloader Combo:**
+  - Holding **`PA9` + `PA10`** simultaneously while pressing the power button triggers the zero-disassembly hardware cold-boot jump into the factory ROM DFU bootloader (`0x1FFF_C800`).
+- **Digital Trim Architecture (Replacing Mechanical Rockers):**
+  1. **Stick Modifier Mode:**
+     - Holding **Rear Left (`PA9`)** + Left Stick deflection: Vertical adjusts Throttle Trim; Horizontal adjusts Yaw Trim.
+     - Holding **Rear Right (`PA10`)** + Right Stick deflection: Vertical adjusts Pitch Trim; Horizontal adjusts Roll Trim.
+     - Stick deflection threshold: $> 350$ counts from center.
+  2. **Virtual Touch Hitboxes:**
+     - Left border ($x < 16$): Throttle Trim Up / Down.
+     - Right border ($x > 112$): Pitch Trim Up / Down.
+     - Bottom border ($y > 52$): Yaw Trim Left/Right and Roll Trim Left/Right.
 
 ---
 
@@ -69,7 +104,7 @@ The transmitter uses a Sitronix **ST7567** (or compatible) monochrome LCD contro
 
 ### Controller Dimensions & Column Offset
 
-The ST7567 controller contains 132 column segment drivers, while the FS-i6X physical LCD panel is 128 pixels wide.
+The ST7567 controller contains 132 column segment drivers, while the FS-i6S physical LCD panel is 128 pixels wide.
 - Active display starts at **Column 4** (`col_start = 0x04`).
 - Pages: 8 vertical pages (8 * 8 = 64 rows), each byte containing 8 vertical pixels (LSB at top).
 - Total SRAM framebuffer size: 128 * 8 = 1024 bytes.
@@ -134,36 +169,36 @@ The audible beeper is a passive piezoelectric transducer driven by hardware PWM:
 | **Trim Center** | 2800 Hz | 60 ms | High-pitch confirmation when reaching 0 neutral |
 | **Trim Limit** | 1100 Hz | 45 ms | Low warning buzz when hitting ±25 limits |
 | **Bind Success** | 2200 / 2800 Hz | 80 ms each | Two-tone rising fanfare upon binding receiver |
-| **Calib Success** | 2000 / 2800 Hz | 100 ms each | Confirmation chime when saving gimbals |
+| **Calib Success** | 2000 / 2800 Hz | 100 ms each | Confirmation chime when savi---
 
----
+## 6. Safe DFU Bootloader Jump & Power Latch Retention
 
-## 6. Safe DFU Bootloader Jump
+The STM32F072 contains a factory-programmed DFU bootloader in System ROM (`0x1FFFC800`). The FS-i6S firmware supports jumping into this bootloader with **zero disassembly**, while maintaining the electronic power latch on `PB15`.
 
-The STM32F072 contains a factory-programmed DFU bootloader in System ROM (`0x1FFFC800`). The firmware can jump into this bootloader in software without physical access to the `BOOT0` pin.
+### Jump Requirements & Power Latch Preservation
 
-### Jump Requirements
-
-1. **Reset RCC:** Return all peripheral clocks to power-on defaults (HSI 8 MHz, PLL disabled).
+1. **Retain Power Latch:** On the FS-i6S, power is electronically held by `PB15`. If RCC de-initialization disables `GPIOB`, `PB15` will float and power will be cut instantly. In `chip::rcc_deinit()`, the `GPIOB` peripheral clock is explicitly preserved:
+   ```rust
+   // Reset AHB peripheral clocks but KEEP GPIOB enabled (bit 18) for PB15 power latch
+   rcc.ahbenr.write(|w| unsafe { w.bits(0x0004_0014) });
+   ```
+   Furthermore, `power::latch_on()` is called immediately before and after RCC de-initialization.
 2. **Clear SysTick & NVIC:** Disable SysTick timer and clear all pending interrupt requests in NVIC.
 3. **SYSCFG Remap:** Remap System Memory to `0x00000000` via `SYSCFG->CFGR1` (`MEM_MODE = 0b01`).
 4. **Re-Enable Global Interrupts:** **CRITICAL.** The ST factory DFU bootloader requires USB interrupts to enumerate on the host PC. Global interrupts must be enabled (`cortex_m::interrupt::enable()`) before executing the jump.
 5. **Bootstrap:** Load Main Stack Pointer (`MSP`) from `0x1FFFC800` and branch to reset handler at `0x1FFFC804` via `cortex_m::asm::bootstrap`.
 
-### Hardware Recovery & Initial Stock Flash (`R53`)
+### Entry Methods (Zero-Disassembly)
 
-The hardware override for forcing the microcontroller into permanent ROM DFU bootloader mode is the **`R53`** solder pads located on the rear of the motherboard (accessible by removing the back case screws):
-- **Function:** Connecting the two pads of `R53` pulls the microcontroller's `BOOT0` pin directly to 3.3V (`VDD`).
-- **Initial Flashing from Stock:** Factory FlySky firmware does not contain the inward-trims software bootloader jump. To flash custom firmware (`flysky-i6x-rs` or `OpenI6X`) for the first time, `R53` must be momentarily bridged while powering the transmitter on.
-- **Hardware Recovery:** If custom firmware ever hangs or crashes before scanning input keys, bridging `R53` during power-on guarantees access to the ST/Geehy ROM bootloader (`0483:df11` / `314b:0106`).
-- **Removal:** The bridge only needs to be held during initial power-on; once the chip samples `BOOT0` at reset, the bridge can be released.
-- **Reference:** See the [OpenI6X Flashing & Upgrading Wiki](https://github.com/OpenI6X/opentx/wiki/Flashing-&-Upgrading) for mainboard layout photos and test point markings.
+1. **Cold-Boot Combo:** Holding both **Rear Buttons (`PA9` + `PA10`)** simultaneously during power-on triggers `boot::check_dfu_entry()`, immediately transferring control to the factory ROM DFU bootloader.
+2. **Software Touch Menu:** Navigating to **`Settings -> Diag -> [OK] Reboot DFU`** sets a magic flag (`0xDEADBEEF`) at SRAM address `0x2000_3FF0` and performs a system reset. On reboot, `boot::check_dfu_entry()` detects the flag, clears it, and jumps directly into DFU.
+3. **USB CDC Serial CLI:** Sending `dfu` or `reboot bootloader` over the virtual serial console calls `boot::reboot_to_dfu()`.
 
 ---
 
 ## 7. Analog Inputs & ADC1 Channel Map
 
-The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels into SRAM without CPU intervention.
+The FlySky FS-i6S uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels into SRAM without CPU intervention.
 
 ### Verified 11-Channel Mapping
 
@@ -171,51 +206,36 @@ The FlySky FS-i6X uses a single 12-bit ADC peripheral (**ADC1**) paired with **D
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **CH0** | `PA0` | **Roll / Aileron** | Right Stick Horizontal | ~1100 .. 2048 .. ~2900 | Spring return |
 | **CH1** | `PA1` | **Pitch / Elevator** | Right Stick Vertical | ~1100 .. 2048 .. ~2900 | Spring return |
-| **CH2** | `PA2` | **Throttle** | Left Stick Vertical | ~1100 .. ~2900 | Friction ratchet (no spring) |
+| **CH2** | `PA2` | **Throttle** | Left Stick Vertical | ~1100 .. ~2900 | Centered or ratchet |
 | **CH3** | `PA3` | **Yaw / Rudder** | Left Stick Horizontal | ~1100 .. 2048 .. ~2900 | Spring return |
-| **CH4** | `PA4` | **Switch SA** | 2-Position Toggle | Down &lt; 2000, Up &gt; 2000 | Resistor divider |
-| **CH5** | `PA5` | **Switch SB** | 3-Position Toggle | Up &gt; 2500, Mid 1000..2500, Dwn &lt; 1000 | Resistor divider |
+| **CH4** | `PA4` | **Switch SA** | 2-Position Toggle | Down < 2000, Up > 2000 | Resistor divider |
+| **CH5** | `PA5` | **Switch SB** | 3-Position Toggle | Up > 2500, Mid 1000..2500, Dwn < 1000 | Resistor divider |
 | **CH6** | `PA6` | **Potentiometer VRA** | Left Rotary Dial (VR1) | 0 .. 4095 (scaled 0..9) | Linear pot |
 | **CH7** | `PA7` | **Potentiometer VRB** | Right Rotary Dial (VR2) | 0 .. 4095 (scaled 0..9) | Linear pot |
-| **CH8** | `PB0` | **Switch SC** | 3-Position Toggle | Up &gt; 2500, Mid 1000..2500, Dwn &lt; 1000 | Resistor divider |
-| **CH9** | `PB1` | **Switch SD** | 2-Position Toggle | Down &lt; 2000, Up &gt; 2000 | Resistor divider |
-| **CH10**| `PC0` | **Battery Sense** | 4×AA Battery Pack | ~1600 .. 2300 (4.0V .. 6.0V) | 2:1 resistive divider |
+| **CH8** | `PB0` | **Switch SC** | 3-Position Toggle | Up > 2500, Mid 1000..2500, Dwn < 1000 | Resistor divider |
+| **CH9** | `PB1` | **Switch SD** | 2-Position Toggle | Down < 2000, Up > 2000 | Resistor divider |
+| **CH10**| `PC0` | **Battery Sense** | 4×AA Battery Pack | ~1400 .. 2100 (4.0V .. 6.0V) | $10\text{ k}\Omega / 5.1\text{ k}\Omega$ divider |
 
-> [!NOTE]
-> **Pot & Switch Verification Note:** Prior reverse-engineering notes occasionally misidentified `VRB` as `PB0` and `SC` as `PA7`. Physical silicon testing proved conclusively that **`VRB` is `PA7`** and **`SC` is `PB0`**.
+### Battery Voltage Sensing (FS-i6S Scaling)
 
-### Stick Calibration & Mechanical Offset
-
-1. **Resting Center Offset:**
-   - The mechanical potentiometers on the FS-i6X gimbals physically rest around **~1930 counts**, not the theoretical mathematical midpoint of **2048**.
-   - If scaled assuming a fixed 2048 center, sticks report approximately **-13%** offset at resting neutral.
-   - **Solution:** The firmware dynamically auto-calibrates resting centers at boot by taking an average of 16 full ADC scans after the first DMA conversion cycle completes.
-2. **DMA First-Conversion Synchronization:**
-   - Calling input calibration immediately after ADC initialization will read zeroes if the DMA buffer has not yet completed its first 11-channel sweep.
-   - The driver waits for DMA1 Channel 1 Transfer Complete Flag (`TCIF1`) before sampling centers (`adc::wait_first_conversion()`).
-3. **Endpoint Range Expansion:**
-   - Rather than relying on rigid factory bounds, the piecewise calibrator expands its min/max endpoints dynamically whenever physical stick deflection exceeds the stored bounds, ensuring full `-1000 .. +1000` throw without clipping.
-4. **Adaptive Noise / Jitter Filtering:**
-    - To counteract track wear and ADC noise (especially prominent on the Rudder gimbal), an adaptive exponential moving average (EMA) filter is applied:
-      - Movements <= 12 raw counts are filtered to eliminate jitter.
-      - Rapid intentional movements (> 12 counts) bypass the filter completely to preserve zero-latency response.
-
-### Battery Voltage Sensing
-
-- Connected to `PC0` (ADC Channel 10) through a resistive voltage divider:
-  ```text
-  Voltage (in 0.1V units) = ((raw * 100) / 421) + 20
+The FlySky FS-i6S uses a precision $10\text{ k}\Omega$ (upper) and $5.1\text{ k}\Omega$ (lower) resistive divider on `PC0` (ADC Channel 10):
+- **Divider Ratio:** $\frac{R_1 + R_2}{R_2} = \frac{10 + 5.1}{5.1} = 2.960784...$
+- **Voltage Formula (in mV):**
+  $$ V_{bat} = \left( \text{raw} \times 3300 \times 2.960784 \right) / 4095 = \frac{\text{raw} \times 977064}{409500} $$
+- Implemented with 64-bit integer arithmetic in [`src/input.rs`](../src/input.rs):
+  ```rust
+  ((raw as u32 * 977064) / 409500) as u16
   ```
-- Validated against physical AA battery pack voltages:
-  - 4x NiMH (~4.8V): ~1930 raw counts -> `4.8V`
-  - 4x Alkaline fresh (~6.0V): ~2440 raw counts -> `6.0V`
+- Validated across operating battery levels:
+  - 4× NiMH Rechargeable (~4.8V): ~2011 counts -> `4800 mV`
+  - 4× Alkaline Fresh (~6.0V): ~2514 counts -> `6000 mV`
 
 ---
 
 ## 8. USB Interface & Rear Expansion Bay
 
 ### Hardware USB Interface (Micro-USB Port)
-The FlySky FS-i6X mainboard routes the Micro-USB port directly to the STM32F072 hardware USB controller:
+The FlySky FS-i6S mainboard routes the Micro-USB port directly to the STM32F072 hardware USB controller:
 
 | Pin | Function | Mode | Description |
 | :--- | :--- | :--- | :--- |

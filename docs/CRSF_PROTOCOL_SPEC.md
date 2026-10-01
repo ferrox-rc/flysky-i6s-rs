@@ -1,6 +1,6 @@
 # CRSF / EXPRESSLRS PROTOCOL SPECIFICATION & VERIFICATION GUIDE
 
-Technical reference and step-by-step verification walkthrough for the native Crossfire (CRSF) and ExpressLRS (ELRS) subsystem in the FlySky FS-i6X Rust firmware.
+Technical reference and step-by-step verification walkthrough for the native Crossfire (CRSF) and ExpressLRS (ELRS) subsystem in the FlySky FS-i6S Rust firmware.
 
 This guide provides the exact byte-level framing, timing intervals, CRC calculations, and state machine transitions implemented in [`src/crsf/`](../src/crsf/) to allow cross-referencing against the **TBS Crossfire Protocol Rev 08** and the **ExpressLRS parameter synchronization specification** by hand.
 
@@ -32,7 +32,7 @@ All serial communication over USART2 (`PD5` TX / `PA15` RX) adheres strictly to 
 | :--- | :---: | :--- |
 | `CRSF_SYNC_BYTE` | `0xC8` | Serial frame sync byte for telemetry and response frames from module to handset (at `frame[0]`) |
 | `CRSF_ADDRESS_BROADCAST` | `0x00` | Universal broadcast target address |
-| `CRSF_ADDRESS_RADIO_TRANSMITTER` | `0xEA` | Handset / Radio Transmitter (FS-i6X) |
+| `CRSF_ADDRESS_RADIO_TRANSMITTER` | `0xEA` | Handset / Radio Transmitter (FS-i6S) |
 | `CRSF_ADDRESS_CRSF_TRANSMITTER` | `0xEE` | External RF transmitter module (ExpressLRS / TBS Crossfire) |
 | `CRSF_ADDRESS_CRSF_RECEIVER` | `0xEC` | Over-the-air RC receiver |
 | `CRSF_ADDRESS_FLIGHT_CONTROLLER` | `0xC8` | Flight controller (Betaflight / INAV) |
@@ -235,7 +235,7 @@ When the user selects an option parameter and presses **`[OK]`**:
 Action commands (`[Bind]`, `[Wi-Fi Mode]`, `[BLE Joystick]`) execute through a stateful multi-step handshake:
 
 ```text
-Handset (FS-i6X)                                   ELRS Module
+Handset (FS-i6S)                                   ELRS Module
        |                                                |
 [User presses OK]                                       |
        | ----- Write (0x2D, Val=STATUS_START [1]) ----> |
