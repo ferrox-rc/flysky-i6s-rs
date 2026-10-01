@@ -100,22 +100,13 @@ pub fn render(
             let inv_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::Off);
             Text::new(vbat_str, Point::new(99, 8), inv_style).draw(lcd).ok();
         } else {
-            draw_battery_gauge(lcd, 86, 2, 0);
+            draw_battery_gauge(lcd, 86, 2, battery_mv, vbat_warn_mv, vbat_warn_mv.max(6000));
             Text::new(vbat_str, Point::new(99, 8), text_style_small).draw(lcd).ok();
         }
     } else {
         *vbat_alarm_timer = 7000;
-        // Divide voltage range into 3 discrete bars above the warning threshold.
-        // E.g., for default 4.4V warning: 4.4..4.8V = 1 bar, 4.8..5.2V = 2 bars, >= 5.2V = 3 bars.
-        let step_mv = 400u16;
-        let bars = if battery_mv >= vbat_warn_mv + 2 * step_mv {
-            3
-        } else if battery_mv >= vbat_warn_mv + step_mv {
-            2
-        } else {
-            1
-        };
-        draw_battery_gauge(lcd, 86, 2, bars);
+        let vbat_max_mv = 6000u16.max(vbat_warn_mv.saturating_add(800));
+        draw_battery_gauge(lcd, 86, 2, battery_mv, vbat_warn_mv, vbat_max_mv);
         Text::new(vbat_str, Point::new(99, 8), text_style_small).draw(lcd).ok();
     }
 

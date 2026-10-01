@@ -120,27 +120,26 @@ pub fn draw_switch_arrow(lcd: &mut St7567, x: i32, y: i32, pos: SwitchPos) {
     }
 }
 
-/// Draw a horizontal battery gauge with outline and solid right-to-left fill.
+/// Draw a horizontal battery gauge with outline and procedural min-max subtraction fill.
 /// - Dimensions: 11x7 px (terminal tip at x, body at x+1..x+10, y..y+6).
 /// - Inner cavity is 8x5 px (x+2..x+9, y+1..y+5).
-/// - `bars`: 0 (empty outline), 1 (3px fill), 2 (6px fill), or 3 (8px full solid fill).
+/// - Linearly scales `val_mv` between `[min_mv, max_mv]` across the 8-pixel fill width.
+/// - Fills right-to-left from base (x+9) towards tip (x+2) without internal gaps.
 #[inline]
-pub fn draw_battery_gauge(lcd: &mut St7567, x: i32, y: i32, bars: u8) {
+pub fn draw_battery_gauge(lcd: &mut St7567, x: i32, y: i32, val_mv: u16, min_mv: u16, max_mv: u16) {
     // Battery terminal tip on left (x, y + 2, h = 3)
     lcd.draw_vline(x, y + 2, 3, true);
 
     // Battery body outline (x + 1, y, w = 10, h = 7)
     lcd.draw_rect(x + 1, y, 10, 7, true);
 
-    // Solid charge fill from base (right) to tip (left) without internal gap lines
-    let fill_w = match bars {
-        1 => 3,
-        2 => 6,
-        3 => 8,
-        _ => 0,
-    };
+    // Procedural min-max subtraction algorithm:
+    let span = max_mv.saturating_sub(min_mv).max(1) as u32;
+    let delta = val_mv.saturating_sub(min_mv) as u32;
+    let fill_w = ((delta * 8) / span).min(8);
+
     if fill_w > 0 {
-        lcd.fill_rect(x + 10 - fill_w, y + 1, fill_w as u32, 5, true);
+        lcd.fill_rect(x + 10 - fill_w as i32, y + 1, fill_w, 5, true);
     }
 }
 
