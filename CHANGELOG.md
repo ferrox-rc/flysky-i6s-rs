@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.19.0] - Unreleased
 
 ### Added
+- **CRSF Multi-Device Discovery Expansion & Scrollable Device Picker ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/menu/screens/elrs.rs`](src/ui/menu/screens/elrs.rs), [`docs/CRSF_ELRS_GUIDE.md`](docs/CRSF_ELRS_GUIDE.md))**:
+  - Expanded `MAX_DISCOVERED_DEVICES` from 4 to 16 devices (+288 bytes `.bss`), enabling full auto-discovery for complex multi-node setups (TX module, RX, FC, VTX, 4x ESCs, PDB, telemetry sensors, lighting controllers, and sound modules common on giant-scale aircraft and scale model boats).
+  - Added right-edge vertical scrollbar indicator (`widgets::draw_scrollbar`) on the `CRSF DEVICES` selection screen when more than 4 devices are discovered.
+  - Implemented dynamic row highlight width (121px vs 124px) and right-aligned role tag offset adjustment to prevent visual collisions with the scrollbar track.
+  - Added boundary defensive scroll offset clamping on device list count changes.
+  - Added unit test `test_multi_device_discovery_capacity_and_scroll` verifying 16-device discovery, deduplication, full index scroll selection, and safe rejection of capacity overflows.
 - **Ferrox-RC Power-On Splash Screen & Synchronized Fanfare ([`src/ui/splash.rs`](src/ui/splash.rs), [`src/ui/glyphs.rs`](src/ui/glyphs.rs), [`src/main.rs`](src/main.rs))**:
   - Kinetic 28x27 Ferrox-RC delta logo emblem rendered directly on LCD initialization with firmware name (`flysky-i6x-rs`) and version display.
   - 1200 ms non-blocking splash screen hold while ADC, DMA, and RF peripherals initialize in parallel.
