@@ -34,6 +34,12 @@ pub struct SerialHandler {
     stream_enabled: bool,
 }
 
+impl Default for SerialHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SerialHandler {
     pub const fn new() -> Self {
         Self {

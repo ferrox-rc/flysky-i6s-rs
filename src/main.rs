@@ -95,21 +95,22 @@ impl FlightPipeline {
         let mut just_armed = false;
         let mut just_disarmed = false;
         let is_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
-        if active_model.arm_switch > 0 && active_model.arm_switch <= 10 {
-            if is_armed != self.prev_armed {
-                if is_armed {
-                    just_armed = true;
-                    if !menu_active {
-                        buzzer.chime_armed();
-                    }
-                } else {
-                    just_disarmed = true;
-                    if !menu_active {
-                        buzzer.chime_disarmed();
-                    }
+        if active_model.arm_switch > 0
+            && active_model.arm_switch <= 10
+            && is_armed != self.prev_armed
+        {
+            if is_armed {
+                just_armed = true;
+                if !menu_active {
+                    buzzer.chime_armed();
                 }
-                self.prev_armed = is_armed;
+            } else {
+                just_disarmed = true;
+                if !menu_active {
+                    buzzer.chime_disarmed();
+                }
             }
+            self.prev_armed = is_armed;
         }
 
         // 4. Evaluate active model throttle curve (normalized 0..MIXER_MAX)
@@ -250,6 +251,7 @@ impl BackgroundIdleManager {
 
     /// Background idle execution tick: manages timers, power save, bind key gestures, Flash saves, and display frames.
     #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
     fn tick(
         &mut self,
         now: u32,

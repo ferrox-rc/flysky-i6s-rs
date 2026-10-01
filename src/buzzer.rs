@@ -62,6 +62,12 @@ pub struct Buzzer {
     seq_idx: u8,
 }
 
+impl Default for Buzzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[allow(dead_code)]
 impl Buzzer {
     pub const fn new() -> Self {
@@ -114,7 +120,7 @@ impl Buzzer {
                 // Bits 6:4 of CCMR1 (OC1M) = 0b110 (PWM Mode 1), Bit 3 (OC1PE) = 1 (Preload)
                 tim1.ccmr1_output().modify(|r, w| {
                     let val = r.bits();
-                    w.bits((val & !(0x7F << 0)) | (6 << 4) | (1 << 3))
+                    w.bits((val & !0x7F) | (6 << 4) | (1 << 3))
                 });
 
                 // Enable Channel 1 output with active low polarity in CCER (CC1E | CC1P)

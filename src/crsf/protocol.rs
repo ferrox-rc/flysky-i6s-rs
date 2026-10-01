@@ -96,6 +96,12 @@ pub struct CrsfTelemetry {
     pub last_telemetry_ms: u32,  // System tick when last valid frame was received
 }
 
+impl Default for CrsfTelemetry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CrsfTelemetry {
     pub const fn new() -> Self {
         Self {

@@ -476,7 +476,7 @@ impl embedded_storage_async::nor_flash::NorFlash for Stm32Flash {
     const ERASE_SIZE: usize = 2048; // 2 KB page erase
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        if from % 2048 != 0 || to % 2048 != 0 || from >= to {
+        if !from.is_multiple_of(2048) || !to.is_multiple_of(2048) || from >= to {
             return Err(FlashError::AddressMisaligned);
         }
 
@@ -539,7 +539,7 @@ impl embedded_storage_async::nor_flash::NorFlash for Stm32Flash {
     }
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        if offset % 2 != 0 || bytes.len() % 2 != 0 {
+        if !offset.is_multiple_of(2) || !bytes.len().is_multiple_of(2) {
             return Err(FlashError::AddressMisaligned);
         }
         if bytes.is_empty() {

@@ -19,6 +19,12 @@ pub struct St7567 {
     framebuffer: [u8; BUFFER_SIZE],
 }
 
+impl Default for St7567 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl St7567 {
     /// Initialize GPIO pins and the ST7567 display controller.
     pub fn new() -> Self {
@@ -372,7 +378,7 @@ impl St7567 {
         for page in start_page..=end_page {
             let page_y_start = page * 8;
             let page_y_end = page_y_start + 7;
-            let bit_start = if y_start > page_y_start { y_start - page_y_start } else { 0 };
+            let bit_start = y_start.saturating_sub(page_y_start);
             let bit_end = if y_end - 1 < page_y_end { (y_end - 1) - page_y_start } else { 7 };
 
             let mut mask = 0u8;
@@ -410,7 +416,7 @@ impl St7567 {
         for page in start_page..=end_page {
             let page_y_start = page * 8;
             let page_y_end = page_y_start + 7;
-            let bit_start = if y_start > page_y_start { y_start - page_y_start } else { 0 };
+            let bit_start = y_start.saturating_sub(page_y_start);
             let bit_end = if y_end - 1 < page_y_end { (y_end - 1) - page_y_start } else { 7 };
 
             let mask = if bit_start == 0 && bit_end == 7 {
