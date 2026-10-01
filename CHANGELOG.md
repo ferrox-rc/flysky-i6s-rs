@@ -1,11 +1,19 @@
 # Changelog
 
-All notable changes to the `flysky-i6x-rs` project will be documented in this file.
+All notable changes to the `flysky-i6s-rs` project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.19.1] - 2026-10-01
+## [0.1.0] - 2026-10-01
+
+### Added
+- **Initial FlySky FS-i6S Standalone Repository Bring-Up**:
+  - Forked from `flysky-i6x-rs` v0.19.1 as a dedicated, standalone open-source firmware for the FlySky FS-i6S transmitter with touchscreen.
+  - Inherits the proven core flight architecture: Amiccom A7105 SPI1 RF transceiver & AFHDS 2A telemetry stack, Sitronix ST7567 128×64 8-bit parallel LCD driver, 11-channel autonomous DMA1 ADC scanner, 32-line Matrix Mixer, 5/9-point throttle curve spline evaluator, and Full-Speed USB controller.
+  - Initialized crate naming `flysky-i6s-rs` and initial semantic version `v0.1.0`.
+
+## [flysky-i6x-rs Heritage]
 
 ### Added
 - **Per-Model AFHDS 2A / i-BUS Receiver Settings in Protocol Setup ([`src/storage.rs`](src/storage.rs), [`src/main.rs`](src/main.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:

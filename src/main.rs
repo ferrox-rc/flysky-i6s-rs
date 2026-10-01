@@ -12,7 +12,7 @@ use embedded_graphics::{
     text::Text,
 };
 
-use flysky_i6x_rs::{
+use flysky_i6s_rs::{
     adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, rf, storage, time, trim,
     ui, usb, watchdog,
 };

@@ -1,14 +1,14 @@
 [package]
-name = "flysky-i6x-rs"
-version = "0.19.1"
+name = "flysky-i6s-rs"
+version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "flysky_i6x_rs"
+name = "flysky_i6s_rs"
 path = "src/lib.rs"
 
 [[bin]]
-name = "flysky-i6x-rs"
+name = "flysky-i6s-rs"
 path = "src/main.rs"
 test = false
 bench = false
