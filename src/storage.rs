@@ -173,7 +173,10 @@ pub struct ModelConfig {
     pub rf_protocol: u8,  // 120: 0: AFHDS 2A, 1: CRSF / ELRS
     pub crsf_baud: u8,    // 121: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
     pub arm_switch: u8, // 122: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
-    pub _reserved: [u8; 5], // 123..128: 5 reserved bytes
+    pub rx_out_mode: u8, // 123: 0: PWM, 1: PPM (default 0)
+    pub servo_rate_hz: u16, // 124..126: 50..400 Hz (default 50 Hz)
+    pub rx_serial_proto: u8, // 126: 0: i-BUS, 1: S.BUS (default 0)
+    pub _reserved: [u8; 1], // 127..128: 1 reserved byte
 }
 
 impl ModelConfig {
@@ -212,7 +215,10 @@ impl ModelConfig {
             rf_protocol: 0,
             crsf_baud: 0,
             arm_switch: 0,
-            _reserved: [0; 5],
+            servo_rate_hz: 50,
+            rx_out_mode: 0,
+            rx_serial_proto: 0,
+            _reserved: [0; 1],
         }
     }
 }
@@ -373,6 +379,15 @@ impl RadioStorage {
             }
             if m.timer_secs > 3600 {
                 m.timer_secs = 0;
+            }
+            if m.servo_rate_hz < 50 || m.servo_rate_hz > 400 {
+                m.servo_rate_hz = 50;
+            }
+            if m.rx_out_mode > 1 {
+                m.rx_out_mode = 0;
+            }
+            if m.rx_serial_proto > 1 {
+                m.rx_serial_proto = 0;
             }
             if m.name[0] == 0 || m.name[0] == 0xFF {
                 let num = (idx + 1) as u8;
@@ -1017,6 +1032,9 @@ mod tests {
             m.dr_switch = 255;
             m.wing_tail_mix = 255;
             m.failsafe_thr = 65535;
+            m.servo_rate_hz = 65535;
+            m.rx_out_mode = 255;
+            m.rx_serial_proto = 255;
             m.name[0] = 0xFF;
             m.mixes[0].target_ch = 20;
             m.mixes[0].source = 50;
@@ -1041,6 +1059,9 @@ mod tests {
             assert!(m.timer_source <= 13, "timer_source must be sanitized <= 13");
             assert_eq!(m.timer_source, 0);
             assert_eq!(m.timer_secs, 0);
+            assert_eq!(m.servo_rate_hz, 50);
+            assert_eq!(m.rx_out_mode, 0);
+            assert_eq!(m.rx_serial_proto, 0);
             assert_eq!(m.rf_protocol, 0);
             assert_eq!(m.crsf_baud, 0);
             assert_eq!(m.dr_switch, 0);

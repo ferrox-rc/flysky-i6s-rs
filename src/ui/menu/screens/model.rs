@@ -62,8 +62,13 @@ pub fn update_select(
         trims.values.throttle = storage.models[new_idx].trims[2];
         trims.values.yaw = storage.models[new_idx].trims[3];
 
-        // Update RF driver receiver ID
+        // Update RF driver receiver ID and receiver settings
         rf::set_rx_id(storage.models[new_idx].rx_id);
+        rf::set_rx_settings(
+            storage.models[new_idx].servo_rate_hz,
+            storage.models[new_idx].rx_out_mode,
+            storage.models[new_idx].rx_serial_proto,
+        );
 
         // Persist to Flash
         storage::save_storage(storage);

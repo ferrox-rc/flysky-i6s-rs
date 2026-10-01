@@ -896,9 +896,9 @@ fn main() -> ! {
     trims.values.yaw = active.trims[3];
     rf::set_rx_id(active.rx_id);
     rf::set_rx_settings(
-        storage.radio.servo_rate_hz,
-        storage.radio.rx_out_mode,
-        storage.radio.rx_serial_proto,
+        active.servo_rate_hz,
+        active.rx_out_mode,
+        active.rx_serial_proto,
     );
 
     let mut calib_wizard = calib::CalibWizard::new();

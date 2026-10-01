@@ -5,6 +5,17 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-10-01
+
+### Added
+- **Per-Model AFHDS 2A / i-BUS Receiver Settings in Protocol Setup ([`src/storage.rs`](src/storage.rs), [`src/main.rs`](src/main.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:
+  - Relocated receiver refresh rate (`servo_rate_hz`), output mode (`rx_out_mode`), and serial protocol (`rx_serial_proto`) from global **Radio Setup** into model-specific **Protocol Setup** under `Proto: AFHDS 2A`.
+  - Stored receiver configuration per-model in `ModelConfig` (`rx_out_mode: u8`, `servo_rate_hz: u16`, `rx_serial_proto: u8`, `_reserved: [u8; 1]`) with natural 2-byte alignment, preserving strict 128-byte `ModelConfig` and 2,688-byte `RadioStorage` guarantees without padding.
+  - Dynamically updates active hardware receiver settings on model change and boot-up.
+  - Streamlined **Radio Setup** from 12 items to 9 pure radio/system configuration items.
+- **CRSF Protocol Universal Naming**:
+  - Renamed `CRSF/ELRS` to **`CRSF`** throughout the UI and documentation, reflecting universal compatibility across Crossfire, ExpressLRS, and third-party CRSF systems.
+
 ## [0.19.0] - 2026-09-30
 
 ### Added

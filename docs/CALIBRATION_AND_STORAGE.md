@@ -99,8 +99,11 @@ pub struct ModelConfig {
     pub failsafe_timeout: u8,      // 117: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,           // 118: 0: AFHDS 2A, 1: CRSF / ELRS
     pub crsf_baud: u8,             // 119: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
-    pub arm_switch: u8,            // 120: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
-    pub _reserved: [u8; 7],        // 121..128: 7 reserved bytes (Total: 128 bytes)
+    pub arm_switch: u8,            // 122: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
+    pub rx_out_mode: u8,           // 123: 0: PWM, 1: PPM
+    pub servo_rate_hz: u16,        // 124..126: 50..400 Hz (default 50 Hz for analog servo safety)
+    pub rx_serial_proto: u8,       // 126: 0: i-BUS, 1: S.BUS
+    pub _reserved: [u8; 1],        // 127..128: 1 reserved byte (Total: 128 bytes)
 }
 
 /// Unified Flash image layout (exactly 2,688 bytes in memory)
