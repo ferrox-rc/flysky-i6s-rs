@@ -33,6 +33,12 @@ Baud rates can be selected per-model in `9. Protocol Setup`:
 - **416,666 baud** (Standard Team BlackSheep Crossfire)
 - **115,200 baud** (Low-speed debug / legacy transmitters)
 - **921,600 baud** (Ultra-low latency for compatible external microcontrollers)
+- **1,875,000 baud** (Fastest: ultra-high throughput for modern ExpressLRS backpacks and high-rate packet modes)
+
+### Serial Duplex Mode (Full-Duplex vs Half-Duplex 1-Wire)
+Selectable in `9. Protocol Setup` -> `Duplex:`:
+- **Full (2-Wire)** (Default): Standard CRSF wiring using `PD5` (TX) and `PA15` (RX).
+- **Half (1-Wire)**: Single-wire bidirectional serial over `PD5` via STM32 hardware `HDSEL`. In this mode, `PD5` is driven in open-drain with internal pull-up, and transmitted self-echo bytes are automatically suppressed in the interrupt handler. `PA15` remains unasserted, simplifying wiring for compact single-wire micro modules and backpacks.
 
 ---
 

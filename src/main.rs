@@ -142,14 +142,18 @@ impl FlightPipeline {
 
         if is_crsf {
             let crsf_active = !sim_mode;
-            crsf::set_enabled(crsf_active, active_model.crsf_baud);
+            crsf::set_enabled(
+                crsf_active,
+                active_model.crsf_baud,
+                active_model.crsf_half_duplex != 0,
+            );
             if crsf_active {
                 crsf::update_channels(now, &rf_chs);
                 crsf::poll_telemetry(now);
             }
             rf::set_silenced(true);
         } else {
-            crsf::set_enabled(false, 0);
+            crsf::set_enabled(false, 0, false);
             rf::set_silenced(sim_mode);
             if !sim_mode {
                 rf::set_channels(&rf_chs);

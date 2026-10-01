@@ -14,6 +14,7 @@ use protocol::{build_channels_frame, parse_telemetry_frame, CrsfTelemetry, CRSF_
 static mut TELEMETRY: CrsfTelemetry = CrsfTelemetry::new();
 static mut CRSF_ENABLED: bool = false;
 static mut CURRENT_BAUD: u8 = 0xFF;
+static mut CURRENT_HALF_DUPLEX: bool = false;
 static mut LAST_TX_MS: u32 = 0;
 static mut RX_BUF: [u8; 64] = [0; 64];
 static mut RX_LEN: usize = 0;
@@ -29,14 +30,17 @@ pub fn set_power_polarity(active_high: bool) {
     uart::set_power_polarity(active_high);
 }
 
-/// Enable or disable CRSF protocol, power external module, and configure baud rate.
-pub fn set_enabled(enabled: bool, baud_idx: u8) {
+/// Enable or disable CRSF protocol, power external module, and configure baud rate and duplex mode.
+pub fn set_enabled(enabled: bool, baud_idx: u8, half_duplex: bool) {
     unsafe {
-        if enabled != CRSF_ENABLED || (enabled && baud_idx != CURRENT_BAUD) {
+        if enabled != CRSF_ENABLED
+            || (enabled && (baud_idx != CURRENT_BAUD || half_duplex != CURRENT_HALF_DUPLEX))
+        {
             CRSF_ENABLED = enabled;
             CURRENT_BAUD = baud_idx;
+            CURRENT_HALF_DUPLEX = half_duplex;
 
-            uart::set_uart_enabled(enabled, baud_idx);
+            uart::set_uart_enabled(enabled, baud_idx, half_duplex);
             uart::set_module_power(enabled);
 
             if !enabled {
@@ -3825,6 +3829,33 @@ mod tests {
 
         // Out-of-bounds selection index returns false
         assert!(!select_device(16));
+    }
+
+    #[test]
+    fn test_crsf_baud_and_half_duplex_configuration() {
+        // Test BRR calculation for 1.875M baud (index 4)
+        assert_eq!(uart::get_brr_for_baud(0), 114); // 420k
+        assert_eq!(uart::get_brr_for_baud(1), 115); // 416.6k
+        assert_eq!(uart::get_brr_for_baud(2), 417); // 115.2k
+        assert_eq!(uart::get_brr_for_baud(3), 52);  // 921.6k
+        assert_eq!(uart::get_brr_for_baud(4), 26);  // 1.875M
+
+        // Test enabling CRSF with half-duplex and 1.8M baud
+        set_enabled(true, 4, true);
+        assert!(is_enabled());
+        assert!(uart::is_half_duplex());
+
+        // Test disabling CRSF resets state
+        set_enabled(false, 0, false);
+        assert!(!is_enabled());
+        assert!(!uart::is_half_duplex());
+
+        // Test enabling CRSF with full-duplex standard baud
+        set_enabled(true, 0, false);
+        assert!(is_enabled());
+        assert!(!uart::is_half_duplex());
+
+        set_enabled(false, 0, false);
     }
 }
 

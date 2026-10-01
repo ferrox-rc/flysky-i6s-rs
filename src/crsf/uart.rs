@@ -25,6 +25,7 @@ const GPIOC_BSRR: *mut u32 = 0x4800_0818 as *mut u32;
 
 // GPIOD registers (Base: 0x4800_0C00)
 const GPIOD_MODER: *mut u32 = 0x4800_0C00 as *mut u32;
+const GPIOD_OTYPER: *mut u32 = 0x4800_0C04 as *mut u32;
 const GPIOD_OSPEEDR: *mut u32 = 0x4800_0C08 as *mut u32;
 const GPIOD_PUPDR: *mut u32 = 0x4800_0C0C as *mut u32;
 const GPIOD_AFRL: *mut u32 = 0x4800_0C20 as *mut u32;
@@ -54,9 +55,7 @@ const NVIC_IPR7: *mut u32 = 0xE000_E41C as *mut u32;
 #[cfg(not(test))]
 use stm32f0xx_hal::pac::interrupt;
 
-use core::sync::atomic::{AtomicBool, Ordering};
-#[cfg(not(test))]
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[cfg(not(test))]
 static mut RX_RING: [u8; 128] = [0; 128];
@@ -67,6 +66,8 @@ static RX_TAIL: AtomicUsize = AtomicUsize::new(0);
 
 static ACTIVE_HIGH: AtomicBool = AtomicBool::new(true);
 static POWER_ON: AtomicBool = AtomicBool::new(false);
+static HALF_DUPLEX_ACTIVE: AtomicBool = AtomicBool::new(false);
+static ECHO_SKIP_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Apply current PC13 pin state based on power state and active polarity.
 unsafe fn apply_power_pin() {
@@ -176,12 +177,21 @@ pub fn get_brr_for_baud(baud_idx: u8) -> u32 {
         1 => 115, // 416,666 bps (48,000,000 / 416,666.67 = 115.20)
         2 => 417, // 115,200 bps (48,000,000 / 115,200 = 416.66)
         3 => 52,  // 921,600 bps (48,000,000 / 921,600 = 52.08)
+        4 => 26,  // 1,875,000 bps (48,000,000 / 1,875,000 = 25.6 -> 26 = 1,846,154 bps, 1.5% error)
         _ => 114,
     }
 }
 
+/// Returns true if half-duplex (1-wire) mode is currently active.
+pub fn is_half_duplex() -> bool {
+    HALF_DUPLEX_ACTIVE.load(Ordering::Relaxed)
+}
+
 /// Configure and enable/disable USART2
-pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
+pub fn set_uart_enabled(enabled: bool, baud_idx: u8, half_duplex: bool) {
+    HALF_DUPLEX_ACTIVE.store(half_duplex, Ordering::Relaxed);
+    ECHO_SKIP_COUNT.store(0, Ordering::Relaxed);
+
     #[cfg(not(test))]
     unsafe {
         if enabled {
@@ -197,18 +207,38 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             let d_afrl = ptr::read_volatile(GPIOD_AFRL);
             ptr::write_volatile(GPIOD_AFRL, d_afrl & !(0xF << 20)); // AF0
 
-            // 3. Configure PA15 as AF1 (USART2_RX): MODER=10, AFRH bit 28..31 = 0001
-            let a_moder = ptr::read_volatile(GPIOA_MODER);
-            ptr::write_volatile(GPIOA_MODER, (a_moder & !(3 << 30)) | (2 << 30));
-            let a_pupdr = ptr::read_volatile(GPIOA_PUPDR);
-            ptr::write_volatile(GPIOA_PUPDR, (a_pupdr & !(3 << 30)) | (1 << 30)); // Pull-up
-            let a_afrh = ptr::read_volatile(GPIOA_AFRH);
-            ptr::write_volatile(GPIOA_AFRH, (a_afrh & !(0xF << 28)) | (1 << 28)); // AF1
+            let d_otyper = ptr::read_volatile(GPIOD_OTYPER);
+            let d_pupdr = ptr::read_volatile(GPIOD_PUPDR);
+
+            if half_duplex {
+                // Half-duplex single-wire: PD5 Open-Drain with internal Pull-Up
+                ptr::write_volatile(GPIOD_OTYPER, d_otyper | (1 << 5));
+                ptr::write_volatile(GPIOD_PUPDR, (d_pupdr & !(3 << 10)) | (1 << 10)); // Pull-up on PD5
+
+                // PA15 is not used in half-duplex; float as input
+                let a_moder = ptr::read_volatile(GPIOA_MODER);
+                ptr::write_volatile(GPIOA_MODER, a_moder & !(3 << 30));
+            } else {
+                // Full-duplex: PD5 Push-Pull, no pull resistor
+                ptr::write_volatile(GPIOD_OTYPER, d_otyper & !(1 << 5));
+                ptr::write_volatile(GPIOD_PUPDR, d_pupdr & !(3 << 10));
+
+                // Configure PA15 as AF1 (USART2_RX): MODER=10, AFRH bit 28..31 = 0001, Pull-Up
+                let a_moder = ptr::read_volatile(GPIOA_MODER);
+                ptr::write_volatile(GPIOA_MODER, (a_moder & !(3 << 30)) | (2 << 30));
+                let a_pupdr = ptr::read_volatile(GPIOA_PUPDR);
+                ptr::write_volatile(GPIOA_PUPDR, (a_pupdr & !(3 << 30)) | (1 << 30)); // Pull-up
+                let a_afrh = ptr::read_volatile(GPIOA_AFRH);
+                ptr::write_volatile(GPIOA_AFRH, (a_afrh & !(0xF << 28)) | (1 << 28)); // AF1
+            }
 
             // 4. Reset USART2 registers
             ptr::write_volatile(USART2_CR1, 0);
             ptr::write_volatile(USART2_CR2, 0);
-            ptr::write_volatile(USART2_CR3, 0);
+
+            // In half-duplex mode, enable HDSEL (bit 3 in CR3)
+            let cr3 = if half_duplex { 1 << 3 } else { 0 };
+            ptr::write_volatile(USART2_CR3, cr3);
 
             // 5. Set Baud rate divisor
             let brr = get_brr_for_baud(baud_idx);
@@ -247,12 +277,14 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             // Set PD5 and PA15 back to inputs to float pins
             let d_moder = ptr::read_volatile(GPIOD_MODER);
             ptr::write_volatile(GPIOD_MODER, d_moder & !(3 << 10));
+            let d_otyper = ptr::read_volatile(GPIOD_OTYPER);
+            ptr::write_volatile(GPIOD_OTYPER, d_otyper & !(1 << 5));
             let a_moder = ptr::read_volatile(GPIOA_MODER);
             ptr::write_volatile(GPIOA_MODER, a_moder & !(3 << 30));
         }
     }
     #[cfg(test)]
-    let _ = (enabled, baud_idx);
+    let _ = (enabled, baud_idx, half_duplex);
 }
 
 /// Transmit a buffer over USART2 (non-blocking if space available, bounded timeout)
@@ -260,10 +292,12 @@ pub fn write_bytes(bytes: &[u8]) -> usize {
     #[cfg(test)]
     {
         mock::record_tx(bytes);
+        // If half-duplex mock active, self-echo bytes to RX queue if desired, or skip
         bytes.len()
     }
     #[cfg(not(test))]
     unsafe {
+        let is_hd = HALF_DUPLEX_ACTIVE.load(Ordering::Relaxed);
         let mut sent = 0;
         for &b in bytes {
             let mut timeout = 2500u32;
@@ -272,6 +306,9 @@ pub fn write_bytes(bytes: &[u8]) -> usize {
                 if timeout == 0 {
                     return sent;
                 }
+            }
+            if is_hd {
+                ECHO_SKIP_COUNT.fetch_add(1, Ordering::SeqCst);
             }
             ptr::write_volatile(USART2_TDR, b as u32);
             sent += 1;
@@ -312,6 +349,14 @@ fn USART2() {
 
         if (isr & USART_ISR_RXNE) != 0 {
             let b = (ptr::read_volatile(USART2_RDR) & 0xFF) as u8;
+            if HALF_DUPLEX_ACTIVE.load(Ordering::Relaxed) {
+                let skip = ECHO_SKIP_COUNT.load(Ordering::SeqCst);
+                if skip > 0 {
+                    ECHO_SKIP_COUNT.store(skip - 1, Ordering::SeqCst);
+                    return;
+                }
+            }
+
             let head = RX_HEAD.load(Ordering::Relaxed);
             let tail = RX_TAIL.load(Ordering::Acquire);
             let next_head = (head + 1) & (RX_RING.len() - 1);

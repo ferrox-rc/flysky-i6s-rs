@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.19.1] - 2026-10-01
 
 ### Added
+- **Single-Wire Half-Duplex CRSF (`HDSEL`) ([`src/crsf/uart.rs`](src/crsf/uart.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`docs/CRSF_ELRS_GUIDE.md`](docs/CRSF_ELRS_GUIDE.md))**:
+  - Implemented single-wire bidirectional serial over `PD5` via STM32 hardware `HDSEL` (`USART2_CR3` bit 3) with open-drain output and internal pull-up.
+  - Implemented TX self-echo suppression in the `USART2` interrupt handler to automatically discard local transmitted bytes before routing incoming telemetry frames to `RX_RING`.
+  - Added per-model `Duplex: Full (2-Wire) / Half (1-Wire)` selection in **Protocol Setup**, persisted in `ModelConfig.crsf_half_duplex` without altering the 128-byte model struct size.
+- **1.875M High-Speed Baud Rate for CRSF ([`src/crsf/uart.rs`](src/crsf/uart.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Added `1.87M (Fastest)` (`1,875,000 bps`, divisor $\text{BRR} = 26$, 1.5% timing margin on 48 MHz MCU clock) for ultra-low latency telemetry and high-rate packet modes on compatible ExpressLRS modules and backpacks.
 - **Per-Model AFHDS 2A / i-BUS Receiver Settings in Protocol Setup ([`src/storage.rs`](src/storage.rs), [`src/main.rs`](src/main.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs), [`src/ui/menu/screens/model.rs`](src/ui/menu/screens/model.rs))**:
   - Relocated receiver refresh rate (`servo_rate_hz`), output mode (`rx_out_mode`), and serial protocol (`rx_serial_proto`) from global **Radio Setup** into model-specific **Protocol Setup** under `Proto: AFHDS 2A`.
   - Stored receiver configuration per-model in `ModelConfig` (`rx_out_mode: u8`, `servo_rate_hz: u16`, `rx_serial_proto: u8`, `_reserved: [u8; 1]`) with natural 2-byte alignment, preserving strict 128-byte `ModelConfig` and 2,688-byte `RadioStorage` guarantees without padding.

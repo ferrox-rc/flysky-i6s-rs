@@ -71,7 +71,16 @@ To eliminate data loss and guarantee high-speed stability:
 3. **High NVIC Priority (`0x40`)**: IRQ 28 is unmasked with priority `0x40` (higher than TIM16/EXTI at `0x80` and USB at `0xC0`), guaranteeing preemption of any blocking loop tasks.
 4. **Hardware ORE Auto-Recovery**: The ISR inspects and clears `USART_ISR_ORE` on every entry.
 5. **Inter-Byte Silence Resynchronization**: If an electrical glitch or wire disconnect interrupts a packet mid-frame, `poll_telemetry()` tracks `LAST_RX_BYTE_MS`. If $\ge 3\text{ ms}$ elapses with an incomplete frame, `RX_LEN` automatically resets to 0 to resynchronize for the next frame.
-6. **TBS-Compliant Wire Framing**: All serial frames emitted by the handset start with `CRSF_SYNC_BYTE` (`0xC8`) on the wire per the TBS CRSF specification. In extended frames (`0x28`, `0x2C`, `0x2D`), byte 3 contains the target device address (`0xEE` transmitter, `0xEC` receiver, or `0xC8` flight controller), and byte 4 contains the handset origin address (`0xEA`).
+7. **Configurable Baud Divisors & High-Speed Clocks**:
+   - `420,000 baud`: $\text{BRR} = 114$ ($48\text{ MHz} / 420{,}000 = 114.28$)
+   - `416,666 baud`: $\text{BRR} = 115$ ($48\text{ MHz} / 416{,}666.67 = 115.20$)
+   - `115,200 baud`: $\text{BRR} = 417$ ($48\text{ MHz} / 115{,}200 = 416.66$)
+   - `921,600 baud`: $\text{BRR} = 52$ ($48\text{ MHz} / 921{,}600 = 52.08$)
+   - `1,875,000 baud`: $\text{BRR} = 26$ ($48\text{ MHz} / 1{,}875{,}000 = 25.6 \to 1{,}846{,}154\text{ bps}$, 1.5% timing margin)
+8. **Single-Wire Half-Duplex (`HDSEL`) & Echo Suppression**:
+   - When configured in Half-Duplex mode, `USART2_CR3` sets bit 3 (`HDSEL`).
+   - Pin `PD5` operates in Alternate Function 0 (AF0), **Open-Drain** with internal Pull-Up. `PA15` is unconfigured.
+   - To prevent self-reception corruption during channel packet transmissions, `write_bytes()` tracks transmitted byte count in `ECHO_SKIP_COUNT`, and the `USART2` interrupt handler drops exactly that number of self-echoed bytes from `RDR` before routing genuine inbound telemetry frames into `RX_RING`.
 
 ---
 

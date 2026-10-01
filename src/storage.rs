@@ -171,12 +171,12 @@ pub struct ModelConfig {
     pub failsafe_mode: u8, // 118: 0: Hold last, 1: Custom pulses
     pub failsafe_timeout: u8, // 119: 10..50 (1.0s..5.0s)
     pub rf_protocol: u8,  // 120: 0: AFHDS 2A, 1: CRSF / ELRS
-    pub crsf_baud: u8,    // 121: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
+    pub crsf_baud: u8,    // 121: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k, 4: 1.875M
     pub arm_switch: u8, // 122: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
     pub rx_out_mode: u8, // 123: 0: PWM, 1: PPM (default 0)
     pub servo_rate_hz: u16, // 124..126: 50..400 Hz (default 50 Hz)
     pub rx_serial_proto: u8, // 126: 0: i-BUS, 1: S.BUS (default 0)
-    pub _reserved: [u8; 1], // 127..128: 1 reserved byte
+    pub crsf_half_duplex: u8, // 127: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
 }
 
 impl ModelConfig {
@@ -218,7 +218,7 @@ impl ModelConfig {
             servo_rate_hz: 50,
             rx_out_mode: 0,
             rx_serial_proto: 0,
-            _reserved: [0; 1],
+            crsf_half_duplex: 0,
         }
     }
 }
@@ -324,8 +324,11 @@ impl RadioStorage {
             if m.rf_protocol > 1 {
                 m.rf_protocol = 0;
             }
-            if m.crsf_baud > 3 {
+            if m.crsf_baud > 4 {
                 m.crsf_baud = 0;
+            }
+            if m.crsf_half_duplex > 1 {
+                m.crsf_half_duplex = 0;
             }
             for axis in 0..3 {
                 if m.dr_high[axis] < 30 || m.dr_high[axis] > 100 {
@@ -1029,6 +1032,7 @@ mod tests {
             m.timer_secs = 65535;
             m.rf_protocol = 255;
             m.crsf_baud = 255;
+            m.crsf_half_duplex = 255;
             m.dr_switch = 255;
             m.wing_tail_mix = 255;
             m.failsafe_thr = 65535;
@@ -1064,6 +1068,7 @@ mod tests {
             assert_eq!(m.rx_serial_proto, 0);
             assert_eq!(m.rf_protocol, 0);
             assert_eq!(m.crsf_baud, 0);
+            assert_eq!(m.crsf_half_duplex, 0);
             assert_eq!(m.dr_switch, 0);
             assert_eq!(m.wing_tail_mix, 0);
             assert_eq!(m.failsafe_thr, 1000);

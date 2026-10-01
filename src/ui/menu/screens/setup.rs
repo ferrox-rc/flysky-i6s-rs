@@ -201,8 +201,8 @@ pub fn update_rx_setup(
     let active_idx = storage.radio.active_model as usize;
     let proto = storage.models[active_idx].rf_protocol;
     // 0: AFHDS 2A -> 5 items (0: Proto, 1: [Bind Receiver], 2: Servo Hz, 3: RX Out, 4: Serial)
-    // 1: CRSF -> 3 items (0: Proto, 1: Baud, 2: [Configure Module])
-    let item_count = if proto == 0 { 5 } else { 3 };
+    // 1: CRSF -> 4 items (0: Proto, 1: Baud, 2: Duplex, 3: [Configure Module])
+    let item_count = if proto == 0 { 5 } else { 4 };
 
     if keys.cancel {
         if ctrl.editing {
@@ -245,6 +245,24 @@ pub fn update_rx_setup(
                     ctrl.editing = true;
                     buzzer.click();
                 }
+                (1, 2) => {
+                    // CRSF: Toggle Duplex mode (Full / Half)
+                    buzzer.click();
+                    storage.models[active_idx].crsf_half_duplex =
+                        if storage.models[active_idx].crsf_half_duplex == 0 { 1 } else { 0 };
+                    storage::save_storage(storage);
+                }
+                (1, 3) => {
+                    // CRSF: Enter Configurator
+                    ctrl.state = MenuState::ElrsSetup;
+                    ctrl.return_state = MenuState::RxSetup;
+                    ctrl.selected_item = 0;
+                    ctrl.scroll_offset = 0;
+                    ctrl.waiting_release = true;
+                    crate::crsf::start_config();
+                    buzzer.click();
+                    return;
+                }
                 (0, 2) => {
                     // AFHDS 2A: Cycle Servo Hz
                     buzzer.click();
@@ -265,17 +283,6 @@ pub fn update_rx_setup(
                         storage.models[active_idx].rx_serial_proto,
                     );
                     storage::save_storage(storage);
-                }
-                (1, 2) => {
-                    // CRSF: Enter Configurator
-                    ctrl.state = MenuState::ElrsSetup;
-                    ctrl.return_state = MenuState::RxSetup;
-                    ctrl.selected_item = 0;
-                    ctrl.scroll_offset = 0;
-                    ctrl.waiting_release = true;
-                    crate::crsf::start_config();
-                    buzzer.click();
-                    return;
                 }
                 (0, 3) => {
                     // AFHDS 2A: Toggle RX Out (PWM/PPM)
@@ -316,16 +323,16 @@ pub fn update_rx_setup(
                 }
             }
             1 => {
-                // Baud Rate (CRSF only): 0 = 420k, 1 = 416.6k, 2 = 115.2k, 3 = 921.6k
+                // Baud Rate (CRSF only): 0 = 420k, 1 = 416.6k, 2 = 115.2k, 3 = 921.6k, 4 = 1.875M
                 if keys.up {
                     storage.models[active_idx].crsf_baud = if storage.models[active_idx].crsf_baud > 0 {
                         storage.models[active_idx].crsf_baud - 1
                     } else {
-                        3
+                        4
                     };
                     buzzer.play_tone(2200, 30);
                 } else if keys.down {
-                    storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 4;
+                    storage.models[active_idx].crsf_baud = (storage.models[active_idx].crsf_baud + 1) % 5;
                     buzzer.play_tone(2200, 30);
                 }
             }
@@ -397,31 +404,36 @@ pub fn update_rx_setup(
         };
         widgets::draw_footer(lcd, footer);
     } else {
-        // CRSF Display
+        // CRSF Display (4 items: Proto, Baud, Duplex, Configure Module)
         let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
         let mut line_buf = [b' '; 26];
 
         let sel_proto = ctrl.selected_item == 0;
         let sel_baud = ctrl.selected_item == 1;
-        let sel_cfg = ctrl.selected_item == 2;
+        let sel_duplex = ctrl.selected_item == 2;
+        let sel_cfg = ctrl.selected_item == 3;
 
         let p_arrow = if sel_proto { b'>' } else { b' ' };
         let b_arrow = if sel_baud { b'>' } else { b' ' };
+        let d_arrow = if sel_duplex { b'>' } else { b' ' };
         let c_arrow = if sel_cfg { b'>' } else { b' ' };
 
+        // Row 0: Proto
         let proto_val = if ctrl.editing && sel_proto { "[CRSF]" } else { "CRSF" };
         line_buf[0] = p_arrow;
         line_buf[1..8].copy_from_slice(b"Proto: ");
         let pv_bytes = proto_val.as_bytes();
         line_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
         let p_str = ascii_as_str(&line_buf[..8 + pv_bytes.len()]);
-        Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
+        Text::new(p_str, Point::new(2, 20), text_style).draw(lcd).ok();
 
+        // Row 1: Baud
         let baud_val = match storage.models[active_idx].crsf_baud {
             0 => "420k (ELRS)",
             1 => "416.6k (TBS)",
             2 => "115.2k (Low)",
             3 => "921.6k (Fast)",
+            4 => "1.87M (Fastest)",
             _ => "420k (ELRS)",
         };
         line_buf[0] = b_arrow;
@@ -437,15 +449,31 @@ pub fn update_rx_setup(
             7 + bv_bytes.len()
         };
         let full_b_str = ascii_as_str(&line_buf[..b_start]);
-        Text::new(full_b_str, Point::new(2, 32), text_style).draw(lcd).ok();
+        Text::new(full_b_str, Point::new(2, 29), text_style).draw(lcd).ok();
 
+        // Row 2: Duplex (Full 2-Wire vs Half 1-Wire)
+        let duplex_val = if storage.models[active_idx].crsf_half_duplex == 0 {
+            "Full (2-Wire)"
+        } else {
+            "Half (1-Wire)"
+        };
+        line_buf[0] = d_arrow;
+        line_buf[1..9].copy_from_slice(b"Duplex: ");
+        let dv_bytes = duplex_val.as_bytes();
+        line_buf[9..9 + dv_bytes.len()].copy_from_slice(dv_bytes);
+        let full_d_str = ascii_as_str(&line_buf[..9 + dv_bytes.len()]);
+        Text::new(full_d_str, Point::new(2, 38), text_style).draw(lcd).ok();
+
+        // Row 3: Configure Module
         line_buf[0] = c_arrow;
         line_buf[1..19].copy_from_slice(b"[Configure Module]");
         let full_c_str = ascii_as_str(&line_buf[..19]);
-        Text::new(full_c_str, Point::new(2, 42), text_style).draw(lcd).ok();
+        Text::new(full_c_str, Point::new(2, 47), text_style).draw(lcd).ok();
 
         let footer = if ctrl.editing {
             "[OK] Save   [UP/DN] Change"
+        } else if sel_duplex {
+            "[OK] Toggle Mode  [ESC] Exit"
         } else if sel_cfg {
             "[OK] Open Config  [ESC] Exit"
         } else {
