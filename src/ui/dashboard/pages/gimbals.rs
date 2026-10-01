@@ -16,6 +16,7 @@ use crate::ui::glyphs::draw_switch_arrow;
 use crate::ui::widgets;
 
 #[inline(never)]
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     lcd: &mut St7567,
     state: &InputState,

@@ -53,7 +53,7 @@ pub fn render(lcd: &mut St7567, rf_chs: &[u16; NUM_CHANNELS], is_binding: bool, 
 
             // Bar gauge (width 26, height 5) using shared widget
             let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
-            let fill_w = (((us - CHANNEL_MIN_US) as u32 * 24) / CHANNEL_SPAN_US as u32).min(24);
+            let fill_w = (((us - CHANNEL_MIN_US) as u32 * 24) / CHANNEL_SPAN_US).min(24);
             widgets::draw_bar_gauge(
                 lcd,
                 Rectangle::new(Point::new(col_x + 14, y + 1), Size::new(26, 5)),

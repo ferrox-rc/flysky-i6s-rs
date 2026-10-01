@@ -373,6 +373,12 @@ pub struct ElrsConfigEngine {
     pub cmd_info_len: u8,
 }
 
+impl Default for ElrsConfigEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ElrsConfigEngine {
     pub const fn new() -> Self {
         Self {
@@ -989,57 +995,57 @@ unsafe fn elrs_tick(now_ms: u32) {
                 }
             }
         }
-        ElrsConfigState::LoadingParam(id) => {
-            if now_ms.wrapping_sub(CONFIG_ENGINE.next_req_ms) < 0x8000_0000 {
-                let timeout: u32 =
-                    if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
-                        1000
-                    } else {
-                        500
-                    };
-
-                let max_retries = if id == 0 { 2 } else { 4 };
-                if CONFIG_ENGINE.retry_count < max_retries {
-                    CONFIG_ENGINE.retry_count += 1;
-                    CONFIG_ENGINE.last_req_ms = now_ms;
-                    CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
-                    send_param_read(CONFIG_ENGINE.device_id, id, CONFIG_ENGINE.current_chunk);
+        ElrsConfigState::LoadingParam(id)
+            if now_ms.wrapping_sub(CONFIG_ENGINE.next_req_ms) < 0x8000_0000 =>
+        {
+            let timeout: u32 =
+                if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                    1000
                 } else {
-                    // Retries exhausted for this parameter (packet lost over the air).
-                    // Advance to next parameter immediately to avoid freezing UI permanently.
-                    CONFIG_ENGINE.retry_count = 0;
-                    CONFIG_ENGINE.current_chunk = 0;
-                    CONFIG_ENGINE.expect_chunks_remain = 0;
-                    CHUNK_LEN = 0;
-                    CHUNK_PARAM_ID = 0;
-                    if id == 0 {
-                        // Device does not support Parameter 0 root folder.
-                        // Fall back to legacy sequential discovery starting at param 1.
-                        CONFIG_ENGINE.has_root_folder = false;
-                        if CONFIG_ENGINE.param_count >= 1 {
-                            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
-                            CONFIG_ENGINE.last_req_ms = now_ms;
-                            CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
-                            send_param_read(CONFIG_ENGINE.device_id, 1, 0);
-                        } else {
-                            CONFIG_ENGINE.state = ElrsConfigState::Ready;
-                            CONFIG_ENGINE.folder_loading = false;
-                        }
-                    } else if let Some(next_id) = next_param_for_folder(
-                        id,
-                        CONFIG_ENGINE.current_folder,
-                        CONFIG_ENGINE.param_count,
-                        &CONFIG_ENGINE.parent_map,
-                        CONFIG_ENGINE.has_root_folder,
-                    ) {
-                        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
+                    500
+                };
+
+            let max_retries = if id == 0 { 2 } else { 4 };
+            if CONFIG_ENGINE.retry_count < max_retries {
+                CONFIG_ENGINE.retry_count += 1;
+                CONFIG_ENGINE.last_req_ms = now_ms;
+                CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+                send_param_read(CONFIG_ENGINE.device_id, id, CONFIG_ENGINE.current_chunk);
+            } else {
+                // Retries exhausted for this parameter (packet lost over the air).
+                // Advance to next parameter immediately to avoid freezing UI permanently.
+                CONFIG_ENGINE.retry_count = 0;
+                CONFIG_ENGINE.current_chunk = 0;
+                CONFIG_ENGINE.expect_chunks_remain = 0;
+                CHUNK_LEN = 0;
+                CHUNK_PARAM_ID = 0;
+                if id == 0 {
+                    // Device does not support Parameter 0 root folder.
+                    // Fall back to legacy sequential discovery starting at param 1.
+                    CONFIG_ENGINE.has_root_folder = false;
+                    if CONFIG_ENGINE.param_count >= 1 {
+                        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
                         CONFIG_ENGINE.last_req_ms = now_ms;
                         CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
-                        send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
+                        send_param_read(CONFIG_ENGINE.device_id, 1, 0);
                     } else {
                         CONFIG_ENGINE.state = ElrsConfigState::Ready;
                         CONFIG_ENGINE.folder_loading = false;
                     }
+                } else if let Some(next_id) = next_param_for_folder(
+                    id,
+                    CONFIG_ENGINE.current_folder,
+                    CONFIG_ENGINE.param_count,
+                    &CONFIG_ENGINE.parent_map,
+                    CONFIG_ENGINE.has_root_folder,
+                ) {
+                    CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
+                    CONFIG_ENGINE.last_req_ms = now_ms;
+                    CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
+                    send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
+                } else {
+                    CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                    CONFIG_ENGINE.folder_loading = false;
                 }
             }
         }
@@ -1075,12 +1081,12 @@ unsafe fn elrs_tick(now_ms: u32) {
                 };
             }
         }
-        ActiveCommandState::Completed { done_timer_ms, .. } => {
-            if now_ms.wrapping_sub(done_timer_ms) < 0x8000_0000 {
-                CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
-                CONFIG_ENGINE.cmd_info = [0; 24];
-                CONFIG_ENGINE.cmd_info_len = 0;
-            }
+        ActiveCommandState::Completed { done_timer_ms, .. }
+            if now_ms.wrapping_sub(done_timer_ms) < 0x8000_0000 =>
+        {
+            CONFIG_ENGINE.active_cmd = ActiveCommandState::Idle;
+            CONFIG_ENGINE.cmd_info = [0; 24];
+            CONFIG_ENGINE.cmd_info_len = 0;
         }
         _ => {}
     }
@@ -1343,11 +1349,9 @@ pub fn get_folder_params(folder_id: u8, out_indices: &mut [u8; MAX_FOLDER_ITEMS]
             .iter()
             .enumerate()
         {
-            if p.parent == folder_id && !p.is_hidden() {
-                if count < MAX_FOLDER_ITEMS {
-                    out_indices[count] = idx as u8;
-                    count += 1;
-                }
+            if p.parent == folder_id && !p.is_hidden() && count < MAX_FOLDER_ITEMS {
+                out_indices[count] = idx as u8;
+                count += 1;
             }
         }
         count
@@ -1375,7 +1379,7 @@ pub fn get_parent_folder(folder_id: u8) -> u8 {
 }
 
 /// Find display name of a folder by ID.
-pub fn get_folder_name<'a>(folder_id: u8, buf: &'a mut [u8; MAX_FOLDER_NAME_LEN]) -> &'a str {
+pub fn get_folder_name(folder_id: u8, buf: &mut [u8; MAX_FOLDER_NAME_LEN]) -> &str {
     unsafe {
         if folder_id == CONFIG_ENGINE.current_folder && CONFIG_ENGINE.folder_name_len > 0 {
             let len = (CONFIG_ENGINE.folder_name_len as usize).min(MAX_FOLDER_NAME_LEN);

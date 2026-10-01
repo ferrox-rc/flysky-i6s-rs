@@ -42,6 +42,12 @@ pub struct TrimController {
     repeat_time_ms: u16,
 }
 
+impl Default for TrimController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TrimController {
     pub const fn new() -> Self {
         Self {

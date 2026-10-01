@@ -219,7 +219,7 @@ pub fn update_channel_monitor(
             .ok();
 
         let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
-        let fill_w = (((us - CHANNEL_MIN_US) as u32 * 38) / CHANNEL_SPAN_US as u32).min(38);
+        let fill_w = (((us - CHANNEL_MIN_US) as u32 * 38) / CHANNEL_SPAN_US).min(38);
         widgets::draw_bar_gauge(
             lcd,
             Rectangle::new(Point::new(44, y + 1), Size::new(40, 5)),

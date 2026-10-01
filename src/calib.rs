@@ -38,6 +38,12 @@ pub struct CalibWizard {
     timer_ms: u16,
 }
 
+impl Default for CalibWizard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CalibWizard {
     pub const fn new() -> Self {
         Self {

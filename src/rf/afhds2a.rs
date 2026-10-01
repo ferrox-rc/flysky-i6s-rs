@@ -53,6 +53,12 @@ pub struct TelemetryData {
     pub packets_received: u32,
 }
 
+impl Default for TelemetryData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TelemetryData {
     pub const fn new() -> Self {
         Self {
