@@ -5,6 +5,19 @@ All notable changes to the `flysky-i6x-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Hardware Extension Suite: Auxiliary Digital Switches SE & SF ([`src/boot.rs`](src/boot.rs), [`src/storage.rs`](src/storage.rs), [`src/input.rs`](src/input.rs), [`src/mixer.rs`](src/mixer.rs), [`src/usb/hid.rs`](src/usb/hid.rs), [`src/ui/`](src/ui/))**:
+  - Configured GPIO pins `PC12` (`SE`) and `PC15` (`SF`) as digital inputs with internal pull-ups (`PUPDR = 01`) for active-LOW toggle switch mods to GND.
+  - Added non-volatile toggle `ext_switches` to `RadioConfig` (`[OFF / PC12+PC15]`), using reserved storage byte without breaking the strict 128-byte `RadioConfig` constraint.
+  - Added hardware sampling in `input::poll()` with runtime enable/disable guard (`is_ext_switches_enabled()`).
+  - Added full mixing matrix support: sources `SE` (31) and `SF` (32) mapped to -1000 (Up) / +1000 (Down); switch conditions 11..14 (`SE^`, `SEv`, `SF^`, `SFv`); dual rates switch assignment (switches 5, 6); arm switch and flight timer triggers.
+  - Mapped `SE` and `SF` to discrete buttons 11 and 12 in the 16-button USB HID Gamepad report descriptor.
+  - Added `Analog Diag` Page 2 visual monitor for real-time `SW:SE` and `SW:SF` logic states, bars, and enablement status.
+  - Added dynamic 6-switch display (`SA`..`SF`) on the main flight gimbals dashboard when auxiliary switches are enabled, retaining the 4-switch layout when disabled.
+  - Added SE/SF assignment options in auxiliary channel mapper (`CH5`..`CH18`).
+
 ## [0.19.1] - 2026-10-01
 
 ### Added

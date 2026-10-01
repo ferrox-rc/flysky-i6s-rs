@@ -3,8 +3,9 @@
 use crate::adc;
 
 /// 3-position switch states.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum SwitchPos {
+    #[default]
     Up,
     Mid,
     Down,
@@ -37,16 +38,27 @@ pub struct Pots {
 }
 
 /// Physical switch states on the radio.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct Switches {
     pub sa: SwitchPos, // 2-pos
     pub sb: SwitchPos, // 3-pos
     pub sc: SwitchPos, // 3-pos
     pub sd: SwitchPos, // 2-pos
+    pub se: SwitchPos, // 2-pos (Ext switch PC12)
+    pub sf: SwitchPos, // 2-pos (Ext switch PC15)
 }
 
 impl Switches {
-    /// Detect if a switch moved between prev and self, returning the matching condition index 1..10.
+    pub const DEFAULT: Self = Self {
+        sa: SwitchPos::Up,
+        sb: SwitchPos::Up,
+        sc: SwitchPos::Up,
+        sd: SwitchPos::Up,
+        se: SwitchPos::Up,
+        sf: SwitchPos::Up,
+    };
+
+    /// Detect if a switch moved between prev and self, returning the matching condition index 1..14.
     pub fn detect_condition_change(&self, prev: &Switches) -> Option<u8> {
         if self.sa != prev.sa {
             return Some(if self.sa == SwitchPos::Up { 1 } else { 2 });
@@ -68,10 +80,16 @@ impl Switches {
         if self.sd != prev.sd {
             return Some(if self.sd == SwitchPos::Up { 9 } else { 10 });
         }
+        if self.se != prev.se {
+            return Some(if self.se == SwitchPos::Up { 11 } else { 12 });
+        }
+        if self.sf != prev.sf {
+            return Some(if self.sf == SwitchPos::Up { 13 } else { 14 });
+        }
         None
     }
 
-    /// Detect if any switch toggled, returning the switch index 1..4 (1:SA, 2:SB, 3:SC, 4:SD).
+    /// Detect if any switch toggled, returning the switch index 1..6 (1:SA, 2:SB, 3:SC, 4:SD, 5:SE, 6:SF).
     pub fn detect_dr_switch_change(&self, prev: &Switches) -> Option<u8> {
         if self.sa != prev.sa {
             Some(1)
@@ -81,6 +99,10 @@ impl Switches {
             Some(3)
         } else if self.sd != prev.sd {
             Some(4)
+        } else if self.se != prev.se {
+            Some(5)
+        } else if self.sf != prev.sf {
+            Some(6)
         } else {
             None
         }
@@ -168,6 +190,7 @@ pub struct InputCalibration {
     pub vra: AxisCalib,
     pub vrb: AxisCalib,
     pub filtered_battery_mv: u32,
+    pub ext_switches: bool,
 }
 
 impl InputCalibration {
@@ -180,6 +203,7 @@ impl InputCalibration {
             vra: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             vrb: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             filtered_battery_mv: 0,
+            ext_switches: false,
         }
     }
 }
@@ -194,6 +218,8 @@ static INPUT_MANAGER: InputManagerCell = InputManagerCell(UnsafeCell::new(InputC
 /// Apply a full set of stick and pot calibration endpoints.
 pub fn apply_calibration(config: &crate::storage::RadioConfig) {
     let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
+
+    calib.ext_switches = config.ext_switches != 0;
 
     // Roll: PA0 (RH) - inverted on FlySky mechanical gimbal
     calib.roll.invert = true;
@@ -229,6 +255,18 @@ pub fn apply_calibration(config: &crate::storage::RadioConfig) {
     calib.vrb.min = config.pots[1].min;
     calib.vrb.center = config.pots[1].center;
     calib.vrb.max = config.pots[1].max;
+}
+
+/// Enable or disable external switches SE & SF reading at runtime.
+pub fn set_ext_switches_enabled(enabled: bool) {
+    let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
+    calib.ext_switches = enabled;
+}
+
+/// Check if external switches SE & SF are currently enabled.
+pub fn is_ext_switches_enabled() -> bool {
+    let calib = unsafe { &*INPUT_MANAGER.0.get() };
+    calib.ext_switches
 }
 
 /// Initialize input subsystem, load Flash calibration, and measure resting center for spring-loaded gimbals.
@@ -325,11 +363,40 @@ pub fn poll() -> InputState {
     // SB on PA5 (3-pos)
     // SC on PB0 (3-pos) - Swapped with VRB!
     // SD on PB1 (2-pos)
+    // SE on PC12 (2-pos, active-low mod)
+    // SF on PC15 (2-pos, active-low mod)
+    let (se, sf) = if calib.ext_switches {
+        #[cfg(all(feature = "stm32", not(test)))]
+        {
+            let gpioc = unsafe { &*stm32f0xx_hal::pac::GPIOC::ptr() };
+            let idr = gpioc.idr.read().bits();
+            let se = if (idr & (1 << 12)) == 0 {
+                SwitchPos::Down
+            } else {
+                SwitchPos::Up
+            };
+            let sf = if (idr & (1 << 15)) == 0 {
+                SwitchPos::Down
+            } else {
+                SwitchPos::Up
+            };
+            (se, sf)
+        }
+        #[cfg(any(not(feature = "stm32"), test))]
+        {
+            (SwitchPos::Up, SwitchPos::Up)
+        }
+    } else {
+        (SwitchPos::Up, SwitchPos::Up)
+    };
+
     let switches = Switches {
         sa: decode_switch(raw[4]), // PA4
         sb: decode_switch(raw[5]), // PA5
         sc: decode_switch(raw[8]), // PB0
         sd: decode_switch(raw[9]), // PB1
+        se,
+        sf,
     };
 
     let instant_mv = calculate_battery_mv(raw[10]); // PC0
@@ -348,5 +415,95 @@ pub fn poll() -> InputState {
         switches,
         battery_mv,
         raw,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_switches_condition_detection() {
+        let base = Switches::DEFAULT;
+
+        // SA: Up=1, Down=2
+        let mut sw = base;
+        sw.sa = SwitchPos::Down;
+        assert_eq!(sw.detect_condition_change(&base), Some(2));
+        assert_eq!(base.detect_condition_change(&sw), Some(1));
+
+        // SB: Up=3, Mid=4, Down=5
+        let mut sw = base;
+        sw.sb = SwitchPos::Mid;
+        assert_eq!(sw.detect_condition_change(&base), Some(4));
+        sw.sb = SwitchPos::Down;
+        assert_eq!(sw.detect_condition_change(&base), Some(5));
+
+        // SC: Up=6, Mid=7, Down=8
+        let mut sw = base;
+        sw.sc = SwitchPos::Mid;
+        assert_eq!(sw.detect_condition_change(&base), Some(7));
+        sw.sc = SwitchPos::Down;
+        assert_eq!(sw.detect_condition_change(&base), Some(8));
+
+        // SD: Up=9, Down=10
+        let mut sw = base;
+        sw.sd = SwitchPos::Down;
+        assert_eq!(sw.detect_condition_change(&base), Some(10));
+        assert_eq!(base.detect_condition_change(&sw), Some(9));
+
+        // SE: Up=11, Down=12
+        let mut sw = base;
+        sw.se = SwitchPos::Down;
+        assert_eq!(sw.detect_condition_change(&base), Some(12));
+        assert_eq!(base.detect_condition_change(&sw), Some(11));
+
+        // SF: Up=13, Down=14
+        let mut sw = base;
+        sw.sf = SwitchPos::Down;
+        assert_eq!(sw.detect_condition_change(&base), Some(14));
+        assert_eq!(base.detect_condition_change(&sw), Some(13));
+
+        // No change
+        assert_eq!(base.detect_condition_change(&base), None);
+    }
+
+    #[test]
+    fn test_dr_switch_detection_with_se_sf() {
+        let base = Switches::DEFAULT;
+
+        let mut sw = base;
+        sw.sa = SwitchPos::Down;
+        assert_eq!(sw.detect_dr_switch_change(&base), Some(1));
+
+        let mut sw = base;
+        sw.sb = SwitchPos::Mid;
+        assert_eq!(sw.detect_dr_switch_change(&base), Some(2));
+
+        let mut sw = base;
+        sw.sc = SwitchPos::Down;
+        assert_eq!(sw.detect_dr_switch_change(&base), Some(3));
+
+        let mut sw = base;
+        sw.sd = SwitchPos::Down;
+        assert_eq!(sw.detect_dr_switch_change(&base), Some(4));
+
+        let mut sw = base;
+        sw.se = SwitchPos::Down;
+        assert_eq!(sw.detect_dr_switch_change(&base), Some(5));
+
+        let mut sw = base;
+        sw.sf = SwitchPos::Down;
+        assert_eq!(sw.detect_dr_switch_change(&base), Some(6));
+
+        assert_eq!(base.detect_dr_switch_change(&base), None);
+    }
+
+    #[test]
+    fn test_ext_switches_toggle() {
+        set_ext_switches_enabled(true);
+        assert!(is_ext_switches_enabled());
+        set_ext_switches_enabled(false);
+        assert!(!is_ext_switches_enabled());
     }
 }

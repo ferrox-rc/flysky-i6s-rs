@@ -57,7 +57,8 @@ pub struct RadioConfig {
     pub servo_rate_hz: u16,        // 66..68 (50..400 Hz, default 50 Hz for analog servo safety)
     pub rx_out_mode: u8,           // 68 (0: PWM, 1: PPM, default 0)
     pub rx_serial_proto: u8,       // 69 (0: i-BUS, 1: S.BUS, default 0)
-    pub _reserved: [u8; 58],       // 70..128
+    pub ext_switches: u8,          // 70 (0: Disabled, 1: Enabled / PC12+PC15)
+    pub _reserved: [u8; 57],       // 71..128
 }
 
 impl RadioConfig {
@@ -112,7 +113,8 @@ impl RadioConfig {
             servo_rate_hz: 50,
             rx_out_mode: 0,
             rx_serial_proto: 0,
-            _reserved: [0; 58],
+            ext_switches: 0,
+            _reserved: [0; 57],
         }
     }
 }
@@ -301,6 +303,9 @@ impl RadioStorage {
         if self.radio.rx_serial_proto > 1 {
             self.radio.rx_serial_proto = 0;
         }
+        if self.radio.ext_switches > 1 {
+            self.radio.ext_switches = 0;
+        }
 
         for stick in self.radio.sticks.iter_mut() {
             if stick.min >= stick.center
@@ -341,7 +346,7 @@ impl RadioStorage {
                     m.expo_low[axis] = 0;
                 }
             }
-            if m.dr_switch > 4 {
+            if m.dr_switch > 6 {
                 m.dr_switch = 0;
             }
             if m.wing_tail_mix > 3 {
@@ -358,12 +363,12 @@ impl RadioStorage {
                 m.aux_channels = [7, 8, 5, 6, 9, 10, 0, 0, 0, 0, 0, 0, 0, 0];
             }
             for src in m.aux_channels.iter_mut() {
-                if *src > 30 {
+                if *src > 32 {
                     *src = 0;
                 }
             }
             for mix in m.mixes.iter_mut() {
-                if mix.target_ch > 18 || mix.source > 30 || mix.mode > 2 || mix.switch > 10 {
+                if mix.target_ch > 18 || mix.source > 32 || mix.mode > 2 || mix.switch > 14 {
                     *mix = MixLine::disabled();
                 }
             }
@@ -371,10 +376,10 @@ impl RadioStorage {
                 m.thr_curve_pts = 5;
                 m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0];
             }
-            if m.arm_switch > 10 {
+            if m.arm_switch > 14 {
                 m.arm_switch = 0;
             }
-            if m.timer_source > 13 {
+            if m.timer_source > 17 {
                 m.timer_source = 0;
             }
             if m.timer_secs > 3600 {
@@ -1052,11 +1057,12 @@ mod tests {
         assert_eq!(storage.radio.servo_rate_hz, 50);
         assert_eq!(storage.radio.rx_out_mode, 0);
         assert_eq!(storage.radio.rx_serial_proto, 0);
+        assert_eq!(storage.radio.ext_switches, 0);
 
         for (idx, m) in storage.models.iter().enumerate() {
-            assert!(m.arm_switch <= 10, "arm_switch must be sanitized <= 10");
+            assert!(m.arm_switch <= 14, "arm_switch must be sanitized <= 14");
             assert_eq!(m.arm_switch, 0);
-            assert!(m.timer_source <= 13, "timer_source must be sanitized <= 13");
+            assert!(m.timer_source <= 17, "timer_source must be sanitized <= 17");
             assert_eq!(m.timer_source, 0);
             assert_eq!(m.timer_secs, 0);
             assert_eq!(m.servo_rate_hz, 50);

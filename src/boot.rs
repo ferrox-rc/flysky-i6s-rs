@@ -20,9 +20,16 @@ pub fn init_keys() {
         rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 19) | (1 << 20) | (1 << 22)));
 
         // Configure PC6, PC7, PC8 as outputs (MODER = 01)
+        // Configure PC12 (SE) and PC15 (SF) as inputs (MODER = 00)
         gpioc.moder.modify(|r, w| {
             let val = r.bits();
-            w.bits((val & !(0x3F << 12)) | (0x15 << 12))
+            w.bits((val & !(0x3F << 12) & !(3 << 24) & !(3 << 30)) | (0x15 << 12))
+        });
+
+        // Configure PC12 (SE) and PC15 (SF) with internal pull-up (PUPDR = 01)
+        gpioc.pupdr.modify(|r, w| {
+            let val = r.bits();
+            w.bits((val & !(3 << 24) & !(3 << 30)) | (1 << 24) | (1 << 30))
         });
 
         // Set PC6, PC7, PC8 initially HIGH

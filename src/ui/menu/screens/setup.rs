@@ -31,7 +31,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 9;
+    const SETUP_ITEMS: usize = 10;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -115,6 +115,12 @@ pub fn update_radio_setup(
                 crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
                 storage::save_radio_config(storage);
             }
+            9 => {
+                buzzer.click();
+                storage.radio.ext_switches = if storage.radio.ext_switches == 0 { 1 } else { 0 };
+                crate::input::set_ext_switches_enabled(storage.radio.ext_switches != 0);
+                storage::save_radio_config(storage);
+            }
             _ => {}
         }
     }
@@ -182,6 +188,10 @@ pub fn update_radio_setup(
             8 => {
                 let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
                 widgets::draw_list_row(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str), 62);
+            }
+            9 => {
+                let sw_str = if storage.radio.ext_switches != 0 { "PC12+PC15" } else { "OFF" };
+                widgets::draw_list_row(lcd, slot, is_sel, "Ext Sw:", Some(sw_str), 62);
             }
             _ => {}
         }

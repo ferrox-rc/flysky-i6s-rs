@@ -61,18 +61,18 @@ pub fn update_dual_rate(
         // Editing value
         match ctrl.selected_item {
             0 => {
-                // Switch (0..4)
+                // Switch (0..6)
                 if let Some(dr) = keys.dr_change {
                     storage.models[active_idx].dr_switch = dr;
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
                     storage.models[active_idx].dr_switch =
-                        (storage.models[active_idx].dr_switch + 1) % 5;
+                        (storage.models[active_idx].dr_switch + 1) % 7;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
                     storage.models[active_idx].dr_switch =
                         if storage.models[active_idx].dr_switch == 0 {
-                            4
+                            6
                         } else {
                             storage.models[active_idx].dr_switch - 1
                         };
@@ -154,7 +154,7 @@ pub fn update_dual_rate(
         match idx {
             0 => {
                 let sw_name =
-                    DR_SWITCH_NAMES[(storage.models[active_idx].dr_switch as usize).min(4)];
+                    DR_SWITCH_NAMES[(storage.models[active_idx].dr_switch as usize).min(6)];
                 widgets::draw_list_row(lcd, slot, is_sel, "Switch:", Some(sw_name), 60);
             }
             1 => {
@@ -614,7 +614,7 @@ pub fn update_wing_mixer(
                     .ok();
 
                 Text::new("<-", Point::new(54, y + 7), style).draw(lcd).ok();
-                let s_idx = (mix.source as usize).min(30);
+                let s_idx = (mix.source as usize).min(32);
                 Text::new(SOURCE_NAMES[s_idx], Point::new(70, y + 7), style)
                     .draw(lcd)
                     .ok();
@@ -687,10 +687,10 @@ pub fn update_mixer_line_edit(
             }
             1 => {
                 if keys.up {
-                    mix.source = (mix.source + 1) % 31;
+                    mix.source = (mix.source + 1) % 33;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.source = if mix.source == 0 { 30 } else { mix.source - 1 };
+                    mix.source = if mix.source == 0 { 32 } else { mix.source - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -717,10 +717,10 @@ pub fn update_mixer_line_edit(
                     mix.switch = sw;
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
-                    mix.switch = (mix.switch + 1) % 11;
+                    mix.switch = (mix.switch + 1) % 15;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.switch = if mix.switch == 0 { 10 } else { mix.switch - 1 };
+                    mix.switch = if mix.switch == 0 { 14 } else { mix.switch - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -774,7 +774,7 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                let s_idx = (mix.source as usize).min(30);
+                let s_idx = (mix.source as usize).min(32);
                 widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
             }
             2 => {
@@ -786,7 +786,7 @@ pub fn update_mixer_line_edit(
                 widgets::draw_list_row(lcd, slot, is_sel, "Offset:", Some(o_str), 56);
             }
             4 => {
-                let sw_idx = (mix.switch as usize).min(10);
+                let sw_idx = (mix.switch as usize).min(14);
                 widgets::draw_list_row(
                     lcd,
                     slot,

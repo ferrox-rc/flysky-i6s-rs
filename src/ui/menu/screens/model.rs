@@ -219,11 +219,11 @@ pub fn update_setup(
                     storage.models[active_idx].arm_switch = sw;
                     buzzer.chime_armed();
                 } else if keys.up {
-                    storage.models[active_idx].arm_switch = (storage.models[active_idx].arm_switch + 1) % 11;
+                    storage.models[active_idx].arm_switch = (storage.models[active_idx].arm_switch + 1) % 15;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
                     storage.models[active_idx].arm_switch = if storage.models[active_idx].arm_switch == 0 {
-                        10
+                        14
                     } else {
                         storage.models[active_idx].arm_switch - 1
                     };
@@ -254,14 +254,14 @@ pub fn update_setup(
             4 => {
                 // Timer trigger editing mode (with switch auto-detection)
                 if let Some(sw) = keys.sw_change {
-                    storage.models[active_idx].timer_source = sw + 3; // 1..10 maps to 4..13
+                    storage.models[active_idx].timer_source = sw + 3; // 1..14 maps to 4..17
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
-                    storage.models[active_idx].timer_source = (storage.models[active_idx].timer_source + 1) % 14;
+                    storage.models[active_idx].timer_source = (storage.models[active_idx].timer_source + 1) % 18;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
                     storage.models[active_idx].timer_source = if storage.models[active_idx].timer_source == 0 {
-                        13
+                        17
                     } else {
                         storage.models[active_idx].timer_source - 1
                     };
@@ -347,7 +347,7 @@ pub fn update_setup(
                 Text::new(type_str, Point::new(40, y + 7), style).draw(lcd).ok();
             }
             2 => {
-                let arm_idx = (storage.models[active_idx].arm_switch as usize).min(10);
+                let arm_idx = (storage.models[active_idx].arm_switch as usize).min(14);
                 let arm_str = if arm_idx == 0 { "NONE" } else { crate::ui::format::SWITCH_COND_NAMES[arm_idx] };
                 Text::new("Arm Sw:", Point::new(4, y + 7), style).draw(lcd).ok();
                 Text::new(arm_str, Point::new(52, y + 7), style).draw(lcd).ok();
@@ -364,7 +364,7 @@ pub fn update_setup(
                     1 => "THs (RUN)",
                     2 => "THt (LTCH)",
                     3 => "ALWAYS ON",
-                    s if (4..=13).contains(&s) => crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize],
+                    s if (4..=17).contains(&s) => crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize],
                     _ => "OFF",
                 };
                 Text::new("T-Trig:", Point::new(4, y + 7), style).draw(lcd).ok();

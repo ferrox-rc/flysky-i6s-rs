@@ -320,14 +320,15 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [ ] Dedicated on-radio `Trainer Setup` screen with live student-vs-instructor graphic monitor bars and link state diagnostics.
 - [ ] Auxiliary channel rate-limiter ("Servo Slow") for realistic flap deployment and gear doors without aerodynamic ballooning.
 
-### Phase 22: Hardware Extension Suite — SE/SF Switches & P7 Header ADC (PLANNED / BRANCH: `feat/hardware-extensions-se-sf-p7`)
-- [ ] Auxiliary digital switches `SE` on `PC12` and `SF` on `PC15` with internal pull-ups (`PUPDR = 01`) for 2-position / 3-position toggle mods.
+### Phase 22: Hardware Extension Suite — SE/SF Switches & P7 Header ADC (IN PROGRESS / BRANCH: `feat/hardware-extensions-se-sf-p7`)
+- [x] Auxiliary digital switches `SE` on `PC12` and `SF` on `PC15` with internal pull-ups (`PUPDR = 01`) for 2-position toggle mods.
 - [ ] Auxiliary ADC inputs `AD12`–`AD15` on `PC2`–`PC5` broken out on unpopulated `P7` header for up to 4 extra potentiometers, sliders, or 6-pos switches (`VRC`, `VRD`, `VRE`, `VRF`).
 - [ ] Autonomous 15-channel DMA1 scanning mode in `src/adc.rs` (`ADC1_CHSELR = 0xF7FF`) with zero CPU overhead.
-- [ ] Non-volatile hardware extension toggles in `Radio Setup` (`Ext Switches: [OFF/PC12+PC15]`, `P7 Header: [OFF/AD12-AD15]`) utilizing existing reserved bytes in `RadioConfig`.
-- [ ] Real-time diagnostic visualization of `PC12`/`PC15` pin logic and `AD12`–`AD15` raw ADC voltages in `Analog Diag`.
-- [ ] Full matrix mixer and auxiliary channel assignment (`CH5`–`CH14`) support for `SE`, `SF`, `VRC`, `VRD`.
-- [ ] Native USB Gamepad mapping of `SE` and `SF` to discrete buttons 11 and 12 for simulator use.
+- [x] Non-volatile hardware extension toggles in `Radio Setup` (`Ext Switches: [OFF/PC12+PC15]`) utilizing existing reserved bytes in `RadioConfig`.
+- [x] Real-time diagnostic visualization of `PC12`/`PC15` pin logic in `Analog Diag` (Page 2).
+- [x] Full matrix mixer, dual rates, arm switch, and auxiliary channel assignment (`CH5`–`CH18`) support for `SE`, `SF`.
+- [x] Dynamic 6-switch dashboard display on gimbals flight screen (`SA`–`SF`).
+- [x] Native USB Gamepad mapping of `SE` and `SF` to discrete buttons 11 and 12 for simulator use.
 
 ### Current Firmware Footprint
 - **Application Flash ROM**: **~101.6 KB** (.text 87,056B + .rodata 8,072B + .data 6,292B + .vector_table 192B = 101.6 KB total) used out of **120 KB** partition (**>18.4 KB / 15.3% free headroom**).

@@ -96,12 +96,7 @@ impl MenuController {
             up_hold_ms: 0,
             down_hold_ms: 0,
             repeat_timer_ms: 0,
-            prev_switches: crate::input::Switches {
-                sa: crate::input::SwitchPos::Up,
-                sb: crate::input::SwitchPos::Up,
-                sc: crate::input::SwitchPos::Up,
-                sd: crate::input::SwitchPos::Up,
-            },
+            prev_switches: crate::input::Switches::DEFAULT,
         }
     }
 
@@ -267,7 +262,7 @@ impl MenuController {
                 screens::channels::update_channel_monitor(self, lcd, &nav_keys, rf_chs, buzzer);
             }
             MenuState::DiagAnas => {
-                screens::diag::update_diag_anas(self, lcd, &nav_keys, raw_adc, buzzer);
+                screens::diag::update_diag_anas(self, lcd, &nav_keys, raw_adc, switches, buzzer);
             }
             MenuState::SystemInfo => {
                 screens::diag::update_system_info(self, lcd, &nav_keys, buzzer);

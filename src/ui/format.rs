@@ -114,19 +114,20 @@ pub fn prev_ascii(c: u8) -> u8 {
     }
 }
 
-pub const SOURCE_NAMES: [&str; 31] = [
+pub const SOURCE_NAMES: [&str; 33] = [
     "None", "Roll", "Pitch", "Thr", "Yaw", "VRA", "VRB", "SA", "SB", "SC", "SD", "MAX", "CH1",
     "CH2", "CH3", "CH4", "CH5", "CH6", "CH7", "CH8", "CH9", "CH10", "CH11", "CH12", "CH13", "CH14",
-    "CH15", "CH16", "CH17", "CH18", "Thr+",
+    "CH15", "CH16", "CH17", "CH18", "Thr+", "SE", "SF",
 ];
 
-pub const SWITCH_COND_NAMES: [&str; 11] = [
-    "ON", "SA^", "SAv", "SB^", "SB-", "SBv", "SC^", "SC-", "SCv", "SD^", "SDv",
+pub const SWITCH_COND_NAMES: [&str; 15] = [
+    "ON", "SA^", "SAv", "SB^", "SB-", "SBv", "SC^", "SC-", "SCv", "SD^", "SDv", "SE^", "SEv",
+    "SF^", "SFv",
 ];
 
 pub const MODE_NAMES: [&str; 3] = ["ADD (+)", "MULT (*)", "REPL (:=)"];
 pub const TEMPLATE_NAMES: [&str; 4] = ["NORMAL", "ELEVON/DELTA", "V-TAIL", "FLAPERON"];
-pub const DR_SWITCH_NAMES: [&str; 5] = ["None", "SA", "SB", "SC", "SD"];
+pub const DR_SWITCH_NAMES: [&str; 7] = ["None", "SA", "SB", "SC", "SD", "SE", "SF"];
 pub const AXIS_NAMES: [&str; 3] = ["Roll", "Pitch", "Yaw"];
 
 pub fn i8_to_dec(val: i8, buf: &mut [u8; 6]) -> &str {

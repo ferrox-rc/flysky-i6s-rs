@@ -74,13 +74,16 @@ pub fn update_aux_channels(
             buzzer.click();
         }
     } else {
-        let cur = storage.models[active_idx].aux_channels[ctrl.selected_item];
+        const AUX_SOURCES: [u8; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32];
+        let cur_val = storage.models[active_idx].aux_channels[ctrl.selected_item];
+        let cur_pos = AUX_SOURCES.iter().position(|&s| s == cur_val).unwrap_or(0);
         if keys.up {
-            storage.models[active_idx].aux_channels[ctrl.selected_item] = (cur + 1) % 11;
+            let next_pos = (cur_pos + 1) % AUX_SOURCES.len();
+            storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[next_pos];
             buzzer.play_tone(2200, 20);
         } else if keys.down {
-            storage.models[active_idx].aux_channels[ctrl.selected_item] =
-                if cur == 0 { 10 } else { cur - 1 };
+            let next_pos = if cur_pos == 0 { AUX_SOURCES.len() - 1 } else { cur_pos - 1 };
+            storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[next_pos];
             buzzer.play_tone(2200, 20);
         }
         if keys.ok {
@@ -109,7 +112,7 @@ pub fn update_aux_channels(
         }
         let ch_label = ascii_as_str(&ch_buf);
 
-        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(10);
+        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(32);
         widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(SOURCE_NAMES[src_idx]), 48);
     }
 

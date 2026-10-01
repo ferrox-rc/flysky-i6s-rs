@@ -96,7 +96,7 @@ impl FlightPipeline {
         let mut just_disarmed = false;
         let is_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
         if active_model.arm_switch > 0
-            && active_model.arm_switch <= 10
+            && active_model.arm_switch <= 14
             && is_armed != self.prev_armed
         {
             if is_armed {
@@ -430,7 +430,7 @@ impl BackgroundIdleManager {
         }
 
         // Arm Switch transitions: auto-reset upon Arming, unlatch upon Disarming
-        if model.arm_switch > 0 && model.arm_switch <= 10 {
+        if model.arm_switch > 0 && model.arm_switch <= 14 {
             if flight.just_armed {
                 self.timer_remaining_secs = model.timer_secs;
                 self.timer_elapsed_secs = 0;
@@ -475,7 +475,7 @@ impl BackgroundIdleManager {
         }
 
         // Evaluate timer trigger condition
-        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 10 {
+        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 14 {
             flight.is_armed
         } else {
             true

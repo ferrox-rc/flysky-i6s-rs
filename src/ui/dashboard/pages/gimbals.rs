@@ -68,17 +68,37 @@ pub fn render(
     Text::new(p4, Point::new(92, 43), text_style).draw(lcd).ok();
 
     // Switches Line with graphic arrows (y = 46..53)
-    Text::new("A", Point::new(2, 53), text_style).draw(lcd).ok();
-    draw_switch_arrow(lcd, 9, 46, state.switches.sa);
+    if storage.radio.ext_switches != 0 {
+        Text::new("A", Point::new(2, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 7, 46, state.switches.sa);
 
-    Text::new("B", Point::new(20, 53), text_style).draw(lcd).ok();
-    draw_switch_arrow(lcd, 27, 46, state.switches.sb);
+        Text::new("B", Point::new(13, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 18, 46, state.switches.sb);
 
-    Text::new("C", Point::new(38, 53), text_style).draw(lcd).ok();
-    draw_switch_arrow(lcd, 45, 46, state.switches.sc);
+        Text::new("C", Point::new(24, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 29, 46, state.switches.sc);
 
-    Text::new("D", Point::new(56, 53), text_style).draw(lcd).ok();
-    draw_switch_arrow(lcd, 63, 46, state.switches.sd);
+        Text::new("D", Point::new(35, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 40, 46, state.switches.sd);
+
+        Text::new("E", Point::new(46, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 51, 46, state.switches.se);
+
+        Text::new("F", Point::new(57, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 62, 46, state.switches.sf);
+    } else {
+        Text::new("A", Point::new(2, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 9, 46, state.switches.sa);
+
+        Text::new("B", Point::new(20, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 27, 46, state.switches.sb);
+
+        Text::new("C", Point::new(38, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 45, 46, state.switches.sc);
+
+        Text::new("D", Point::new(56, 53), text_style).draw(lcd).ok();
+        draw_switch_arrow(lcd, 63, 46, state.switches.sd);
+    }
 
     // Pots: Split bar on right (Top: VRa, Bottom: VRb)
     Text::new("VR", Point::new(74, 52), text_style_small).draw(lcd).ok();
