@@ -31,7 +31,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 12;
+    const SETUP_ITEMS: usize = 9;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -115,46 +115,6 @@ pub fn update_radio_setup(
                 crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
                 storage::save_radio_config(storage);
             }
-            9 => {
-                buzzer.click();
-                storage.radio.servo_rate_hz = match storage.radio.servo_rate_hz {
-                    50 => 60,
-                    60 => 100,
-                    100 => 150,
-                    150 => 200,
-                    200 => 250,
-                    250 => 300,
-                    300 => 350,
-                    350 => 400,
-                    _ => 50,
-                };
-                crate::rf::set_rx_settings(
-                    storage.radio.servo_rate_hz,
-                    storage.radio.rx_out_mode,
-                    storage.radio.rx_serial_proto,
-                );
-                storage::save_radio_config(storage);
-            }
-            10 => {
-                buzzer.click();
-                storage.radio.rx_out_mode = if storage.radio.rx_out_mode == 0 { 1 } else { 0 };
-                crate::rf::set_rx_settings(
-                    storage.radio.servo_rate_hz,
-                    storage.radio.rx_out_mode,
-                    storage.radio.rx_serial_proto,
-                );
-                storage::save_radio_config(storage);
-            }
-            11 => {
-                buzzer.click();
-                storage.radio.rx_serial_proto = if storage.radio.rx_serial_proto == 0 { 1 } else { 0 };
-                crate::rf::set_rx_settings(
-                    storage.radio.servo_rate_hz,
-                    storage.radio.rx_out_mode,
-                    storage.radio.rx_serial_proto,
-                );
-                storage::save_radio_config(storage);
-            }
             _ => {}
         }
     }
@@ -223,19 +183,6 @@ pub fn update_radio_setup(
                 let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
                 widgets::draw_list_row(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str), 62);
             }
-            9 => {
-                let mut hz_buf = [0u8; 8];
-                let hz_str = format_servo_hz(storage.radio.servo_rate_hz, &mut hz_buf);
-                widgets::draw_list_row(lcd, slot, is_sel, "Servo Hz:", Some(hz_str), 62);
-            }
-            10 => {
-                let out_str = if storage.radio.rx_out_mode == 0 { "PWM" } else { "PPM" };
-                widgets::draw_list_row(lcd, slot, is_sel, "RX Out:", Some(out_str), 62);
-            }
-            11 => {
-                let serial_str = if storage.radio.rx_serial_proto == 0 { "i-BUS" } else { "S.BUS" };
-                widgets::draw_list_row(lcd, slot, is_sel, "Serial:", Some(serial_str), 62);
-            }
             _ => {}
         }
     }
@@ -253,9 +200,9 @@ pub fn update_rx_setup(
 ) {
     let active_idx = storage.radio.active_model as usize;
     let proto = storage.models[active_idx].rf_protocol;
-    // 0: AFHDS 2A -> 2 selectable items (0: Proto, 1: [Bind Receiver])
-    // 1: CRSF / ELRS -> 3 selectable items (0: Proto, 1: Baud, 2: [Configure Module])
-    let item_count = if proto == 0 { 2 } else { 3 };
+    // 0: AFHDS 2A -> 5 items (0: Proto, 1: [Bind Receiver], 2: Servo Hz, 3: RX Out, 4: Serial)
+    // 1: CRSF -> 3 items (0: Proto, 1: Baud, 2: [Configure Module])
+    let item_count = if proto == 0 { 5 } else { 3 };
 
     if keys.cancel {
         if ctrl.editing {
@@ -280,27 +227,47 @@ pub fn update_rx_setup(
         );
 
         if keys.ok {
-            match ctrl.selected_item {
-                0 => {
+            match (proto, ctrl.selected_item) {
+                (_, 0) => {
                     // Enter edit mode for Protocol
                     ctrl.editing = true;
                     buzzer.click();
                 }
-                1 => {
-                    if proto == 0 {
-                        // AFHDS 2A: Trigger Bind
-                        ctrl.request_bind = true;
-                        ctrl.state = MenuState::Closed;
-                        buzzer.click();
-                        return;
-                    } else {
-                        // CRSF: Enter edit mode for Baud Rate
-                        ctrl.editing = true;
-                        buzzer.click();
-                    }
+                (0, 1) => {
+                    // AFHDS 2A: Trigger Bind
+                    ctrl.request_bind = true;
+                    ctrl.state = MenuState::Closed;
+                    buzzer.click();
+                    return;
                 }
-                2 => {
-                    // CRSF: Enter ELRS Configurator
+                (1, 1) => {
+                    // CRSF: Enter edit mode for Baud Rate
+                    ctrl.editing = true;
+                    buzzer.click();
+                }
+                (0, 2) => {
+                    // AFHDS 2A: Cycle Servo Hz
+                    buzzer.click();
+                    storage.models[active_idx].servo_rate_hz = match storage.models[active_idx].servo_rate_hz {
+                        50 => 60,
+                        60 => 100,
+                        100 => 150,
+                        150 => 200,
+                        200 => 250,
+                        250 => 300,
+                        300 => 350,
+                        350 => 400,
+                        _ => 50,
+                    };
+                    crate::rf::set_rx_settings(
+                        storage.models[active_idx].servo_rate_hz,
+                        storage.models[active_idx].rx_out_mode,
+                        storage.models[active_idx].rx_serial_proto,
+                    );
+                    storage::save_storage(storage);
+                }
+                (1, 2) => {
+                    // CRSF: Enter Configurator
                     ctrl.state = MenuState::ElrsSetup;
                     ctrl.return_state = MenuState::RxSetup;
                     ctrl.selected_item = 0;
@@ -310,6 +277,30 @@ pub fn update_rx_setup(
                     buzzer.click();
                     return;
                 }
+                (0, 3) => {
+                    // AFHDS 2A: Toggle RX Out (PWM/PPM)
+                    buzzer.click();
+                    storage.models[active_idx].rx_out_mode =
+                        if storage.models[active_idx].rx_out_mode == 0 { 1 } else { 0 };
+                    crate::rf::set_rx_settings(
+                        storage.models[active_idx].servo_rate_hz,
+                        storage.models[active_idx].rx_out_mode,
+                        storage.models[active_idx].rx_serial_proto,
+                    );
+                    storage::save_storage(storage);
+                }
+                (0, 4) => {
+                    // AFHDS 2A: Toggle Serial Proto (i-BUS/S.BUS)
+                    buzzer.click();
+                    storage.models[active_idx].rx_serial_proto =
+                        if storage.models[active_idx].rx_serial_proto == 0 { 1 } else { 0 };
+                    crate::rf::set_rx_settings(
+                        storage.models[active_idx].servo_rate_hz,
+                        storage.models[active_idx].rx_out_mode,
+                        storage.models[active_idx].rx_serial_proto,
+                    );
+                    storage::save_storage(storage);
+                }
                 _ => {}
             }
         }
@@ -317,7 +308,7 @@ pub fn update_rx_setup(
         // Edit Phase: UP/DOWN modifies the selected parameter
         match ctrl.selected_item {
             0 => {
-                // Protocol: 0 = AFHDS 2A, 1 = CRSF/ELRS
+                // Protocol: 0 = AFHDS 2A, 1 = CRSF
                 if keys.up || keys.down {
                     let new_proto = if proto == 0 { 1 } else { 0 };
                     storage.models[active_idx].rf_protocol = new_proto;
@@ -351,57 +342,65 @@ pub fn update_rx_setup(
 
     widgets::draw_header(lcd, "PROTOCOL SETUP");
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let current_proto = storage.models[active_idx].rf_protocol;
-    let mut line_buf = [b' '; 26];
 
     if current_proto == 0 {
-        // AFHDS 2A Display
-        let sel_proto = ctrl.selected_item == 0;
-        let sel_bind = ctrl.selected_item == 1;
+        // AFHDS 2A Display (4-slot scrollable list)
+        for slot in 0..4 {
+            let idx = ctrl.scroll_offset + slot;
+            if idx >= item_count {
+                break;
+            }
+            let is_sel = idx == ctrl.selected_item;
 
-        let p_arrow = if sel_proto { b'>' } else { b' ' };
-        let b_arrow = if sel_bind { b'>' } else { b' ' };
-
-        let proto_val = if ctrl.editing && sel_proto { "[AFHDS 2A]" } else { "AFHDS 2A" };
-        line_buf[0] = p_arrow;
-        line_buf[1..8].copy_from_slice(b"Proto: ");
-        let pv_bytes = proto_val.as_bytes();
-        line_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
-        let p_str = ascii_as_str(&line_buf[..8 + pv_bytes.len()]);
-        Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
-
-        line_buf[0] = b' ';
-        line_buf[1] = b'M';
-        line_buf[2] = b'0' + ((active_idx + 1) / 10) as u8;
-        line_buf[3] = b'0' + ((active_idx + 1) % 10) as u8;
-        line_buf[4] = b':';
-        line_buf[5] = b' ';
-        let pre_str = ascii_as_str(&line_buf[..6]);
-        Text::new(pre_str, Point::new(2, 32), text_style).draw(lcd).ok();
-        let m_str = ascii_as_str(&storage.models[active_idx].name);
-        Text::new(m_str, Point::new(38, 32), text_style).draw(lcd).ok();
-
-        let mut rx_buf = [b'0'; 8];
-        u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
-        let rx_str = ascii_as_str(&rx_buf);
-        line_buf[0] = b_arrow;
-        line_buf[1..8].copy_from_slice(b"[Bind: ");
-        line_buf[8..16].copy_from_slice(rx_str.as_bytes());
-        line_buf[16] = b']';
-        let b_str = ascii_as_str(&line_buf[..17]);
-        Text::new(b_str, Point::new(2, 42), text_style).draw(lcd).ok();
+            match idx {
+                0 => {
+                    let val_str = if ctrl.editing && is_sel { "[AFHDS 2A]" } else { "AFHDS 2A" };
+                    widgets::draw_list_row(lcd, slot, is_sel, "Proto:", Some(val_str), 56);
+                }
+                1 => {
+                    let mut rx_buf = [b'0'; 8];
+                    u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
+                    let rx_str = ascii_as_str(&rx_buf);
+                    let mut bind_buf = [b' '; 18];
+                    bind_buf[0..7].copy_from_slice(b"[Bind: ");
+                    bind_buf[7..15].copy_from_slice(rx_str.as_bytes());
+                    bind_buf[15] = b']';
+                    let bind_str = ascii_as_str(&bind_buf[..16]);
+                    widgets::draw_list_row(lcd, slot, is_sel, bind_str, None, 0);
+                }
+                2 => {
+                    let mut hz_buf = [0u8; 8];
+                    let hz_str = format_servo_hz(storage.models[active_idx].servo_rate_hz, &mut hz_buf);
+                    widgets::draw_list_row(lcd, slot, is_sel, "Servo Hz:", Some(hz_str), 62);
+                }
+                3 => {
+                    let out_str = if storage.models[active_idx].rx_out_mode == 0 { "PWM" } else { "PPM" };
+                    widgets::draw_list_row(lcd, slot, is_sel, "RX Out:", Some(out_str), 62);
+                }
+                4 => {
+                    let serial_str = if storage.models[active_idx].rx_serial_proto == 0 { "i-BUS" } else { "S.BUS" };
+                    widgets::draw_list_row(lcd, slot, is_sel, "Serial:", Some(serial_str), 62);
+                }
+                _ => {}
+            }
+        }
 
         let footer = if ctrl.editing {
             "[OK] Save   [UP/DN] Change"
-        } else if sel_bind {
+        } else if ctrl.selected_item == 1 {
             "[OK] Start Bind   [ESC] Exit"
+        } else if ctrl.selected_item >= 2 {
+            "[OK] Toggle/Cycle [ESC] Exit"
         } else {
             "[OK] Edit   [ESC] Exit"
         };
         widgets::draw_footer(lcd, footer);
     } else {
-        // CRSF / ELRS Display
+        // CRSF Display
+        let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+        let mut line_buf = [b' '; 26];
+
         let sel_proto = ctrl.selected_item == 0;
         let sel_baud = ctrl.selected_item == 1;
         let sel_cfg = ctrl.selected_item == 2;
@@ -410,7 +409,7 @@ pub fn update_rx_setup(
         let b_arrow = if sel_baud { b'>' } else { b' ' };
         let c_arrow = if sel_cfg { b'>' } else { b' ' };
 
-        let proto_val = if ctrl.editing && sel_proto { "[CRSF/ELRS]" } else { "CRSF/ELRS" };
+        let proto_val = if ctrl.editing && sel_proto { "[CRSF]" } else { "CRSF" };
         line_buf[0] = p_arrow;
         line_buf[1..8].copy_from_slice(b"Proto: ");
         let pv_bytes = proto_val.as_bytes();
