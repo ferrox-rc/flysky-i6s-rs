@@ -33,7 +33,7 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
 
 ### Keypad & Navigation Buttons
 - **`[UP]`** / **`[DOWN]`**:
-  - **On Flight Screen**: Cycles through the 4 dashboard pages (`1/4` -> `2/4` -> `3/4` -> `4/4` with `[DOWN]`, and reverse with `[UP]`).
+  - **On Flight Screen**: Cycles through the 5 dashboard pages (`1/5` -> `2/5` -> `3/5` -> `4/5` -> `5/5` with `[DOWN]`, and reverse with `[UP]`).
   - **In Menus & Editors**: Navigate menu items, cycle characters, increment/decrement values.
   - **Auto-Repeat**: Holding **`[UP]`** or **`[DOWN]`** for >= 300 ms automatically repeats every **70 ms** for rapid scrolling through lists, swift character selection, and fast curve point editing.
 - **`[OK]`**: Enter submenu, toggle setting, confirm values, advance character cursor in naming editor.
@@ -43,85 +43,106 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
   - **On Flight Screen (Hold >= 1.0s)**: Opens the **HUD Timer Reset Modal** with a real-time progress bar. Holding for 1.0s resets the flight timer back to its configured duration (or 0:00 for count-up), sounds a high chime, and flashes a `"TIMER RESET!"` confirmation. Releasing early aborts without resetting.
   - **In Menus**: Return to previous screen, exit edit mode, abort calibration, or complete one-way receiver binding.
 - **`[BIND]` (Dedicated Button with Clean Separation Logic)**:
-  - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 4 flight dashboard pages (`1/4` -> `2/4` -> `3/4` -> `4/4` -> `1/4`).
+  - **Tap (`< 1.0s`) on Flight Screen**: Cycles through the 5 flight dashboard pages (`1/5` -> `2/5` -> `3/5` -> `4/5` -> `5/5` -> `1/5`).
   - **Hold (`>= 1.0s`) on Flight Screen**: Initiates AFHDS 2A receiver binding.
   - **Hold during Power-On**: Launches AFHDS 2A binding subprogram immediately at boot.
   - **In Menus & Editors**: Functions as **`[TAB]` / Cursor Advance** (advances name characters or curve points) without triggering RF binding.
+
+### Power-On Startup & Splash Screen
+- **Ferrox-RC Splash Screen**: When the transmitter powers on, the LCD immediately displays the 28x27 Ferrox-RC kinetic delta emblem, firmware identifier (`flysky-i6x-rs`), and build version for 1200 ms while ADC, DMA, and RF peripherals initialize in the background.
+- **Synchronized Welcome Fanfare**: Concurrently with the splash screen, the buzzer plays a 4-note ascending fanfare ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms) under the `Rich` tone style (or a single tactile click under `Simple`). The cadence is driven by monotonic SysTick elapsed time for consistent musical timing.
+- **Watchdog Recovery Bypass (<2 ms)**: In the event of an in-flight watchdog reset, splash delays and melodic chimes are completely bypassed. An urgent 3-beep warning pattern sounds, and active RF control is restored in under 2 ms.
 
 ---
 
 ## 2. Multi-Page Flight Dashboard
 
-The main flight screen features 4 switchable display pages cycled by tapping **`[BIND]`**. All 4 pages share a pixel-perfect uniform layout:
-- **Top Status Bar (`y = 0..10`)**: Displays active model name, RF/telemetry status, and steady filtered battery voltage (`X.YYV`).
+The main flight screen features 5 switchable display pages cycled by tapping **`[BIND]`** or pressing **`[UP]`** / **`[DOWN]`**. All 5 pages share a pixel-perfect uniform layout:
+- **Top Status Bar (`y = 0..10`)**: Displays active model type icon (12x12 MDI glyph), active model name, RF/telemetry status (`RF:OK`, `R:XX%`, `BIND`, `U:SIM`, `NO RF`), dynamic horizontal battery gauge with live 3-stage charge bars, and steady filtered battery voltage (`X.YYV`).
 - **Top Divider (`y = 11`)**: Full-width horizontal line (`Line(0, 11) -> (127, 11)`).
-- **Content Area (`y = 12..54`)**: Page-specific controls, gauges, and telemetry.
+- **Content Area (`y = 12..54`)**: Page-specific controls, split channels, gauges, and telemetry.
 - **Bottom Divider (`y = 55`)**: Full-width horizontal line (`Line(0, 55) -> (127, 55)`).
 - **Footer Info Bar (`y = 56..63`)**: Small text (`FONT_4X6`) rendered at baseline 62 (`y = 57..62`) for maximum vertical clearance.
 
-### Page 1/4: Primary Gimbals & Trims
+### Page 1/5: Primary Gimbals & Trims
 ```
 +-------------------------------------------------------------+
-| MODEL 01                  RF:OK                     5.18V   | <- Status Bar (y=0..10)
+| [M] MODEL 01              RF:OK             [===]   5.18V   | <- Status Bar (y=0..10)
 |-------------------------------------------------------------| <- Top Line (y=11)
 | A [====|==.======]  +15%   | E [========.=|==]   -22%       |
 | T [========.     ]   45%   | R [====|==.======]    0%       |
-| A:U  B:M  C:D  D:U                             V: 5/ 8      | <- Switches & Pots (y=44..53)
+| SA:^  SB:-  SC:v  SD:^     | VR [===|===] (A/B Split)       | <- Switches & Pots (y=44..53)
 |-------------------------------------------------------------| <- Bottom Line (y=55)
-| P1/4                         04:32            Hold OK:Menu  | <- Footer Bar (y=57..62)
+| P1/5                         04:32            Hold OK:Menu  | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
 - **Top Status Bar (y = 0..10)**:
-  - **Left**: Active model name (up to 10 characters, e.g. `MODEL 01`).
-  - **Center (`RF:OK` / `R: XX%` / `BIND` / `U:SIM` / `NO RF` / `E:XX`)**: RF link state, binding status, downlink telemetry RSSI, or **`U:SIM`** indicating active USB Simulator mode with silent RF standby.
-  - **Right (`X.YYV`)**: Internal battery voltage stabilized by an exponential moving average (EMA) filter to eliminate switching jitter on the hundredths digit.
-- **Gimbal Gauges (y = 12..43)**: Live channel sliders for Roll (`A`), Pitch (`E`), Throttle (`T`), Yaw (`R`) with center ticks, trim position ticks (`.`), and percentage readouts.
-- **Switches & Pots Line (y = 44..53)**: Position of switches SA..SD (`U`=Up, `M`=Middle, `D`=Down) and rotary pots VRA/VRB (`0`..`9`), positioned cleanly above the line 55 divider.
-- **Bottom Footer (y = 57..62)**: Displays active trim adjustment (`TRM A:+04`), or a 3-zone status bar with page index (`P1/4`), **Live Flight Timer** (e.g. `04:32`, inverted/blinking on expiration), and menu hint (`Hold OK:Menu`) in crisp small font (`FONT_4X6`).
+  - **Left**: 12x12 model type icon followed by model name (e.g. `[Airplane] MODEL 01`).
+  - **Center (`RF:OK` / `R: XX%` / `BIND` / `U:SIM` / `NO RF`)**: RF link state, binding status, telemetry RSSI, or `U:SIM` (USB Simulator mode with silent RF standby).
+  - **Right**: Dynamic horizontal battery icon with live 3-stage charge bars (emptying left-to-right from tip as voltage drops, and filling right-to-left from base) paired with EMA-filtered voltage readout (`X.YYV`).
+- **Gimbal Gauges (y = 12..43)**: Live channel sliders for Roll (`A`), Pitch (`E`), Throttle (`T`), Yaw (`R`) with center ticks, trim position ticks (`.`), and percentage readouts. In Mode 2, throttle is right-aligned for natural stick ergonomics.
+- **Switches & Pots Line (y = 44..53)**:
+  - Physical switch positions displayed with high-visibility arrow glyphs (`^`=Up, `-`=Middle, `v`=Down).
+  - Rotary pots displayed as a dual split horizontal bar: top half shows VRA, bottom half shows VRB, both with center tick marks.
+- **Bottom Footer (y = 57..62)**: Displays active trim adjustment (`TRM A:+04`), or a 3-zone status bar with page index (`P1/5`), **Live Flight Timer** (`04:32`, inverted/blinking on expiration), and menu hint (`Hold OK:Menu`).
 
-### Page 2/4: 14-Channel Dual Column Monitor
+### Page 2/5: Primary Channels Monitor (CH 1..10)
 ```
 +-------------------------------------------------------------+
-| MODEL 01                  RF:OK                     5.18V   | <- Status Bar (y=0..10)
+| [M] MODEL 01              RF:OK             [===]   5.18V   | <- Status Bar (y=0..10)
 |-------------------------------------------------------------| <- Top Line (y=11)
-|  1: [==========] 1500  |   8: [==========] 1500             |
-|  2: [==========] 1500  |   9: [==========] 1500             |
-|  3: [====      ] 1200  |  10: [==========] 1500             |
-|  4: [==========] 1500  |  11: [==========] 1500             |
-|  5: [          ] 1000  |  12: [==========] 1500             |
-|  6: [==========] 1500  |  13: [==========] 1500             |
-|  7: [==========] 1500  |  14: [==========] 1500             |
+|  1: [==========] 1500  |   6: [==========] 1500             |
+|  2: [==========] 1500  |   7: [==========] 1500             |
+|  3: [====      ] 1200  |   8: [==========] 1500             |
+|  4: [==========] 1500  |   9: [==========] 1500             |
+|  5: [          ] 1000  |  10: [==========] 1500             |
 |-------------------------------------------------------------| <- Bottom Line (y=55)
-| P2/4                           14-CH MONITOR                | <- Footer Bar (y=57..62)
+| P2/5                      PRIMARY CHANNELS 1..10            | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
-- Real-time graphic bars and microsecond pulse readouts (1000..2000 µs) across all 14 AFHDS 2A channels simultaneously.
-- Left column: CH 1..7 (Gimbals, SwA, SwB, VR1).
-- Right column: CH 8..14 (VR2, SwC, SwD, Aux channels).
-- Graphic bars are positioned at `y + 1` for pixel-perfect horizontal centering with the text labels, leaving 2px clearance above the line 55 divider.
+- Real-time graphic bars and exact microsecond pulse readouts (988..2012 µs) across primary flight channels 1 through 10.
+- Left column: CH 1..5 (Roll, Pitch, Throttle, Yaw, Aux 1).
+- Right column: CH 6..10 (Aux 2..6 / Switches & Pots).
 
-### Page 3/4: Model Dashboard
+### Page 3/5: Auxiliary Channels Monitor (CH 11..18)
 ```
 +-------------------------------------------------------------+
-| P3/4                         MODEL DASHBOARD                | <- Footer Bar (y=57..62)
+| [M] MODEL 01              RF:OK             [===]   5.18V   | <- Status Bar (y=0..10)
+|-------------------------------------------------------------| <- Top Line (y=11)
+| 11: [==========] 1500  |  15: [==========] 1500             |
+| 12: [==========] 1500  |  16: [==========] 1500             |
+| 13: [==========] 1500  |  17: [==========] 1500             |
+| 14: [==========] 1500  |  18: [==========] 1500             |
+|-------------------------------------------------------------| <- Bottom Line (y=55)
+| P3/5                     AUXILIARY CHANNELS 11..18          | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
-- Full 10-character model name and synchronized model type (`AIRPLANE`, `GLIDER`, `HELI`, `QUAD`).
+- Real-time graphic bars and microsecond pulse readouts across auxiliary expansion channels 11 through 18.
+- Displays freeform matrix mixer outputs, flight mode switches, pan/tilt controls, and telemetry triggers.
+
+### Page 4/5: Model Dashboard
+```
++-------------------------------------------------------------+
+| P4/5                         MODEL DASHBOARD                | <- Footer Bar (y=57..62)
++-------------------------------------------------------------+
+```
+- Full 10-character model name with 12x12 model type icon (`AIRPLANE`, `GLIDER`, `HELI`, `QUAD`, `GENERAL`).
 - Bound receiver 32-bit hex ID (`RxID`).
 - Active throttle curve configuration (`5-PT` / `9-PT`, `LINEAR` / `SMOOTH`).
-- Live telemetry readouts: Downlink RSSI percentage and receiver pack voltage (`RX: X.XXV`), or `AFHDS2A: DISCONNECTED` fitted within the screen width.
+- Live telemetry readouts: Downlink RSSI percentage and receiver pack voltage (`RX: X.XXV`), or `AFHDS2A: DISCONNECTED`.
+- Flight timer configuration and state.
 
-### Page 4/4: Dedicated Telemetry & RF Diagnostics
+### Page 5/5: Dedicated Telemetry & RF Diagnostics
 ```
 +-------------------------------------------------------------+
-| MODEL 01                  RF:OK                     5.18V   | <- Status Bar (y=0..10)
+| [M] MODEL 01              RF:OK             [===]   5.18V   | <- Status Bar (y=0..10)
 |-------------------------------------------------------------| <- Top Line (y=11)
 | RSSI: 98%              | RX:   5.12V                        |
 | LINK: OK               | TX:   5.18V                        |
 | TX:    1420            | mRSS:   92%                        |
 | RX:    1398            | mRX:  4.92V                        |
 |-------------------------------------------------------------| <- Bottom Line (y=55)
-| P4/4                      TELEMETRY SENSORS                 | <- Footer Bar (y=57..62)
+| P5/5                      TELEMETRY SENSORS                 | <- Footer Bar (y=57..62)
 +-------------------------------------------------------------+
 ```
 - **Live Signal & Diagnostics (Left Column)**:
@@ -162,29 +183,22 @@ Configurable in `Radio Setup`:
 
 ## 4. Menu Navigation & Subsystem Breakdown
 
-Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings Menu.
+Hold **`[OK]` for 1.2 seconds** from any flight screen to open the Settings Menu.
 
 ```
 +------------------------------------+
 | SETTINGS MENU                      |
 |------------------------------------|
-| > 1. MODEL SELECT                  |
-|   2. MODEL SETUP                   |
-|   3. DUAL RATE/EXPO                |
-|   4. THR CURVE                     |
-|   5. WING/MIXER                    |
-|   6. AUX CHANNELS                  |
-|   7. CH REVERSE                    |
-|   8. RADIO SETUP                   |
-|   9. RX SETUP & BIND               |
-|  10. CHANNEL MONITOR               |
-|  11. CALIBRATION                   |
-|  12. ANALOG DIAG                   |
-|  13. SYSTEM INFO                   |
+| [*] [Icon] 1. Model Select       # | <- Active selection highlighted
+|     [Icon] 2. Model Setup        | | <- 12x12 MDI icon glyphs
+|     [Icon] 3. Dual Rate/Expo     | | <- Proportional scrollbar track
 |------------------------------------|
-| [UP/DN] Move  [OK] Sel  [ESC] Exit |
+| [OK] Select   [ESC] Exit      1/13 | <- Position indicator
 +------------------------------------+
 ```
+- **3-Slot Icon Menu**: 3 visible items per screen with custom 12x12 Material Design glyphs.
+- **Proportional Scrollbar**: Dynamic vertical scrollbar on the right edge indicates current list position and total item count.
+- **Return Position Preservation**: Exiting any submenu returns directly to the previously selected menu item and scroll position rather than resetting to slot 0.
 
 ### Submenu 1: Model Select (`MODEL SELECT`)
 - Displays all 20 model memory slots (`M01` through `M20`).
@@ -200,7 +214,7 @@ Hold **`[OK]` for 1.2 seconds** from the main flight screen to open the Settings
   - Advancing past character 10 confirms the entire name and moves focus to Field 1 (`Type`).
   - Press **`[CANCEL]` (`[ESC]`)** at any time to finish editing name and return to field selection.
 - **Field 1: Model Type**:
-  - Press **`[OK]`** to cycle between `AIRPLANE`, `GLIDER`, `HELI`, and `QUAD`.
+  - Press **`[OK]`** to cycle between `AIRPLANE`, `GLIDER`, `HELI`, `QUAD`, and `GENERAL` (boats, rovers, surface models, robotics). Throttle interlock safety checks are automatically adapted based on model type.
 - **Field 2: Arm Switch (`Arm Sw:`)**:
   - Assign any physical switch and position condition as the model's arming switch: **`NONE`**, **`SA^`**, **`SAv`**, **`SB^`**, **`SB-`**, **`SBv`**, **`SC^`**, **`SC-`**, **`SCv`**, **`SD^`**, or **`SDv`**.
   - **Switch Auto-Detection**: Simply toggle the desired physical switch while editing to auto-detect and select it.

@@ -19,13 +19,13 @@ Configuration and model memories are stored in an 8 KB append-only log across th
   - **Automatic Wear-Levelled Compaction:** When all 4 pages become full of historical revisions, `sequential-storage` automatically compacts current active records into a newly erased page, rotating evenly across Pages 60–63.
   - **Watchdog Protection:** During multi-page compaction routines, the hardware watchdog (`pac::IWDG`) is explicitly fed between page erase cycles, preventing 2.0s resets.
 
-### Storage Structures (`RadioStorage` v3)
+### Storage Structures (`RadioStorage` v5)
 
 All storage structures are compiled with strict C-compatible alignment (`#[repr(C)]`) and compile-time size assertions (`core::mem::size_of`):
 
 ```rust
 pub const FLASH_MAGIC: u32 = 0x4653_4B59; // "FSKY"
-pub const CONFIG_VERSION: u32 = 3;
+pub const CONFIG_VERSION: u32 = 5;
 pub const NUM_MODELS: usize = 20;
 
 #[repr(C)]
@@ -40,7 +40,7 @@ pub struct ChannelCalib {
 #[repr(C)]
 pub struct RadioConfig {
     pub magic: u32,                // 0x4653_4B59 ("FSKY")
-    pub version: u32,              // Config structure version (3)
+    pub version: u32,              // Config structure version (5)
     pub active_model: u8,          // Current model index (0..19)
     pub throttle_trim: u8,         // 0: OFF (Lock), 1: IDLE (T-Trim), 2: LINEAR
     pub audio_enabled: u8,         // 0: Muted, 1: Enabled
@@ -48,17 +48,22 @@ pub struct RadioConfig {
     pub backlight_brightness: u8,  // 1..10 (10%..100%, default 10)
     pub vbat_warn_deci: u8,        // 40..50 (4.0V..5.0V, default 44 = 4.4V)
     pub lcd_contrast: u8,          // 15..55 (default 37 / 0x25)
-    pub usb_mode: u8,              // 0: Joystick, 1: Serial, 2: Composite, 3: Off
+    pub usb_mode: u8,              // 0: Off, 1: Joystick, 2: Serial, 3: Composite
     pub sticks: [ChannelCalib; 4], // 0: Roll, 1: Pitch, 2: Throttle, 3: Yaw (32 bytes)
     pub pots: [ChannelCalib; 2],   // 0: VRA, 1: VRB (16 bytes)
-    pub _reserved: [u8; 64],       // Reserved expansion space (Total: 128 bytes)
+    pub ext_module_pwr: u8,        // 64: 0: Active HIGH (N-type), 1: Active LOW (P-type)
+    pub tone_style: u8,            // 65: 0: Simple / Tactile, 1: Rich / Melodic
+    pub servo_rate_hz: u16,        // 66..68: 50..400 Hz (default 50 Hz for analog servo safety)
+    pub rx_out_mode: u8,           // 68: 0: PWM, 1: PPM
+    pub rx_serial_proto: u8,       // 69: 0: i-BUS, 1: S.BUS
+    pub _reserved: [u8; 58],       // 70..128: Reserved expansion space (Total: 128 bytes)
 }
 
 /// A single freeform mix rule in the matrix mixer (6 bytes)
 #[repr(C)]
 pub struct MixLine {
-    pub target_ch: u8,   // 0: Disabled, 1..14: Target Channel CH1..CH14
-    pub source: u8,      // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7..10: SA..SD, 11: MAX, 12..25: CH1..CH14
+    pub target_ch: u8,   // 0: Disabled, 1..18: Target Channel CH1..CH18
+    pub source: u8,      // 0: None, 1: Roll, 2: Pitch, 3: Thr, 4: Yaw, 5: VRA, 6: VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar
     pub weight: i8,      // -100% .. +100%
     pub offset: i8,      // -100% .. +100%
     pub switch: u8,      // 0: Always On, 1..10: Switch condition
@@ -69,11 +74,11 @@ pub struct MixLine {
 #[repr(C)]
 pub struct ModelConfig {
     pub name: [u8; 10],            // 10-char ASCII model name (e.g. "QUAD 5IN  ")
-    pub model_type: u8,            // 0: Airplane, 1: Glider, 2: Helicopter, 3: Multirotor / Quad
+    pub model_type: u8,            // 0: Airplane, 1: Glider, 2: Helicopter, 3: Multirotor / Quad, 4: General (Boats/Rovers)
     pub _pad0: u8,                 // Align rx_id
     pub rx_id: u32,                // Bound receiver ID (Model Match)
     pub trims: [i8; 4],            // -25 .. +25 (Roll, Pitch, Throttle, Yaw)
-    pub channel_reverse: u16,      // 14-bit channel reversing mask (bit 0=CH1 .. bit 13=CH14)
+    pub channel_reverse: u32,      // 18-bit channel reversing mask (bit 0=CH1 .. bit 17=CH18)
     pub dr_switch: u8,             // 0: None, 1: SA, 2: SB, 3: SC, 4: SD
     pub thr_curve_pts: u8,         // 5 or 9 points
     pub thr_curve_smooth: u8,      // 0: Linear interpolation, 1: Catmull-Rom spline
@@ -86,16 +91,16 @@ pub struct ModelConfig {
     pub timer_source: u8,          // 48: 0: Off, 1: THs (Thr>5%), 2: THt (Thr Latched), 3: Always On, 4..13: SA^..SDv
     pub protocol_subtype: u8,      // 49: 0: PWM, 1: PPM, 2: i-BUS, 3: S.BUS
     pub failsafe_thr: u16,         // 50..52: Failsafe throttle pulse in µs (e.g. 1000)
-    pub aux_channels: [u8; 10],    // 52..62: Source for CH5..CH14
-    pub wing_tail_mix: u8,         // 62: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
-    pub template_diff: i8,         // 63: Differential / mix ratio (-100..+100)
-    pub mixes: [MixLine; 8],       // 64..112: 8 freeform mix rules (8 * 6 = 48 bytes)
-    pub failsafe_mode: u8,         // 112: 0: Hold last, 1: Custom pulses
-    pub failsafe_timeout: u8,      // 113: 10..50 (1.0s..5.0s)
-    pub rf_protocol: u8,           // 114: 0: AFHDS 2A, 1: CRSF / ELRS
-    pub crsf_baud: u8,             // 115: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
-    pub arm_switch: u8,            // 116: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
-    pub _reserved: [u8; 11],       // 117..128: 11 reserved bytes (Total: 128 bytes)
+    pub aux_channels: [u8; 14],    // 52..66: Source for CH5..CH18
+    pub wing_tail_mix: u8,         // 66: 0: Normal, 1: Elevon/Delta, 2: V-Tail, 3: Flaperon
+    pub template_diff: i8,         // 67: Differential / mix ratio (-100..+100)
+    pub mixes: [MixLine; 8],       // 68..116: 8 freeform mix rules (8 * 6 = 48 bytes)
+    pub failsafe_mode: u8,         // 116: 0: Hold last, 1: Custom pulses
+    pub failsafe_timeout: u8,      // 117: 10..50 (1.0s..5.0s)
+    pub rf_protocol: u8,           // 118: 0: AFHDS 2A, 1: CRSF / ELRS
+    pub crsf_baud: u8,             // 119: 0: 420k, 1: 416.6k, 2: 115.2k, 3: 921.6k
+    pub arm_switch: u8,            // 120: 0: None, 1: SA^, 2: SAv, 3: SB^, 4: SB-, 5: SBv, 6: SC^, 7: SC-, 8: SCv, 9: SD^, 10: SDv
+    pub _reserved: [u8; 7],        // 121..128: 7 reserved bytes (Total: 128 bytes)
 }
 
 /// Unified Flash image layout (exactly 2,688 bytes in memory)

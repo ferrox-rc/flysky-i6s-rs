@@ -1,6 +1,6 @@
-# FLIGHT CONTROL & 14-CHANNEL MIXING ARCHITECTURE
+# FLIGHT CONTROL & 18-CHANNEL MIXING ARCHITECTURE
 
-Comprehensive reference for input conditioning (Dual Rates & Exponential), auxiliary channel assignment, built-in wing and tail templates, and the EdgeTX/OpenTX-inspired 14-channel freeform matrix mixer on the FlySky FS-i6X.
+Comprehensive reference for input conditioning (Dual Rates & Exponential), auxiliary channel assignment, built-in wing and tail templates, and the EdgeTX/OpenTX-inspired 18-channel freeform matrix mixer on the FlySky FS-i6X.
 
 ---
 
@@ -24,15 +24,15 @@ flowchart TD
 
     subgraph S3 ["Stage 3: Mixing & Templates"]
         TPL["Aircraft Template: Normal / Elevon / V-Tail / Flaperon"]
-        AUX["Aux Source Mapping (CH5..CH14)"]
+        AUX["Aux Source Mapping (CH5..CH18)"]
         MIX["8 Freeform Mix Rules (Weight, Offset, Mode, Switch)"]
     end
 
     subgraph S4 ["Stage 4: Outputs & Protocol Frame"]
         TRIM["Digital Trims (Roll, Pitch, Thr, Yaw)"]
-        REV["14-Channel Reversing Bitmask"]
+        REV["18-Channel Reversing Bitmask"]
         FAIL["Failsafe Supervisor (Hold vs Pre-set pulses)"]
-        RF["AFHDS 2A 14-Channel 0x58 Frame (1000..2000 µs)"]
+        RF["AFHDS 2A 18-Channel Interleaved Frame (988..2012 µs)"]
     end
 
     S1 --> S2 --> S3 --> S4
@@ -124,9 +124,9 @@ CH6 (Right Aileron) = -Roll + (Flap / 2)
 
 ---
 
-## 4. Auxiliary Channel Remapping (CH5..CH14)
+## 4. Auxiliary Channel Remapping (CH5..CH18)
 
-All 10 auxiliary channels (CH5 through CH14) can be independently assigned to any physical control on the radio from the `Aux Channels` menu:
+All 14 auxiliary channels (CH5 through CH18) can be independently assigned to any physical control on the radio from the `Aux Channels` menu:
 
 | Source ID | Label | Description | Output Range |
 | :--- | :--- | :--- | :--- |
@@ -149,7 +149,7 @@ All 10 auxiliary channels (CH5 through CH14) can be independently assigned to an
 - `CH8`: **VRB** (Payload release / Volume)
 - `CH9`: **SC** (3-position auxiliary: Beeper / OSD switch)
 - `CH10`: **SD** (Throttle cut / Rescue switch)
-- `CH11..CH14`: `None` (Centered 1500 µs)
+- `CH11..CH18`: `None` (Centered 1500 µs)
 
 ---
 
@@ -162,8 +162,8 @@ Each mix line comprises a compact 6-byte struct stored in Flash memory:
 
 ```rust
 pub struct MixLine {
-    pub target_ch: u8,   // 0: Disabled, 1..14: Target Channel (CH1..CH14)
-    pub source: u8,      // 0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD, 11: MAX, 12..25: CH1..CH14
+    pub target_ch: u8,   // 0: Disabled, 1..18: Target Channel (CH1..CH18)
+    pub source: u8,      // 0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar
     pub weight: i8,      // -100% .. +100% (gain / authority)
     pub offset: i8,      // -100% .. +100% (center shift)
     pub switch: u8,      // 0: Always ON, 1..10: Physical switch position condition

@@ -23,7 +23,7 @@ Implemented in [`src/chip/mod.rs`](../src/chip/mod.rs) using pure PAC direct reg
 ```mermaid
 flowchart TD
     subgraph Hardware_Timers ["Deterministic Interrupts & Peripherals"]
-        TIM16["TIM16 ISR @ 259.74 Hz (3.850 ms)<br>Pulls fresh PENDING_CHANNELS<br>Transmits 38-byte AFHDS 2A Packet via SPI"]
+        TIM16["TIM16 ISR @ 259.74 Hz (3.850 ms)<br>Pulls fresh CHANNEL_BUFFER slot<br>Transmits 18-CH AFHDS 2A Packet via SPI"]
         EXTI["EXTI2_3 ISR (A7105 GIO2)<br>Handles TX Finished / RX Telemetry Available"]
         DMA["DMA1 Channel 1 (Autonomous)<br>Scans all 11 ADC channels in 0.23 ms"]
         USB_IRQ["USB Full-Speed Interrupt<br>Low priority (0xC0), handles host bus events"]
@@ -37,29 +37,29 @@ flowchart TD
         Keys["2. Scan Key Matrix (boot::scan_keys)<br>Digital Trims & Navigation Shortcuts"]
         Trims["3. Apply Digital Trims<br>Roll, Pitch, Throttle (Option 1/2), Yaw"]
         Curves["4. Curve Engine (curve::evaluate_curve)<br>5/9-Point Catmull-Rom Spline Interpolation"]
-        Rev["5. Channel Reversing<br>14-bit mask: pulse = 3000 - pulse"]
+        Rev["5. Channel Reversing<br>18-bit mask: pulse = 3000 - pulse"]
         USB_Poll["6. USB Subsystem Poll (usb::poll)<br>100 Hz HID Gamepad & CDC Serial CLI"]
-        RF_Update["7. Update rf::set_channels(&rf_chs)<br>Pushes latest channels to atomic buffer (RF standby if Sim)"]
+        RF_Update["7. Update rf::set_channels(&rf_chs)<br>Lock-Free SPSC Triple Buffer (zero critical sections)"]
         Menu_Router["8. Menu State Machine & Wizards<br>Model Select, Setup, Curves, Calib"]
-        LCD_Draw["9. Draw Framebuffer & Strobe LCD<br>ST7567 8-bit parallel bus (~1.2 ms)"]
+        LCD_Draw["9. Draw Framebuffer & Strobe LCD<br>ST7567 8-bit parallel bus (30 Hz refresh)"]
         WDT_Feed["10. Pet Hardware Watchdog (watchdog::feed)<br>Prevents 2.0s hardware reset"]
     end
 
     DMA -.-> ADC_Poll
     ADC_Poll --> Keys --> Trims --> Curves --> Rev --> USB_Poll --> RF_Update --> Menu_Router --> LCD_Draw --> WDT_Feed
-    RF_Update -. Atomic Buffer .-> TIM16
+    RF_Update -. SPSC Triple Buffer .-> TIM16
     WDT_Feed -. Reload .-> IWDG
 ```
 
 ### Interrupt Priorities & Safety Systems
 - **Hardware Watchdog (`pac::IWDG`)**: Independent 2.0-second hardware watchdog running off the autonomous 40 kHz internal low-speed oscillator (LSI) with prescaler `/64` (625 Hz tick rate, 1.6 ms/tick) and reload count `1250`. Prior to watchdog key registration, LSI clock stabilization is confirmed via `pac::RCC.csr.lsirdy`. To support non-intrusive SWD debugging via ST-Link or probe-rs, `DBGMCU_APB1_FZ.DBG_IWDG_STOP` is configured (with DBGMCU clock gated via `RCC_APB2ENR`) so the watchdog timer freezes when the core is halted. The watchdog is refreshed (`watchdog::feed()`) at the start of the main execution loop, during flash compaction routines, and across soft reset vectors.
 - **Highest Peripheral Priority (`USART2` CRSF / ELRS RX)**: IRQ 28 assigned priority `0x40`. At 420,000 baud, 1 byte arrives every 23.8 µs. With no hardware FIFO on the STM32F072 USART2, this priority ensures the ISR preempts main thread execution (e.g. LCD flushing) to buffer incoming bytes into a 128-byte atomic ring buffer with zero overrun errors (`USART_ISR_ORE`).
-- **High Priority (RF Transmission)**: `TIM16` fires strictly every **3.850 ms** (259.74 Hz). It pulls the latest pre-computed channel microsecond pulses from `PENDING_CHANNELS` and initiates A7105 SPI transmission. Priority = `0x80`.
+- **High Priority (RF Transmission)**: `TIM16` fires strictly every **3.850 ms** (259.74 Hz). It pulls the latest pre-computed channel microsecond pulses from the lock-free SPSC triple buffer (`CHANNEL_BUFFER`) with zero critical sections, zero interrupt latency, and zero data races, initiating A7105 SPI transmission. Priority = `0x80`.
 - **Medium Priority (Radio Event)**: `EXTI2_3` fires on A7105 GIO2 line transitions (packet transmission complete or downlink telemetry packet received). Priority = `0x80`.
 - **Autonomous DMA**: `DMA1_CH1` transfers all 11 ADC channels directly into circular SRAM buffers with zero CPU intervention.
 - **Hardware Timers**: `TIM1` generates non-blocking audio frequencies on `PA8`; `TIM3` generates 1 kHz PWM brightness control on `PC9`.
 - **Low Priority (USB Physical Layer)**: The USB interrupt is assigned priority `0xC0`. Because RF interrupts have higher priority (`0x80`), USB transactions or host bus stalls can never preempt or delay an over-the-air packet.
-- **Background / Main Loop**: Decoupled control loop architecture; the real-time flight control pipeline (ADC sampling, lightweight 4-sample filtering with dynamic deadband bypass, matrix mixer, D/R & expo, throttle curves) executes in under 30 µs at multi-kHz pass rates, updating double-buffered `PENDING_CHANNELS` for RF transmission, while ST7567 LCD frame rendering and SPI flushing are throttled to a smooth 30 Hz (~33 ms).
+- **Background / Main Loop**: Decoupled control loop architecture; the real-time flight control pipeline (ADC sampling, lightweight 4-sample filtering with dynamic deadband bypass, matrix mixer, D/R & expo, throttle curves) executes in under 30 µs at multi-kHz pass rates, updating the lock-free SPSC triple buffer for RF transmission, while ST7567 LCD frame rendering (including 5-page flight dashboard and 3-slot icon menu with scrollbar) is throttled to a smooth 30 Hz (~33 ms).
 
 ---
 
@@ -81,11 +81,12 @@ flowchart TD
     subgraph Cold_Boot ["Normal Cold Power-On Boot"]
         DFU["Check DFU Entry (Trims Inward)<br>~6.25 ms contact settling delay"]
         Clocks["Init 48 MHz HSE+PLL & SysTick"]
-        Periphs["Init LCD, ADC+DMA, RF, Trims"]
-        Welcome["Play Welcome Melody (buzzer::chime_welcome)"]
+        Storage["Load Storage & Tone Preferences"]
+        Splash["Ferrox-RC Splash Screen (1200 ms)<br>Concurrent 4-Note Welcome Fanfare (buzzer::chime_welcome)"]
+        Periphs["Init ADC+DMA, RF, USB, CRSF, Trims"]
         SafetyCheck["Pre-Flight Safety Check Loop<br>Throttle < -900 & Switches UP<br>Modal Trap with 1000 µs Failsafe"]
         
-        IsWDT -- "No (POR/PDR/Pin Reset)" --> DFU --> Clocks --> Periphs --> Welcome --> SafetyCheck
+        IsWDT -- "No (POR/PDR/Pin Reset)" --> DFU --> Clocks --> Storage --> Splash --> Periphs --> SafetyCheck
     end
 
     subgraph Warm_Recovery ["In-Flight Watchdog Recovery (< 2 ms)"]
