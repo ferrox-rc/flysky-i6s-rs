@@ -58,7 +58,7 @@ A comprehensive guide to operating the `flysky-i6x-rs` firmware on the FlySky FS
 ## 2. Multi-Page Flight Dashboard
 
 The main flight screen features 5 switchable display pages cycled by tapping **`[BIND]`** or pressing **`[UP]`** / **`[DOWN]`**. All 5 pages share a pixel-perfect uniform layout:
-- **Top Status Bar (`y = 0..10`)**: Displays active model type icon (12x12 MDI glyph), active model name, RF/telemetry status (`RF:OK`, `R:XX%`, `BIND`, `U:SIM`, `NO RF`), dynamic horizontal battery gauge with live 3-stage charge bars, and steady filtered battery voltage (`X.YYV`).
+- **Top Status Bar (`y = 0..10`)**: Displays active model type icon (12x12 MDI glyph), active model name, centered RF/telemetry status (`RF:OK`, `R:XX%`, `BIND`, `U:SIM`, `NO RF`), and right-aligned power indicator with steady filtered battery voltage (`X.YYV`) and procedural solid battery gauge (`[===]`).
 - **Top Divider (`y = 11`)**: Full-width horizontal line (`Line(0, 11) -> (127, 11)`).
 - **Content Area (`y = 12..54`)**: Page-specific controls, split channels, gauges, and telemetry.
 - **Bottom Divider (`y = 55`)**: Full-width horizontal line (`Line(0, 55) -> (127, 55)`).
@@ -67,7 +67,7 @@ The main flight screen features 5 switchable display pages cycled by tapping **`
 ### Page 1/5: Primary Gimbals & Trims
 ```
 +-------------------------------------------------------------+
-| [M] MODEL 01              RF:OK             [===]   5.18V   | <- Status Bar (y=0..10)
+| [M] MODEL 01              RF:OK               5.18V   [===] | <- Status Bar (y=0..10)
 |-------------------------------------------------------------| <- Top Line (y=11)
 | A [====|==.======]  +15%   | E [========.=|==]   -22%       |
 | T [========.     ]   45%   | R [====|==.======]    0%       |
@@ -78,8 +78,8 @@ The main flight screen features 5 switchable display pages cycled by tapping **`
 ```
 - **Top Status Bar (y = 0..10)**:
   - **Left**: 12x12 model type icon followed by model name (e.g. `[Airplane] MODEL 01`).
-  - **Center (`RF:OK` / `R: XX%` / `BIND` / `U:SIM` / `NO RF`)**: RF link state, binding status, telemetry RSSI, or `U:SIM` (USB Simulator mode with silent RF standby).
-  - **Right**: Dynamic horizontal battery icon with live 3-stage charge bars (emptying left-to-right from tip as voltage drops, and filling right-to-left from base) paired with EMA-filtered voltage readout (`X.YYV`).
+  - **Center (`RF:OK` / `R: XX%` / `BIND` / `U:SIM` / `NO RF`)**: RF link state, binding status, telemetry RSSI, or `U:SIM` (USB Simulator mode with silent RF standby), centered with equalized margins.
+  - **Right**: Right-aligned battery readout pairing EMA-filtered voltage (`X.YYV`) with a procedural solid fill battery gauge (`[===]`). The gauge utilizes min-max subtraction without internal gap columns, linearly filling right-to-left from base towards tip as charge increases.
 - **Gimbal Gauges (y = 12..43)**: Live channel sliders for Roll (`A`), Pitch (`E`), Throttle (`T`), Yaw (`R`) with center ticks, trim position ticks (`.`), and percentage readouts. In Mode 2, throttle is right-aligned for natural stick ergonomics.
 - **Switches & Pots Line (y = 44..53)**:
   - Physical switch positions displayed with high-visibility arrow glyphs (`^`=Up, `-`=Middle, `v`=Down).
@@ -89,7 +89,7 @@ The main flight screen features 5 switchable display pages cycled by tapping **`
 ### Page 2/5: Primary Channels Monitor (CH 1..10)
 ```
 +-------------------------------------------------------------+
-| [M] MODEL 01              RF:OK             [===]   5.18V   | <- Status Bar (y=0..10)
+| [M] MODEL 01              RF:OK               5.18V   [===] | <- Status Bar (y=0..10)
 |-------------------------------------------------------------| <- Top Line (y=11)
 |  1: [==========] 1500  |   6: [==========] 1500             |
 |  2: [==========] 1500  |   7: [==========] 1500             |
@@ -107,7 +107,7 @@ The main flight screen features 5 switchable display pages cycled by tapping **`
 ### Page 3/5: Auxiliary Channels Monitor (CH 11..18)
 ```
 +-------------------------------------------------------------+
-| [M] MODEL 01              RF:OK             [===]   5.18V   | <- Status Bar (y=0..10)
+| [M] MODEL 01              RF:OK               5.18V   [===] | <- Status Bar (y=0..10)
 |-------------------------------------------------------------| <- Top Line (y=11)
 | 11: [==========] 1500  |  15: [==========] 1500             |
 | 12: [==========] 1500  |  16: [==========] 1500             |
@@ -135,7 +135,7 @@ The main flight screen features 5 switchable display pages cycled by tapping **`
 ### Page 5/5: Dedicated Telemetry & RF Diagnostics
 ```
 +-------------------------------------------------------------+
-| [M] MODEL 01              RF:OK             [===]   5.18V   | <- Status Bar (y=0..10)
+| [M] MODEL 01              RF:OK               5.18V   [===] | <- Status Bar (y=0..10)
 |-------------------------------------------------------------| <- Top Line (y=11)
 | RSSI: 98%              | RX:   5.12V                        |
 | LINK: OK               | TX:   5.18V                        |

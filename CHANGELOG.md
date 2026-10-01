@@ -32,9 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Mode 2 natural stick layout: right-aligned throttle bar on Page 1/5.
   - Dual split horizontal potentiometer bar on Page 1/5: top bar displays VRa and bottom bar displays VRb, each with center tick marks.
   - High-visibility switch position arrow glyphs (`^` UP, `-` MID, `v` DOWN).
-- **Dynamic Horizontal Battery Gauge ([`src/ui/widgets.rs`](src/ui/widgets.rs), [`src/ui/dashboard/mod.rs`](src/ui/dashboard/mod.rs))**:
-  - High-visibility horizontal battery icon in the top status bar.
-  - Live 3-stage charge bars: fills right-to-left from base as voltage rises, and empties left-to-right from tip as voltage drops.
+- **Procedural Continuous Battery Gauge & Status Bar Layout Alignment ([`src/ui/glyphs.rs`](src/ui/glyphs.rs), [`src/ui/dashboard/status_bar.rs`](src/ui/dashboard/status_bar.rs), [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md))**:
+  - Implemented continuous procedural min-max subtraction algorithm (`((val_mv.saturating_sub(min_mv) * 8) / span).min(8)`) rendering an 8-pixel solid fill cavity without interior gap columns.
+  - Linear right-to-left fill orientation: fills from base ($x+9$) towards tip ($x+2$) as battery charges, emptying tip-to-base as cells deplete.
+  - Zero `.rodata` tables: compiles down to ~32 bytes of Thumb-1 instructions, saving flash over bitmap tables and multi-branch match statements.
+  - Right-aligned power indicator cluster ($x=93..126$): voltage readout text (`X.YYV`, $x=93$) positioned left of the right-edge battery gauge ($x=116..126$), equalizing margins with the center RF/link status block ($x=64..83$) and left-aligned model name ($x=2..61$).
 - **`ModelType::General` Support ([`src/storage.rs`](src/storage.rs), [`src/main.rs`](src/main.rs), [`src/ui/menu/screens/model_setup.rs`](src/ui/menu/screens/model_setup.rs))**:
   - Added `General` model type for surface models (boats, rovers, cars, robotics) with dedicated ship icon glyph.
   - Pre-flight throttle safety interlocks adapted to bypass raised throttle warnings for spring-centered surface throttles.
