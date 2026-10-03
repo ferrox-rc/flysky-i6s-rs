@@ -228,6 +228,8 @@ struct BackgroundIdleManager {
     menu_was_active: bool,
     pub power_manager: power::PowerManager,
     rx_id_dirty: bool,
+    trim_dirty: bool,
+    trim_save_cooldown_ms: u16,
 }
 
 impl BackgroundIdleManager {
@@ -265,6 +267,8 @@ impl BackgroundIdleManager {
             menu_was_active: false,
             power_manager: power::PowerManager::new(),
             rx_id_dirty: false,
+            trim_dirty: false,
+            trim_save_cooldown_ms: 0,
         }
     }
 
@@ -426,7 +430,32 @@ impl BackgroundIdleManager {
             buzzer.play_tone_pattern(2400, 70, 50, 2);
         }
 
-        // 7. Long-press OK (1.2s) from flight dashboard opens Settings Menu
+        // 7. Debounced auto-save of active model trims to Flash (inhibit while armed)
+        let active_trims = [
+            trims.values.roll,
+            trims.values.pitch,
+            trims.values.throttle,
+            trims.values.yaw,
+        ];
+        if storage.active_model().trims != active_trims {
+            storage.active_model_mut().trims = active_trims;
+            self.trim_dirty = true;
+            self.trim_save_cooldown_ms = 2000;
+        }
+
+        if self.trim_save_cooldown_ms > 0 {
+            self.trim_save_cooldown_ms = self.trim_save_cooldown_ms.saturating_sub(dt_ms);
+        }
+
+        if self.trim_dirty
+            && self.trim_save_cooldown_ms == 0
+            && !pipeline.prev_armed
+            && storage::save_active_model(storage)
+        {
+            self.trim_dirty = false;
+        }
+
+        // 8. Long-press OK (1.2s) from flight dashboard opens Settings Menu
         if !menu_active {
             if (keys & (1 << 10)) != 0 {
                 self.ok_hold_ms = self.ok_hold_ms.saturating_add(dt_ms);
