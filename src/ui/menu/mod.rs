@@ -264,7 +264,7 @@ impl MenuController {
                 screens::elrs::update(self, lcd, &nav_keys, buzzer);
             }
             MenuState::ChannelMonitor => {
-                screens::channels::update_channel_monitor(self, lcd, &nav_keys, rf_chs, buzzer);
+                screens::channels::update_channel_monitor(self, lcd, &nav_keys, storage, rf_chs, buzzer);
             }
             MenuState::DiagAnas => {
                 screens::diag::update_diag_anas(self, lcd, &nav_keys, raw_adc, buzzer);

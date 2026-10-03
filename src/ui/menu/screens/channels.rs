@@ -170,11 +170,70 @@ pub fn update_channel_reverse(
     widgets::draw_footer(lcd, "[OK] Toggle   [ESC] Back");
 }
 
+/// Format dynamic channel label into a fixed buffer, e.g. "1:AIL", "2:L.ELV", "6:R.AIL", "10:VR1", "18:None".
+pub fn format_channel_label<'a>(
+    ch: usize,
+    model: &crate::storage::ModelConfig,
+    buf: &'a mut [u8; 10],
+) -> &'a str {
+    let mut len = 0;
+    let ch_num = ch + 1;
+    if ch_num >= 10 {
+        buf[len] = b'0' + (ch_num / 10) as u8;
+        len += 1;
+        buf[len] = b'0' + (ch_num % 10) as u8;
+        len += 1;
+    } else {
+        buf[len] = b'0' + ch_num as u8;
+        len += 1;
+    }
+    buf[len] = b':';
+    len += 1;
+
+    let name = match ch {
+        0 => match model.wing_tail_mix {
+            1 => "L.ELV",
+            3 => "L.AIL",
+            _ => "AIL",
+        },
+        1 => match model.wing_tail_mix {
+            1 => "R.ELV",
+            2 => "L.VTL",
+            _ => "ELE",
+        },
+        2 => "THR",
+        3 => match model.wing_tail_mix {
+            2 => "R.VTL",
+            _ => "RUD",
+        },
+        5 if model.wing_tail_mix == 3 => "R.AIL",
+        4..=17 => {
+            let aux_src = model.aux_channels[ch - 4] as usize;
+            if aux_src < SOURCE_NAMES.len() {
+                SOURCE_NAMES[aux_src]
+            } else {
+                "None"
+            }
+        }
+        _ => "CH",
+    };
+
+    for &b in name.as_bytes() {
+        if len < buf.len() {
+            buf[len] = b;
+            len += 1;
+        }
+    }
+
+    ascii_as_str(&buf[..len])
+}
+
 #[inline(never)]
 pub fn update_channel_monitor(
     ctrl: &mut MenuController,
     lcd: &mut St7567,
     keys: &NavKeys,
+    storage: &RadioStorage,
     rf_chs: &[u16; NUM_CHANNELS],
     buzzer: &mut Buzzer,
 ) {
@@ -203,17 +262,22 @@ pub fn update_channel_monitor(
     };
     widgets::draw_header(lcd, title);
 
-    let (start_ch, ch_names): (usize, [&str; 6]) = match ctrl.page_idx {
-        0 => (0, ["1:ROL", "2:PIT", "3:THR", "4:YAW", "5:SwA", "6:SwB"]),
-        1 => (6, ["7:VR1", "8:VR2", "9:SC ", "10:SD", "11:CH", "12:CH"]),
-        _ => (12, ["13:CH", "14:CH", "15:CH", "16:CH", "17:CH", "18:CH"]),
+    let start_ch: usize = match ctrl.page_idx {
+        0 => 0,
+        1 => 6,
+        _ => 12,
     };
 
     let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+    let active_model = storage.active_model();
 
-    for (i, name) in ch_names.iter().enumerate() {
+    for i in 0..6 {
         let ch = start_ch + i;
         let y = 12 + (i as i32 * 7);
+
+        let mut name_buf = [0u8; 10];
+        let name = format_channel_label(ch, active_model, &mut name_buf);
+
         Text::new(name, Point::new(2, y + 5), text_style_small)
             .draw(lcd)
             .ok();
@@ -236,3 +300,58 @@ pub fn update_channel_monitor(
 
     widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::ModelConfig;
+
+    #[test]
+    fn test_format_channel_label_normal_and_aux() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.wing_tail_mix = 0; // Normal
+        model.aux_channels[0] = 7; // CH5 -> SA
+        model.aux_channels[1] = 8; // CH6 -> SB
+        model.aux_channels[5] = 10; // CH10 -> SD
+        model.aux_channels[13] = 0; // CH18 -> None
+
+        let mut buf = [0u8; 10];
+        assert_eq!(format_channel_label(0, &model, &mut buf), "1:AIL");
+        assert_eq!(format_channel_label(1, &model, &mut buf), "2:ELE");
+        assert_eq!(format_channel_label(2, &model, &mut buf), "3:THR");
+        assert_eq!(format_channel_label(3, &model, &mut buf), "4:RUD");
+        assert_eq!(format_channel_label(4, &model, &mut buf), "5:SA");
+        assert_eq!(format_channel_label(5, &model, &mut buf), "6:SB");
+        assert_eq!(format_channel_label(9, &model, &mut buf), "10:SD");
+        assert_eq!(format_channel_label(17, &model, &mut buf), "18:None");
+    }
+
+    #[test]
+    fn test_format_channel_label_wing_tail_templates() {
+        let mut model = ModelConfig::default_for_index(0);
+        let mut buf = [0u8; 10];
+
+        // Elevon
+        model.wing_tail_mix = 1;
+        assert_eq!(format_channel_label(0, &model, &mut buf), "1:L.ELV");
+        assert_eq!(format_channel_label(1, &model, &mut buf), "2:R.ELV");
+        assert_eq!(format_channel_label(2, &model, &mut buf), "3:THR");
+        assert_eq!(format_channel_label(3, &model, &mut buf), "4:RUD");
+
+        // V-Tail
+        model.wing_tail_mix = 2;
+        assert_eq!(format_channel_label(0, &model, &mut buf), "1:AIL");
+        assert_eq!(format_channel_label(1, &model, &mut buf), "2:L.VTL");
+        assert_eq!(format_channel_label(2, &model, &mut buf), "3:THR");
+        assert_eq!(format_channel_label(3, &model, &mut buf), "4:R.VTL");
+
+        // Flaperon
+        model.wing_tail_mix = 3;
+        assert_eq!(format_channel_label(0, &model, &mut buf), "1:L.AIL");
+        assert_eq!(format_channel_label(1, &model, &mut buf), "2:ELE");
+        assert_eq!(format_channel_label(2, &model, &mut buf), "3:THR");
+        assert_eq!(format_channel_label(3, &model, &mut buf), "4:RUD");
+        assert_eq!(format_channel_label(5, &model, &mut buf), "6:R.AIL");
+    }
+}
+
