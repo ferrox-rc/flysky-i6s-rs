@@ -79,6 +79,28 @@ impl<T: Copy> TripleBuffer<T> {
         self.published.store(0x80 | write_idx, Ordering::Release);
     }
 
+    /// Read the latest available data using an external/thread-local reading index.
+    /// Eliminates shared reader state race conditions when the consumer can be preempted by the writer.
+    #[inline(always)]
+    pub fn read_local(&self, local_reading_idx: &mut u8) -> T {
+        let published_val = self.published.load(Ordering::Acquire);
+        let read_idx = if (published_val & 0x80) != 0 {
+            let idx = published_val & 0x03;
+            self.published.store(idx, Ordering::Relaxed);
+            *local_reading_idx = idx;
+            self.reading_idx.store(idx, Ordering::Release);
+            idx
+        } else {
+            *local_reading_idx
+        };
+
+        // Safety: `read_idx` is distinct from writer target slot.
+        unsafe {
+            let buf_ptr = self.buffers.get();
+            (*buf_ptr)[read_idx as usize]
+        }
+    }
+
     /// Read the latest available data.
     /// Called by the consumer (single reader, e.g. ISR).
     #[inline(always)]
@@ -233,6 +255,13 @@ pub fn get_rx_id() -> u32 {
     with_driver(|d| d.rx_id).unwrap_or(0xFFFF_FFFF)
 }
 
+/// Get latest downlink telemetry from the receiver using a local reader index.
+/// Lock-free atomic read: zero critical sections, completely decoupled from concurrent EXTI2_3 events.
+#[inline(always)]
+pub fn get_telemetry_local(local_idx: &mut u8) -> TelemetryData {
+    TELEMETRY_BUFFER.read_local(local_idx)
+}
+
 /// Get latest downlink telemetry from the receiver.
 /// Lock-free atomic read: zero critical sections.
 #[inline(always)]
@@ -298,5 +327,32 @@ fn EXTI2_3() {
                 TELEMETRY_BUFFER.write(&d.telemetry);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_triple_buffer_read_local_decoupled() {
+        let buffer = TripleBuffer::new(10u32);
+        let mut local_idx = 1u8;
+
+        // Initial read returns initial value
+        assert_eq!(buffer.read_local(&mut local_idx), 10);
+
+        // Write new item
+        buffer.write(&42);
+        // read_local picks up published value and updates local_idx
+        assert_eq!(buffer.read_local(&mut local_idx), 42);
+
+        // Consecutive reads without new writes return the current value without re-consuming
+        assert_eq!(buffer.read_local(&mut local_idx), 42);
+
+        // Multiple writes advance slot
+        buffer.write(&100);
+        buffer.write(&200);
+        assert_eq!(buffer.read_local(&mut local_idx), 200);
     }
 }
