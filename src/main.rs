@@ -20,27 +20,7 @@ pub use ui::menu;
 
 use display::St7567;
 
-/// Pre-flight safe idle channel pulses (failsafe throttle and switches up/disarmed)
-const SAFE_IDLE_CHANNELS: [u16; mixer::NUM_CHANNELS] = [
-    mixer::CHANNEL_CENTER_US, // CH1 Roll / Aileron
-    mixer::CHANNEL_CENTER_US, // CH2 Pitch / Elevator
-    mixer::CHANNEL_MIN_US,    // CH3 Throttle
-    mixer::CHANNEL_CENTER_US, // CH4 Yaw / Rudder
-    mixer::CHANNEL_MIN_US,    // CH5 Aux 1 (SA)
-    mixer::CHANNEL_MIN_US,    // CH6 Aux 2 (SB)
-    mixer::CHANNEL_CENTER_US, // CH7 Pot VRA
-    mixer::CHANNEL_CENTER_US, // CH8 Pot VRB
-    mixer::CHANNEL_MIN_US,    // CH9 Aux 3 (SC)
-    mixer::CHANNEL_MIN_US,    // CH10 Aux 4 (SD)
-    mixer::CHANNEL_CENTER_US, // CH11 Extra 1
-    mixer::CHANNEL_CENTER_US, // CH12 Extra 2
-    mixer::CHANNEL_CENTER_US, // CH13 Extra 3
-    mixer::CHANNEL_CENTER_US, // CH14 Extra 4
-    mixer::CHANNEL_CENTER_US, // CH15 Extra 5
-    mixer::CHANNEL_CENTER_US, // CH16 Extra 6
-    mixer::CHANNEL_CENTER_US, // CH17 Extra 7
-    mixer::CHANNEL_CENTER_US, // CH18 Extra 8
-];
+pub use mixer::SAFE_IDLE_CHANNELS;
 
 /// High-rate flight pipeline state and outputs.
 struct FlightSnapshot {

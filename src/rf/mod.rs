@@ -7,10 +7,10 @@ pub mod a7105;
 pub mod afhds2a;
 pub mod spi;
 
-use crate::mixer::CHANNEL_CENTER_US;
+use crate::mixer::SAFE_IDLE_CHANNELS;
 use afhds2a::{Afhds2a, TelemetryData, NUM_CHANNELS};
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering};
 use stm32f0xx_hal::pac::interrupt;
 
 struct RfDriverCell(UnsafeCell<Option<Afhds2a>>);
@@ -105,9 +105,11 @@ impl<T: Copy> TripleBuffer<T> {
 }
 
 static CHANNEL_BUFFER: TripleBuffer<[u16; NUM_CHANNELS]> =
-    TripleBuffer::new([CHANNEL_CENTER_US; NUM_CHANNELS]);
+    TripleBuffer::new(SAFE_IDLE_CHANNELS);
 static TELEMETRY_BUFFER: TripleBuffer<TelemetryData> = TripleBuffer::new(TelemetryData::new());
 static RF_SILENCED: AtomicBool = AtomicBool::new(false);
+static PUBLISHED: AtomicBool = AtomicBool::new(false);
+static HEARTBEAT: AtomicU16 = AtomicU16::new(0);
 
 /// Initialize RF subsystem: SPI1, A7105 transceiver, and AFHDS 2A stack.
 /// Returns true if A7105 responded and passed silicon verification (0x9E).
@@ -159,9 +161,15 @@ pub fn is_silenced() -> bool {
 
 /// Update channel outputs (CH1..CH18) in microseconds (988..2012 µs).
 /// Completely lock-free triple-buffered write: zero critical sections, zero interrupt latency.
+/// Updates the heartbeat counter and flags that valid channel data has been published.
 #[inline(always)]
 pub fn set_channels(channels: &[u16; NUM_CHANNELS]) {
     CHANNEL_BUFFER.write(channels);
+    HEARTBEAT.store(
+        HEARTBEAT.load(Ordering::Relaxed).wrapping_add(1),
+        Ordering::Relaxed,
+    );
+    PUBLISHED.store(true, Ordering::Release);
 }
 
 #[inline]
@@ -239,6 +247,30 @@ fn TIM16() {
 
     if RF_SILENCED.load(Ordering::Relaxed) {
         return;
+    }
+
+    // First-publish gate: Do not transmit RF frames until channels have been published at least once.
+    if !PUBLISHED.load(Ordering::Acquire) {
+        return;
+    }
+
+    // Staleness check: Monitor main-loop heartbeat.
+    // At 3.85 ms timer interval, 30 ticks without heartbeat update is ~115.5 ms.
+    // If the main flight pipeline hangs, stop transmitting to allow receiver failsafe to engage.
+    static mut LAST_HEARTBEAT: u16 = 0;
+    static mut STALE_TICKS: u8 = 0;
+
+    let hb = HEARTBEAT.load(Ordering::Relaxed);
+    unsafe {
+        if hb == LAST_HEARTBEAT {
+            STALE_TICKS = STALE_TICKS.saturating_add(1);
+            if STALE_TICKS >= 30 {
+                return;
+            }
+        } else {
+            LAST_HEARTBEAT = hb;
+            STALE_TICKS = 0;
+        }
     }
 
     let driver = unsafe { &mut *RF_DRIVER.0.get() };

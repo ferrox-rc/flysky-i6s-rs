@@ -26,6 +26,28 @@ pub const CHANNEL_SPAN_US: u32 = (CHANNEL_MAX_US - CHANNEL_MIN_US) as u32; // 10
 pub const CHANNEL_HALF_SPAN_US: i32 = (CHANNEL_SPAN_US / 2) as i32; // 512
 pub const CHANNEL_REVERSE_SUM: u16 = CHANNEL_MIN_US + CHANNEL_MAX_US; // 3000
 
+/// Pre-flight safe idle channel pulses (failsafe throttle and switches up/disarmed)
+pub const SAFE_IDLE_CHANNELS: [u16; NUM_CHANNELS] = [
+    CHANNEL_CENTER_US, // CH1 Roll / Aileron
+    CHANNEL_CENTER_US, // CH2 Pitch / Elevator
+    CHANNEL_MIN_US,    // CH3 Throttle
+    CHANNEL_CENTER_US, // CH4 Yaw / Rudder
+    CHANNEL_MIN_US,    // CH5 Aux 1 (SA)
+    CHANNEL_MIN_US,    // CH6 Aux 2 (SB)
+    CHANNEL_CENTER_US, // CH7 Pot VRA
+    CHANNEL_CENTER_US, // CH8 Pot VRB
+    CHANNEL_MIN_US,    // CH9 Aux 3 (SC)
+    CHANNEL_MIN_US,    // CH10 Aux 4 (SD)
+    CHANNEL_CENTER_US, // CH11 Extra 1
+    CHANNEL_CENTER_US, // CH12 Extra 2
+    CHANNEL_CENTER_US, // CH13 Extra 3
+    CHANNEL_CENTER_US, // CH14 Extra 4
+    CHANNEL_CENTER_US, // CH15 Extra 5
+    CHANNEL_CENTER_US, // CH16 Extra 6
+    CHANNEL_CENTER_US, // CH17 Extra 7
+    CHANNEL_CENTER_US, // CH18 Extra 8
+];
+
 /// Physical source identifiers for auxiliary channels and mix lines.
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
