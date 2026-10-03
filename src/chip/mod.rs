@@ -119,21 +119,23 @@ pub fn init_system_clock() {
     }
 }
 
-/// Check if the MCU was rebooted by the hardware watchdog (IWDG or WWDG)
-/// and clear the reset status flags in RCC_CSR.
+/// Check if the MCU was rebooted warm by the hardware watchdog (IWDG or WWDG)
+/// or a software reset (e.g. panic recovery via SCB::sys_reset), and clear
+/// the reset status flags in RCC_CSR.
 ///
 /// Under DO-178C and flight safety principles, a warm reboot caused by watchdog timeout
-/// must bypass the throttle-at-idle and switch-safety interlocks to recover flight
-/// control in under 10 ms instead of locking the pilot in a warning screen.
+/// or panic fast-reset must bypass the throttle-at-idle and switch-safety interlocks to recover
+/// flight control in under 10 ms instead of locking the pilot in a warning screen.
 pub fn check_and_clear_reset_flags() -> bool {
     let rcc = unsafe { &*stm32f0xx_hal::pac::RCC::ptr() };
     let csr = rcc.csr.read();
-    let was_watchdog = csr.iwdgrstf().bit_is_set() || csr.wwdgrstf().bit_is_set();
+    let was_warm_reset =
+        csr.iwdgrstf().bit_is_set() || csr.wwdgrstf().bit_is_set() || csr.sftrstf().bit_is_set();
 
     // Clear all reset source flags by setting RMVF
     rcc.csr.modify(|_, w| w.rmvf().set_bit());
 
-    was_watchdog
+    was_warm_reset
 }
 
 /// Reset RCC to default power-on state (HSI 8MHz, no PLL, peripheral clocks disabled).
