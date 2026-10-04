@@ -14,11 +14,41 @@ The FlySky FS-i6S motherboard provides an internal rear module connector and bac
 
 | Pin | Function | Peripheral | Description |
 | :--- | :--- | :--- | :--- |
-| `PD5` | **USART2_TX** | AF0 | Bidirectional CRSF serial TX to external ELRS/Crossfire TX module |
-| `PA15` | **USART2_RX** | AF1 | Interrupt-driven telemetry RX with 128-byte lock-free ring buffer (IRQ 28, priority `0x40`) |
+| `PD5` | **USART2_TX** | AF0 | Bidirectional CRSF serial TX to external ELRS/Crossfire TX module (PCB test pad `TX` above `J15`) |
+| `PA15` | **USART2_RX** | AF1 | Interrupt-driven telemetry RX with 128-byte lock-free ring buffer (PCB test pad `RX` above `J15`) |
 | `PC13` | **MOD_PWR** | GPIO Out | External module power rail switch (Configurable polarity: Active HIGH or Active LOW) |
 
 Implemented in [`src/crsf/uart.rs`](../src/crsf/uart.rs). Dedicated `USART2` interrupt handler clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout ($\ge 3\text{ ms}$) guarantees deterministic frame resynchronization.
+
+### FS-i6S PCB Connection Points (Connector J15)
+Unlike the older FS-i6X, the FS-i6S exposes `USART2` directly via circular solder test pads silk-screened **`TX`** and **`RX`** located immediately above connector **`J15`** (between the 8-pin harness and the metal RF module shield). 
+- **`TX` Pad:** Directly connected to `PD5` (`USART2_TX`). Connect to external module **RX**.
+- **`RX` Pad:** Directly connected to `PA15` (`USART2_RX`). Connect to external module **TX** (telemetry).
+- Connector `J15` routes these signals down to the bottom daughterboard carrying the Micro-USB port and the 4-pin round mini-DIN trainer port.
+
+### PA15 Hardware Decoupling & Touchscreen Collision Strategies
+On the FS-i6S, `PA15` is physically shared between `USART2_RX` and the hardware reset line (`TOUCH_RST`) of the FocalTech **FT6236** capacitive touch screen controller (routed to pin 4 of FPC connector `J13` and the `TRST` test pad). 
+
+During 420 kbaud full-duplex serial communication, incoming telemetry bursts toggle `PA15` rapidly. Several hardware strategies are available to prevent touchscreen resets or jitter:
+
+1. **Passive Low-Pass RC Filter (Non-Destructive / No Trace Cutting):**
+   - At 420,000 baud, individual serial low bit pulses are only $\sim 2.38\ \mu\text{s}$ (with a maximum continuous 8N1 zero burst of $\sim 21.4\ \mu\text{s}$). The FT6236 reset comparator requires a sustained low pulse of $\ge 1.0\text{ ms}$ (typically $2\text{--}5\text{ ms}$) to trip.
+   - Adding a series $10\text{ k}\Omega$ resistor with a $100\text{ nF}$ capacitor to GND ($\tau = 1.0\text{ ms}$) on the touch reset line cleanly filters out 420 kbaud telemetry chatter while still allowing the initial 20 ms cold-boot reset pulse to pass.
+   - Even if prolonged line breaks or unpowered modules momentarily reset the touch IC, it recovers almost instantly with zero noticeable impact unless coinciding with an active touch swipe.
+
+2. **Permanent VDD Tie-High (Cleanest Full Decoupling):**
+   - The FT6236 features an internal Power-On Reset (POR) circuit and internal pull-up on `RST`. Ongoing software reset control is not strictly required after initial power-up.
+   - Desolder the small inline series resistor (or cut the trace) between `PA15` and Pin 4 of the touch connector `J13` (near `TRST`), then tie `J13` Pin 4 directly to 3.3V (or a 10 kΩ pull-up).
+   - This leaves `PA15` 100% dedicated to `USART2_RX` with zero touch interference.
+
+3. **Software GPIO Remap to Unused RF Daughterboard Pad:**
+   - If the internal A7105 RF module is disabled/desoldered, Port E pins become free GPIOs.
+   - Disconnect touch `RST` from `PA15` at `J13` and solder a jumper to the `RF_GIO1` pad (`PE14`, MCU pin 45).
+   - In firmware (`src/touch/ft6236.rs`), remap `TOUCH_RST` from `PA15` to `PE14`.
+
+4. **Single-Wire Half-Duplex on `PD5`:**
+   - If no hardware modification or soldering to `PA15` is desired, CRSF can operate in single-wire half-duplex on `PD5` (`USART2` with `HDSEL = 1`), leaving `PA15` permanently driven HIGH as `TOUCH_RST`. 
+   - Provides full bidirectional telemetry at 150 Hz and 250 Hz packet rates with zero touch collision risk.
 
 ### Power Switch Polarity (PC13)
 Hardware power circuits vary depending on how external modules are wired to the transmitter:

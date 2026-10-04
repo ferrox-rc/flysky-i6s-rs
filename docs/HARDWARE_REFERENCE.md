@@ -252,12 +252,50 @@ The FlySky FS-i6S mainboard routes the Micro-USB port directly to the STM32F072 
   - **Off**: D+ pull-up disconnected, peripheral clock gated to eliminate battery consumption during charging.
 
 ### Rear Expansion Bay & Trainer Port (CRSF / ELRS Ready)
-The 4-pin round rear port (and internal expansion header) connects to the MCU's hardware `USART2`:
+The 4-pin round rear port (and internal expansion header / connector `J15`) connects to the MCU's hardware `USART2`:
 
 | Pin / Net | MCU Pin | Function | Notes |
 | :--- | :--- | :--- | :--- |
-| **Signal TX** | `PD5` | `USART2_TX` (AF0) | Asynchronous serial output to external module |
-| **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry downlink from external module |
+| **Signal TX** | `PD5` | `USART2_TX` (AF0) | Serial output to external module; broken out at test pad **`TX`** directly above `J15` |
+| **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry downlink; broken out at test pad **`RX`** directly above `J15` (shared with `TOUCH_RST`) |
 | **Module Power**| `PC13` | Power Switch GPIO | Configurable polarity (Default High / Active Low supported in Radio Setup) |
 | **Baud Rate** | Selectable | 8N1 | 420k (ELRS), 416.6k (TBS), 115.2k (Low), 921.6k (Fast) |
+
+#### PCB Test Pads & Wiring (`J15`)
+Directly above internal connector `J15` (between the 8-pin harness and the internal RF module shield), two circular solder test pads are silk-screened **`TX`** and **`RX`**:
+- **`TX` Pad:** `PD5` (`USART2_TX`). Wire to external CRSF module `RX`.
+- **`RX` Pad:** `PA15` (`USART2_RX`). Wire to external CRSF module `TX` (telemetry).
+
+#### PA15 Decoupling from Touch Controller (`TOUCH_RST`)
+On the FS-i6S, `PA15` is also connected to Pin 4 (`RST`) of touch FPC connector `J13` (`TOUCH_RST`). For full-duplex operation, several decoupling options exist:
+1. **Low-Pass RC Filter (Non-Destructive):** Place an inline $10\text{ k}\Omega$ resistor and $100\text{ nF}$ capacitor to GND ($\tau = 1.0\text{ ms}$) on the touch reset line. Filters out 420 kbaud serial transitions ($\sim 2.4\ \mu\text{s}$) while allowing the 20 ms boot pulse to pass.
+2. **Permanent VDD Tie-High:** Remove the series resistor / cut the trace between `PA15` and `J13` Pin 4, and tie `J13` Pin 4 to 3.3V (FT6236 uses internal Power-On Reset).
+3. **GPIO Remap:** Rewire `J13` Pin 4 to an unused RF module pad (e.g. `RF_GIO1` / `PE14`) and update the driver in `src/touch/ft6236.rs`.
+4. **Single-Wire Half-Duplex:** Alternatively, run single-wire half-duplex CRSF on `PD5` (`HDSEL = 1`), leaving `PA15` untouched as a static GPIO High.
+
+See [CRSF / ExpressLRS Subsystem Guide](CRSF_ELRS_GUIDE.md) for complete details.
+
+#### Electrical Reset Dynamics & Baud Rate Sensitivity Analysis
+
+The potential for touchscreen reset stems from the electrical characteristics of the FocalTech FT6236 controller and UART framing physics:
+
+- **Active-LOW Reset Physics:** The FT6236 `RST` pin is active-LOW (0V / GND triggers reset, 3.3V is normal operating mode). An internal pull-up resistor keeps the line HIGH when idle.
+- **UART Framing & Contiguous LOW Duration:** In asynchronous serial (8N1), the line idles HIGH. Data is framed with 1 Start Bit (LOW), 8 Data Bits, and 1 Stop Bit (HIGH). The longest possible contiguous LOW duration in a single frame occurs when sending byte `0x00` (Start Bit + 8 zero bits = 9 bit times), after which the Stop Bit forces the line back HIGH to 3.3V.
+- **Reset Trigger Threshold:** The FT6236 hardware reset comparator requires a sustained LOW pulse of **$\ge 1.0\text{ ms}$ ($1000\ \mu\text{s}$)** to trigger a reset.
+
+The following table compares each supported firmware baud rate against the $1\text{ ms}$ reset threshold:
+
+| Baud Rate | Protocol / Profile | Single Bit Time ($t_{\text{bit}}$) | Max Continuous Low Pulse ($9\text{ bits}$) | Safety Margin to $1\text{ ms}$ Reset | Likelihood of Normal Data Triggering Reset |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **921,600 baud** | Fast CRSF / Ultra-low latency | **$1.09\ \mu\text{s}$** | **$9.8\ \mu\text{s}$** | **$102\times$ safety margin** | **Effectively 0%** |
+| **420,000 baud** | Standard ExpressLRS | **$2.38\ \mu\text{s}$** | **$21.4\ \mu\text{s}$** | **$47\times$ safety margin** | **Effectively 0%** |
+| **416,666 baud** | Standard TBS Crossfire | **$2.40\ \mu\text{s}$** | **$21.6\ \mu\text{s}$** | **$46\times$ safety margin** | **Effectively 0%** |
+| **115,200 baud** | Legacy / Debug Serial | **$8.68\ \mu\text{s}$** | **$78.1\ \mu\text{s}$** | **$13\times$ safety margin** | **Very Low (higher noise susceptibility)** |
+
+##### Key Insights:
+1. **Faster Baud Rates Are Inherently Safer During Active Data Streaming:** At 420k and 921.6k baud, individual zero-bit pulses ($1\text{--}2\ \mu\text{s}$) are dozens of times too short to overcome the FT6236's internal RC filter and trip the reset comparator.
+2. **True Cause of Accidental Resets:** Active serial packet transmission does not cause touchscreen resets. Accidental resets are triggered by **static / non-data LOW states**:
+   - **Unpowered or Booting External Module:** A module whose TX pin floats to 0V or pulls LOW while powered off holds `PA15` LOW continuously, keeping the touch controller pinned in reset.
+   - **Baud Rate Mismatches & Serial Breaks:** If the radio and module baud rates do not match, framing errors can trigger prolonged serial break conditions ($> 1\text{ ms}$ LOW).
+   - **Cable Disconnects / Floating High-Z Lines:** Disconnecting an external module without a pull-up resistor can allow `PA15` to float into the CMOS undefined/low region.
 

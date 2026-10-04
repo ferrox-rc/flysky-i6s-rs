@@ -5,6 +5,31 @@ All notable changes to the `flysky-i6s-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-10-03
+
+### Fixed
+- **Fast Panic Reset & Boot-Loop Protection ([`src/main.rs`](src/main.rs), [`src/chip/mod.rs`](src/chip/mod.rs))**:
+  - Replaced infinite `panic_halt` loop with immediate NVIC system reset.
+  - Implemented uninitialized SRAM boot-loop guard (`BOOT_CRASH_COUNTER` at `0x2000_3FE0`). Rapid crashes (>3 successive faults within 5 seconds) automatically fall back into STM32 ROM DFU recovery mode.
+- **RF Transmission Gating & Bounded Staleness ([`src/main.rs`](src/main.rs), [`src/mixer.rs`](src/mixer.rs), [`src/rf/mod.rs`](src/rf/mod.rs))**:
+  - Gated RF frame broadcast until mixer publishes its first valid channel packet, preventing transmission of uninitialized zero-frames on cold boot.
+  - Added transmission staleness timeout bounding maximum AFHDS 2A telemetry/link hold to ~115 ms.
+- **Telemetry Triple Buffer Preemption Race Decoupling ([`src/rf/mod.rs`](src/rf/mod.rs))**:
+  - Decoupled telemetry consumer index from shared atomics, preventing preemption races between high-frequency RF ISRs and main-loop telemetry readers.
+- **AFHDS 2A RX ID Flash Persistence on Disarm ([`src/main.rs`](src/main.rs))**:
+  - Persists newly bound receiver IDs to non-volatile flash storage upon throttle disarm.
+  - Guarded flash write calls against redundant re-flashing and reentrancy.
+- **Debounced Model Trim Auto-Save ([`src/main.rs`](src/main.rs))**:
+  - Implemented a 3-second debounced background timer that flushes modified model trims to flash outside of ISR / flight-critical code paths when disarmed or idle.
+
+### Added
+- **Dynamic Channel Monitor Labels ([`src/ui/menu/screens/channels.rs`](src/ui/menu/screens/channels.rs))**:
+  - Channel Monitor screen now dynamically resolves channel names based on active model wing/tail mixers (Elevon, V-Tail) and auxiliary channel mappings (CH5–CH18) instead of generic channel indices.
+- **PA15 Touch Reset Electrical Dynamics & CRSF Wiring Guide ([`docs/HARDWARE_REFERENCE.md`](docs/HARDWARE_REFERENCE.md), [`docs/CRSF_ELRS_GUIDE.md`](docs/CRSF_ELRS_GUIDE.md))**:
+  - Documented PCB test pads `TX` (`PD5`) and `RX` (`PA15`) adjacent to internal connector `J15`.
+  - Added electrical timing and baud rate sensitivity analysis for the FT6236 $\ge 1.0\text{ ms}$ active-low reset threshold versus UART framing bit times across 115.2k, 416.6k, 420k, and 921.6k baud.
+  - Documented passive RC low-pass filter ($\tau = 1.0\text{ ms}$), VDD tie-high, and single-wire half-duplex decoupling strategies.
+
 ## [0.1.0] - 2026-10-01
 
 ### Added
