@@ -56,9 +56,10 @@ pub fn touch_to_nav_keys(sample: &TouchSample, menu_active: bool) -> u16 {
         Gesture::None => {}
     }
 
-    // 2. Direct Tap Hitboxes (Active on PressDown or initial Contact)
-    if let Some(pt) = sample.point {
-        if pt.event == TouchEventKind::PressDown {
+    // 2. Direct Tap Hitboxes (Active on PressDown, Contact, or LiftUp when no swipe gesture)
+    if keys == 0 {
+        if let Some(pt) = sample.point {
+            if pt.event != TouchEventKind::NoEvent {
             if menu_active {
                 // Menu Navigation Zones:
                 // Top header / row 0: Up
@@ -106,13 +107,13 @@ pub fn touch_to_nav_keys(sample: &TouchSample, menu_active: bool) -> u16 {
                         keys |= KEY_TRIM_ROLL_R;
                     }
                 }
-                // Center tap opens menu
                 else if pt.x >= 32 && pt.x <= 96 && pt.y >= 20 && pt.y <= 44 {
                     keys |= KEY_NAV_OK;
                 }
             }
         }
     }
+}
 
     keys
 }
@@ -268,6 +269,51 @@ mod tests {
             point: Some(pt_bottom),
         };
         assert_ne!(touch_to_nav_keys(&sample_bottom, true) & KEY_NAV_DOWN, 0);
+    }
+
+    #[test]
+    fn test_menu_tap_zones_contact_and_liftup() {
+        // Contact event (finger held / active touch) should trigger tap zones
+        let pt_contact = TouchPoint {
+            x: 10,
+            y: 30,
+            raw_x: 60,
+            raw_y: 236,
+            event: TouchEventKind::Contact,
+        };
+        let sample_contact = TouchSample {
+            gesture: Gesture::None,
+            point: Some(pt_contact),
+        };
+        assert_eq!(touch_to_nav_keys(&sample_contact, true), KEY_NAV_CANCEL);
+
+        // LiftUp event (release / quick tap) should also trigger tap zones
+        let pt_lift = TouchPoint {
+            x: 110,
+            y: 30,
+            raw_x: 60,
+            raw_y: 36,
+            event: TouchEventKind::LiftUp,
+        };
+        let sample_lift = TouchSample {
+            gesture: Gesture::None,
+            point: Some(pt_lift),
+        };
+        assert_eq!(touch_to_nav_keys(&sample_lift, true), KEY_NAV_OK);
+
+        // NoEvent should NOT trigger any keys
+        let pt_none = TouchPoint {
+            x: 110,
+            y: 30,
+            raw_x: 60,
+            raw_y: 36,
+            event: TouchEventKind::NoEvent,
+        };
+        let sample_none = TouchSample {
+            gesture: Gesture::None,
+            point: Some(pt_none),
+        };
+        assert_eq!(touch_to_nav_keys(&sample_none, true), 0);
     }
 
     #[test]
