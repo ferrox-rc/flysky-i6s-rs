@@ -1,6 +1,6 @@
 //! Touch Navigation and Digital Trim Adapter for FlySky FS-i6S.
 //!
-//! Bridges the FT6236 capacitive touchscreen and rear tactile buttons (`PA9`/`PA10`)
+//! Bridges the FT6236 capacitive touchscreen and front tactile buttons (`PA9`/`PA10`)
 //! into standard `NavKeys` and `boot::scan_keys()` bitfields:
 //!
 //! 1. Navigation:
@@ -8,12 +8,12 @@
 //!    - Swipe DOWN / Lower Tap Zone -> `Down` (bit 8)
 //!    - Swipe RIGHT / Right Tap     -> `OK` (bit 10)
 //!    - Swipe LEFT / Left Tap       -> `Cancel` (bit 11)
-//!    - Rear Right Button (`PA10`)  -> `OK` (bit 10)
-//!    - Rear Left Button (`PA9`)    -> `Cancel` (bit 11)
+//!    - Right Front Button (`PA10`) -> `OK` (bit 10)
+//!    - Left Front Button (`PA9`)   -> `Cancel` (bit 11)
 //!
 //! 2. Digital Trims (Replacing FS-i6X mechanical rockers):
-//!    - **Modifier Mode**: Hold Rear Left (`PA9`) + Left Stick deflection adjusts Yaw / Throttle trims;
-//!      hold Rear Right (`PA10`) + Right Stick deflection adjusts Roll / Pitch trims.
+//!    - **Modifier Mode**: Hold Left Front (`PA9`) + Left Stick deflection adjusts Yaw / Throttle trims;
+//!      hold Right Front (`PA10`) + Right Stick deflection adjusts Roll / Pitch trims.
 //!    - **Virtual Touch Targets**: Perimeter taps on the flight dashboard directly nudge trim axes.
 
 use crate::boot;
@@ -40,14 +40,12 @@ pub const KEY_NAV_OK: u16 = 1 << 10;
 pub const KEY_NAV_CANCEL: u16 = 1 << 11;
 pub const KEY_BIND: u16 = 1 << 12;
 
-/// Evaluates touch samples and screen tap zones into UI navigation key flags.
-pub fn touch_to_nav_keys(sample: Option<&TouchSample>, menu_active: bool) -> u16 {
+/// Evaluates a valid touch sample and screen tap zones into UI navigation key flags.
+///
+/// Only invoked when a touch interrupt event (pulse on PC12) has occurred and a valid
+/// `TouchSample` was read from the FT6236 controller.
+pub fn touch_to_nav_keys(sample: &TouchSample, menu_active: bool) -> u16 {
     let mut keys = 0u16;
-
-    let sample = match sample {
-        Some(s) => s,
-        None => return 0,
-    };
 
     // 1. Gesture Decoding
     match sample.gesture {
@@ -119,24 +117,24 @@ pub fn touch_to_nav_keys(sample: Option<&TouchSample>, menu_active: bool) -> u16
     keys
 }
 
-/// Evaluates modifier trims using Rear Left (`PA9`) and Rear Right (`PA10`) buttons
+/// Evaluates modifier trims using Left Front (`PA9`) and Right Front (`PA10`) buttons
 /// combined with gimbal stick deflections.
 ///
 /// Returns:
 /// - `trim_keys`: Trim bitmask (`KEY_TRIM_*`)
-/// - `suppress_left_nav`: True if Left Rear button was consumed as trim modifier
-/// - `suppress_right_nav`: True if Right Rear button was consumed as trim modifier
+/// - `suppress_left_nav`: True if Left Front button was consumed as trim modifier
+/// - `suppress_right_nav`: True if Right Front button was consumed as trim modifier
 pub fn process_modifier_trims(
-    rear_left_held: bool,
-    rear_right_held: bool,
+    left_held: bool,
+    right_held: bool,
     sticks: &Sticks,
 ) -> (u16, bool, bool) {
     let mut trim_keys = 0u16;
     let mut suppress_left = false;
     let mut suppress_right = false;
 
-    // Rear Left held -> Left Stick controls Throttle & Yaw trims
-    if rear_left_held {
+    // Left Front held -> Left Stick controls Throttle & Yaw trims
+    if left_held {
         if sticks.yaw < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_YAW_L;
             suppress_left = true;
@@ -154,8 +152,8 @@ pub fn process_modifier_trims(
         }
     }
 
-    // Rear Right held -> Right Stick controls Roll & Pitch trims
-    if rear_right_held {
+    // Right Front held -> Right Stick controls Roll & Pitch trims
+    if right_held {
         if sticks.roll < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_ROLL_L;
             suppress_right = true;
@@ -185,22 +183,26 @@ pub fn update_inputs(
     sticks: &Sticks,
     menu_active: bool,
 ) -> u16 {
-    let (rear_left, rear_right) = boot::read_rear_buttons();
+    let (left_btn, right_btn) = boot::read_front_buttons();
 
     // 1. Process modifier trims
     let (mod_trims, suppress_left, suppress_right) =
-        process_modifier_trims(rear_left, rear_right, sticks);
+        process_modifier_trims(left_btn, right_btn, sticks);
 
-    // 2. Process touch navigation & virtual trims
-    let touch_keys = touch_to_nav_keys(touch_sample, menu_active);
+    // 2. Process touch navigation & virtual trims only when touch event happened
+    let touch_keys = if let Some(sample) = touch_sample {
+        touch_to_nav_keys(sample, menu_active)
+    } else {
+        0
+    };
 
     // 3. Assemble composite keys
     let mut combined = mod_trims | touch_keys;
 
-    if rear_left && !suppress_left {
+    if left_btn && !suppress_left {
         combined |= KEY_NAV_CANCEL;
     }
-    if rear_right && !suppress_right {
+    if right_btn && !suppress_right {
         combined |= KEY_NAV_OK;
     }
 
@@ -218,25 +220,25 @@ mod tests {
             gesture: Gesture::SwipeUp,
             point: None,
         };
-        assert_eq!(touch_to_nav_keys(Some(&sample_up), true), KEY_NAV_UP);
+        assert_eq!(touch_to_nav_keys(&sample_up, true), KEY_NAV_UP);
 
         let sample_down = TouchSample {
             gesture: Gesture::SwipeDown,
             point: None,
         };
-        assert_eq!(touch_to_nav_keys(Some(&sample_down), true), KEY_NAV_DOWN);
+        assert_eq!(touch_to_nav_keys(&sample_down, true), KEY_NAV_DOWN);
 
         let sample_right = TouchSample {
             gesture: Gesture::SwipeRight,
             point: None,
         };
-        assert_eq!(touch_to_nav_keys(Some(&sample_right), true), KEY_NAV_OK);
+        assert_eq!(touch_to_nav_keys(&sample_right, true), KEY_NAV_OK);
 
         let sample_left = TouchSample {
             gesture: Gesture::SwipeLeft,
             point: None,
         };
-        assert_eq!(touch_to_nav_keys(Some(&sample_left), true), KEY_NAV_CANCEL);
+        assert_eq!(touch_to_nav_keys(&sample_left, true), KEY_NAV_CANCEL);
     }
 
     #[test]
@@ -252,7 +254,7 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_top),
         };
-        assert_ne!(touch_to_nav_keys(Some(&sample_top), true) & KEY_NAV_UP, 0);
+        assert_ne!(touch_to_nav_keys(&sample_top, true) & KEY_NAV_UP, 0);
 
         let pt_bottom = TouchPoint {
             x: 64,
@@ -265,7 +267,7 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_bottom),
         };
-        assert_ne!(touch_to_nav_keys(Some(&sample_bottom), true) & KEY_NAV_DOWN, 0);
+        assert_ne!(touch_to_nav_keys(&sample_bottom, true) & KEY_NAV_DOWN, 0);
     }
 
     #[test]
@@ -282,7 +284,7 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_thr_u),
         };
-        assert_eq!(touch_to_nav_keys(Some(&sample), false), KEY_TRIM_THR_U);
+        assert_eq!(touch_to_nav_keys(&sample, false), KEY_TRIM_THR_U);
 
         // Tap right border -> Pitch trim down
         let pt_pit_d = TouchPoint {
@@ -296,7 +298,7 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_pit_d),
         };
-        assert_eq!(touch_to_nav_keys(Some(&sample_pit), false), KEY_TRIM_PITCH_D);
+        assert_eq!(touch_to_nav_keys(&sample_pit, false), KEY_TRIM_PITCH_D);
     }
 
     #[test]
@@ -314,13 +316,13 @@ mod tests {
         assert!(!supp_l);
         assert!(!supp_r);
 
-        // Rear Left held + Yaw stick left
+        // Left Front held + Yaw stick left
         sticks.yaw = -500;
         let (trims, supp_l, _) = process_modifier_trims(true, false, &sticks);
         assert_eq!(trims, KEY_TRIM_YAW_L);
         assert!(supp_l); // Suppressed normal Cancel
 
-        // Rear Right held + Roll stick right
+        // Right Front held + Roll stick right
         sticks.yaw = 0;
         sticks.roll = 600;
         let (trims, _, supp_r) = process_modifier_trims(false, true, &sticks);

@@ -20,24 +20,24 @@ A comprehensive guide to operating the `flysky-i6s-rs` firmware on the FlySky FS
                   |    Throttle (V)    Pitch / ELE (V)|
                   |    Yaw / RUD (H)   Roll / AIL (H) |
                   |                                   |
-                  |     (Power L)         (Power R)   |
-                  |     [Blue LED]       [Blue LED]   |
+                  |                                   |
+                  |     (Power L: Cancel) (Power R: OK)|
+                  |     (PA9: Cancel)     (PA10: OK)  |
+                  |     [Blue LED]        [Blue LED]  |
                   |                                   |
                   |      +---------------------+      |
                   |      |  ST7567 LCD 128x64  |      |
                   |      |  Capacitive Touch   |      |
                   |      +---------------------+      |
                   |                                   |
-                  |     [REAR LEFT]     [REAR RIGHT]  |
-                  |     (PA9: Cancel)   (PA10: OK)    |
                   +-----------------------------------+
 ```
 
 ### Powering On & Off (Electronic Power Latch)
-- **Power On**: Press and hold the dual power buttons until the blue ring LEDs illuminate and the Ferrox-RC startup splash screen appears. The electronic power latch on `PB15` automatically energizes the internal power rails.
+- **Power On**: Press and hold the dual front power buttons until the blue ring LEDs illuminate and the Ferrox-RC startup splash screen appears. The electronic power latch on `PB15` automatically energizes the internal power rails.
 - **Power Off (Hold >= 1.5s)**: Press and hold the power button for 1.5 seconds. An animated shutdown progress bar appears on screen. When the progress bar completes, all modified settings and model data are safely committed to Flash storage, and the firmware cuts the `PB15` power latch to completely turn off the radio. Releasing the button early aborts the shutdown without loss of settings.
 
-### Capacitive Touchscreen & Rear Navigation Buttons
+### Capacitive Touchscreen & Front Navigation Buttons
 - **Touch Gestures**:
   - **Swipe UP / DOWN**: Scroll lists, cycle through the 5 flight dashboard pages (`1/5` .. `5/5`), or increment/decrement values.
   - **Swipe RIGHT**: Select item, confirm value, enter submenu (**`[OK]`**).
@@ -50,15 +50,15 @@ A comprehensive guide to operating the `flysky-i6s-rs` firmware on the FlySky FS
   - **Center Zone**: OK / Enter.
 - **Dashboard Center Tap**:
   - Tapping the center of the main flight screen opens the **Settings Menu**.
-- **Rear Tactile Push-Buttons**:
-  - **Rear Left Button (`PA9`)**: Functions as **`[CANCEL]` / Back / Exit**. On the flight dashboard, holding for >= 1.0s opens the HUD Timer Reset Modal and resets the flight timer.
-  - **Rear Right Button (`PA10`)**: Functions as **`[OK]` / Select / Enter**. On the flight dashboard, holding for >= 1.2s opens the Settings Menu. Holding during power-on triggers immediate stick calibration.
+- **Front Tactile Push-Buttons (Power Buttons)**:
+  - **Left Front Button (`PA9`)**: Functions as **`[CANCEL]` / Back / Exit**. On the flight dashboard, holding for >= 1.0s opens the HUD Timer Reset Modal and resets the flight timer.
+  - **Right Front Button (`PA10`)**: Functions as **`[OK]` / Select / Enter**. On the flight dashboard, holding for >= 1.2s opens the Settings Menu. Holding during power-on triggers immediate stick calibration.
   - **Cold DFU Combo**: Holding **`PA9` + `PA10`** simultaneously during power-on triggers the zero-disassembly jump into the factory ROM DFU bootloader.
 
 ### Digital Trimming
 1. **Stick Modifier Mode (Ergonomic In-Flight Trimming)**:
-   - **Hold Rear Left (`PA9`)** + Left Stick: Vertical deflections adjust Throttle Trim; Horizontal deflections adjust Yaw Trim.
-   - **Hold Rear Right (`PA10`)** + Right Stick: Vertical deflections adjust Pitch Trim; Horizontal deflections adjust Roll Trim.
+   - **Hold Left Front Button (`PA9`)** + Left Stick: Vertical deflections adjust Throttle Trim; Horizontal deflections adjust Yaw Trim.
+   - **Hold Right Front Button (`PA10`)** + Right Stick: Vertical deflections adjust Pitch Trim; Horizontal deflections adjust Roll Trim.
 2. **Virtual Touch Perimeter Targets**:
    - Tapping along the screen borders of the flight dashboard directly steps the corresponding trim (Left = Throttle, Right = Pitch, Bottom = Yaw/Roll).
 
@@ -461,9 +461,8 @@ You can enter DFU mode using any of three convenient methods:
 
 #### A. Zero-Disassembly Cold-Boot Combo (Recommended)
 1. Ensure the transmitter is powered **OFF**.
-2. Press and hold both rear tactile push-buttons simultaneously (**Rear Left `PA9` + Rear Right `PA10`**).
-3. While holding both rear buttons, press the power button to turn on the transmitter.
-4. The power latch on `PB15` automatically latches power ON, and the MCU jumps straight into the permanent STM32 factory ROM DFU bootloader (`0483:df11`). The PC immediately detects `STM32 BOOTLOADER`.
+2. Press and hold both front tactile push-buttons simultaneously (**Left Front `PA9` + Right Front `PA10`**).
+3. Holding both buttons down powers on the hardware circuit, `PB15` latches power ON, and the MCU jumps straight into the permanent STM32 factory ROM DFU bootloader (`0483:df11`). The PC immediately detects `STM32 BOOTLOADER`.
 
 #### B. Software Touch Menu
 From the running firmware, navigate to **`Settings -> Diag (System Information)`**, scroll to **`[OK] Reboot DFU`**, and tap/press OK. The firmware writes `0xDEADBEEF` to SRAM `0x2000_3FF0`, maintains power on `PB15`, and warm-reboots directly into ROM DFU.

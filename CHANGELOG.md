@@ -49,12 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Coordinate mapping and 90° axis swap converting raw 320x320 touch coordinates to 128x64 LCD display geometry.
 - **Touch Navigation & Virtual / Modifier Digital Trims ([`src/touch/nav.rs`](src/touch/nav.rs))**:
   - Touch-to-nav translator converting Swipe gestures (Up/Down/Left/Right) and Direct Tap zones (Top/Bottom/Left/Right/Center) into UI navigation events.
-  - Rear tactile push-buttons: Rear Left (`PA9`) mapped to Cancel/Back and Rear Right (`PA10`) mapped to OK/Select.
+  - Front tactile push-buttons: Left Front (`PA9`) mapped to Cancel/Back and Right Front (`PA10`) mapped to OK/Select (integrated with dual power button switches).
   - Dual digital trim methods replacing mechanical rockers:
-    1. **Stick Modifier Mode**: Hold Rear Left (`PA9`) + Left Stick for Yaw and Throttle trims; hold Rear Right (`PA10`) + Right Stick for Roll and Pitch trims.
+    1. **Stick Modifier Mode**: Hold Left Front (`PA9`) + Left Stick for Yaw and Throttle trims; hold Right Front (`PA10`) + Right Stick for Roll and Pitch trims.
     2. **Virtual Touch Targets**: Perimeter taps on the flight dashboard nudge trim axes directly.
 - **Zero-Disassembly DFU Bootloader Manager ([`src/boot.rs`](src/boot.rs), [`src/chip/mod.rs`](src/chip/mod.rs), [`src/usb/serial.rs`](src/usb/serial.rs), [`src/ui/menu/screens/diag.rs`](src/ui/menu/screens/diag.rs))**:
-  - Cold-boot combo: Hold both Rear Buttons (`PA9` + `PA10`) during power-on to jump directly into the factory ROM DFU bootloader without opening the transmitter case.
+  - Cold-boot combo: Hold both Front Buttons (`PA9` + `PA10`) during power-on to jump directly into the factory ROM DFU bootloader without opening the transmitter case.
   - Soft reboot to DFU: Magic flag `0xDEADBEEF` at SRAM `0x2000_3FF0` checked on reset.
   - Touch Menu option: `Diagnostics -> [OK] Reboot DFU`.
   - USB CDC CLI commands: `dfu`, `reboot bootloader`, and `reboot-bootloader`.

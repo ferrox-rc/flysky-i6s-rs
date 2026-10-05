@@ -55,14 +55,14 @@ Implemented in [`src/input.rs`](../src/input.rs).
 The FlySky FS-i6S does not have mechanical trim rocker switches. Instead, it provides two complementary digital trim systems implemented in [`src/touch/nav.rs`](../src/touch/nav.rs):
 
 ### 1. Stick Modifier Trim Mode (In-Flight Ergonomic Trimming)
-Using the rear tactile buttons as modifier keys, pilots can adjust trims in-flight without lifting their thumbs from the gimbals:
-- **Hold Rear Left (`PA9`)**:
+Using the front tactile buttons (integrated into the dual power button switches) as modifier keys, pilots can adjust trims in-flight without lifting their thumbs from the gimbals:
+- **Hold Left Front (`PA9`)**:
   - Deflect Left Stick Horizontally (threshold $> 350$ counts): Adjusts **Yaw Trim** (Left / Right).
   - Deflect Left Stick Vertically (threshold $> 350$ counts): Adjusts **Throttle Trim** (Up / Down).
-- **Hold Rear Right (`PA10`)**:
+- **Hold Right Front (`PA10`)**:
   - Deflect Right Stick Horizontally (threshold $> 350$ counts): Adjusts **Roll Trim** (Left / Right).
   - Deflect Right Stick Vertically (threshold $> 350$ counts): Adjusts **Pitch Trim** (Up / Down).
-- When engaged as a trim modifier, the rear buttons' normal navigation actions (`Cancel` / `OK`) are suppressed.
+- When engaged as a trim modifier, the front buttons' normal navigation actions (`Cancel` / `OK`) are suppressed.
 
 ### 2. Virtual Touch Perimeter Targets (Direct Screen Trimming)
 When viewing the main flight dashboard, tap zones along the LCD borders provide direct single-step trimming:
@@ -101,9 +101,9 @@ The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1
 
 ---
 
-## 5. Touchscreen & Rear Button Navigation Subsystem (`src/touch/nav.rs`, `src/boot.rs`)
+## 5. Touchscreen & Front Tactile Button Navigation Subsystem (`src/touch/nav.rs`, `src/boot.rs`)
 
-The FS-i6S user interface is navigated seamlessly via capacitive touchscreen gestures, direct tap zones, and rear push-buttons:
+The FS-i6S user interface is navigated seamlessly via capacitive touchscreen gestures, direct tap zones, and the dual front tactile push-buttons:
 
 ### Touch Gestures & Hitbox Zones
 - **Swipe Gestures**:
@@ -120,13 +120,15 @@ The FS-i6S user interface is navigated seamlessly via capacitive touchscreen ges
 - **Flight Dashboard Center Tap**:
   - Tapping the center area of the flight dashboard ($32 \le x \le 96$, $20 \le y \le 44$) opens the **Settings Menu**.
 
-### Physical Rear Buttons
-- **Rear Left Button (`PA9`)**:
+### Physical Front Tactile Buttons (Dual Power Buttons)
+- **Left Front Button (`PA9`)**:
   - Tap: Cancel / Back / Exit.
   - Hold >= 1.0s on flight dashboard: Resets flight countdown / stopwatch timer with on-screen HUD progress bar.
-- **Rear Right Button (`PA10`)**:
+- **Right Front Button (`PA10`)**:
   - Tap: OK / Select / Enter submenu.
   - Hold >= 1.2s on flight dashboard: Opens Settings Menu.
   - Hold during power-on: Launches 2-step gimbal calibration wizard immediately.
-- **Cold DFU Combo**: Holding **`PA9` + `PA10`** during power-on forces an immediate zero-disassembly jump into the factory ROM DFU bootloader.
+- **Power On & Cold DFU Combo**:
+  - Normal Power On: Press both buttons together (hardware circuit powers up radio and asserts `PB15` latch).
+  - Cold DFU Combo: Holding **`PA9` + `PA10`** during power-on forces an immediate zero-disassembly jump into the factory ROM DFU bootloader.
 

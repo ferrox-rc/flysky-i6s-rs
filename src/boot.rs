@@ -1,7 +1,7 @@
-//! Boot manager, Rear Button scanning, and DFU bootloader detection for FlySky FS-i6S.
+//! Boot manager, Front Tactile Button scanning, and DFU bootloader detection for FlySky FS-i6S.
 //!
 //! Provides three distinct zero-disassembly mechanisms to enter the STM32 factory ROM DFU bootloader:
-//! 1. Cold-Boot Rear Button Combo: Hold Rear Left (`PA9`) + Rear Right (`PA10`) during power-on.
+//! 1. Cold-Boot Front Button Combo: Hold Left (`PA9`) + Right (`PA10`) during power-on.
 //! 2. Touch Menu Reboot: Settings -> System Info -> [Reboot to DFU Mode] writes `0xDEADBEEF`
 //!    to SRAM flag `0x2000_3FF0` and performs a warm reboot into DFU.
 //! 3. USB CDC Serial CLI Command: Sending `dfu` or `reboot bootloader` over USB serial.
@@ -23,9 +23,9 @@ pub const DFU_FLAG_ADDR: *mut u32 = 0x2000_3FF0 as *mut u32;
 #[cfg(test)]
 static TEST_SRAM_FLAG: AtomicU32 = AtomicU32::new(0);
 #[cfg(test)]
-static TEST_REAR_LEFT: AtomicBool = AtomicBool::new(false);
+static TEST_FRONT_LEFT: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
-static TEST_REAR_RIGHT: AtomicBool = AtomicBool::new(false);
+static TEST_FRONT_RIGHT: AtomicBool = AtomicBool::new(false);
 
 /// Atomic holder for touch-injected navigation & virtual trim keys.
 static TOUCH_NAV_KEYS: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0);
@@ -38,9 +38,9 @@ fn delay_cycles(n: u32) {
     let _ = n;
 }
 
-/// Initialize GPIO clocks and pins for the FS-i6S rear tactile buttons:
-/// - PA9: Rear Left Button (Active LOW with internal pull-up) -> Cancel / Back
-/// - PA10: Rear Right Button (Active LOW with internal pull-up) -> OK / Select
+/// Initialize GPIO clocks and pins for the FS-i6S tactile buttons (front dual power buttons):
+/// - PA9: Left Button (Active LOW with internal pull-up) -> Cancel / Back
+/// - PA10: Right Button (Active LOW with internal pull-up) -> OK / Select
 pub fn init_keys() {
     #[cfg(not(test))]
     {
@@ -74,9 +74,11 @@ pub fn set_touch_keys(keys: u16) {
     TOUCH_NAV_KEYS.store(keys, core::sync::atomic::Ordering::Relaxed);
 }
 
-/// Read physical rear tactile buttons:
-/// Returns `(rear_left_pressed, rear_right_pressed)`.
-pub fn read_rear_buttons() -> (bool, bool) {
+/// Read physical front tactile buttons:
+/// Returns `(left_pressed, right_pressed)`.
+/// - Left button on `PA9`: Cancel
+/// - Right button on `PA10`: OK
+pub fn read_front_buttons() -> (bool, bool) {
     #[cfg(not(test))]
     {
         let gpioa = unsafe { &*pac::GPIOA::ptr() };
@@ -90,13 +92,19 @@ pub fn read_rear_buttons() -> (bool, bool) {
     #[cfg(test)]
     {
         (
-            TEST_REAR_LEFT.load(core::sync::atomic::Ordering::SeqCst),
-            TEST_REAR_RIGHT.load(core::sync::atomic::Ordering::SeqCst),
+            TEST_FRONT_LEFT.load(core::sync::atomic::Ordering::SeqCst),
+            TEST_FRONT_RIGHT.load(core::sync::atomic::Ordering::SeqCst),
         )
     }
 }
 
-/// Scan physical rear buttons and merge with virtual touch keys.
+/// Backward-compatible alias for `read_front_buttons()`.
+#[inline(always)]
+pub fn read_rear_buttons() -> (bool, bool) {
+    read_front_buttons()
+}
+
+/// Scan physical front buttons and merge with virtual touch keys.
 ///
 /// Output 16-bit key bitfield:
 /// - bit 0:  Roll R (virtual trim)
@@ -109,17 +117,17 @@ pub fn read_rear_buttons() -> (bool, bool) {
 /// - bit 7:  Yaw L (virtual trim)
 /// - bit 8:  Down (touch gesture swipe down or tap down)
 /// - bit 9:  Up (touch gesture swipe up or tap up)
-/// - bit 10: OK / Select (PA10 Rear Right button OR touch tap/swipe)
-/// - bit 11: Cancel / Back (PA9 Rear Left button OR touch tap/swipe)
+/// - bit 10: OK / Select (PA10 Right Front button OR touch tap/swipe)
+/// - bit 11: Cancel / Back (PA9 Left Front button OR touch tap/swipe)
 /// - bit 12: Bind
 pub fn scan_keys() -> u16 {
-    let (rear_left, rear_right) = read_rear_buttons();
+    let (left, right) = read_front_buttons();
     let mut result = TOUCH_NAV_KEYS.load(core::sync::atomic::Ordering::Relaxed);
 
-    if rear_right {
+    if right {
         result |= 1 << 10; // OK
     }
-    if rear_left {
+    if left {
         result |= 1 << 11; // Cancel
     }
 
@@ -127,14 +135,14 @@ pub fn scan_keys() -> u16 {
 }
 
 /// Check if the cold-boot DFU entry combination is held:
-/// Both Rear Left (`PA9`) and Rear Right (`PA10`) held simultaneously at power-on.
+/// Both Left (`PA9`) and Right (`PA10`) front buttons held simultaneously at power-on.
 pub fn is_dfu_combo_held() -> bool {
-    let (left, right) = read_rear_buttons();
+    let (left, right) = read_front_buttons();
     left && right
 }
 
 /// Compatibility check for DFU request from key bitfield.
-/// Triggers when both Rear Left (bit 11) and Rear Right (bit 10) are active.
+/// Triggers when both Left (bit 11) and Right (bit 10) are active.
 pub fn is_dfu_requested(keys: u16) -> bool {
     (keys & ((1 << 10) | (1 << 11))) == ((1 << 10) | (1 << 11))
 }
@@ -163,7 +171,7 @@ pub fn reboot_to_dfu() -> ! {
 ///
 /// Checks:
 /// 1. SRAM warm-reboot flag at `0x2000_3FF0 == 0xDEADBEEF`: If set, clear flag and jump to DFU.
-/// 2. Zero-disassembly cold-boot combo: If both Rear Left (`PA9`) and Rear Right (`PA10`)
+/// 2. Zero-disassembly cold-boot combo: If both Left (`PA9`) and Right (`PA10`) front buttons
 ///    are held at power-on for ~20ms, latch `PB15` HIGH and jump to DFU.
 pub fn check_dfu_entry(profile: &McuProfile) {
     let _ = profile;
@@ -185,13 +193,13 @@ pub fn check_dfu_entry(profile: &McuProfile) {
         }
     }
 
-    // 2. Initialize GPIOA for rear buttons
+    // 2. Initialize GPIOA for front buttons
     init_keys();
 
     // Wait ~20ms for power rails and contacts to settle
     delay_cycles(40_000);
 
-    // Debounce check for Rear Left (PA9) + Rear Right (PA10)
+    // Debounce check for Left (PA9) + Right (PA10) front buttons
     let mut match_count = 0;
     for _ in 0..5 {
         if is_dfu_combo_held() {
@@ -208,9 +216,14 @@ pub fn check_dfu_entry(profile: &McuProfile) {
 }
 
 #[cfg(test)]
+pub fn test_set_front_buttons(left: bool, right: bool) {
+    TEST_FRONT_LEFT.store(left, core::sync::atomic::Ordering::SeqCst);
+    TEST_FRONT_RIGHT.store(right, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(test)]
 pub fn test_set_rear_buttons(left: bool, right: bool) {
-    TEST_REAR_LEFT.store(left, core::sync::atomic::Ordering::SeqCst);
-    TEST_REAR_RIGHT.store(right, core::sync::atomic::Ordering::SeqCst);
+    test_set_front_buttons(left, right);
 }
 
 #[cfg(test)]
@@ -228,42 +241,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rear_buttons_mapping() {
+    fn test_front_buttons_mapping() {
         init_keys();
 
         // Neither pressed
-        test_set_rear_buttons(false, false);
+        test_set_front_buttons(false, false);
         assert_eq!(scan_keys() & ((1 << 10) | (1 << 11)), 0);
 
-        // Rear Left (Cancel) pressed
-        test_set_rear_buttons(true, false);
+        // Left (Cancel) pressed
+        test_set_front_buttons(true, false);
         let keys = scan_keys();
         assert_ne!(keys & (1 << 11), 0);
         assert_eq!(keys & (1 << 10), 0);
 
-        // Rear Right (OK) pressed
-        test_set_rear_buttons(false, true);
+        // Right (OK) pressed
+        test_set_front_buttons(false, true);
         let keys = scan_keys();
         assert_eq!(keys & (1 << 11), 0);
         assert_ne!(keys & (1 << 10), 0);
 
         // Both pressed (DFU combo)
-        test_set_rear_buttons(true, true);
+        test_set_front_buttons(true, true);
         assert!(is_dfu_combo_held());
     }
 
     #[test]
     fn test_touch_keys_merge() {
         init_keys();
-        test_set_rear_buttons(false, false);
+        test_set_front_buttons(false, false);
 
         set_touch_keys((1 << 8) | (1 << 9)); // Up and Down from touch
         let keys = scan_keys();
         assert_ne!(keys & (1 << 8), 0);
         assert_ne!(keys & (1 << 9), 0);
 
-        // Rear right merges with touch keys
-        test_set_rear_buttons(false, true);
+        // Right merges with touch keys
+        test_set_front_buttons(false, true);
         let keys = scan_keys();
         assert_ne!(keys & (1 << 10), 0);
         assert_ne!(keys & (1 << 8), 0);

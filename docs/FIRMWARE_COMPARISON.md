@@ -26,13 +26,13 @@ While sharing the STM32F072VB core and A7105 RF transceiver with the older FS-i6
    - `PB15` electronic power latch must be asserted HIGH immediately at boot to sustain the power rail.
    - `PB14` soft power button sense detects hold duration (>= 1.5s), triggering an animated shutdown sequence with safe Flash storage compaction before cutting power.
    - Dual blue power LEDs on `PD10`/`PD11`.
-3. **Rear Tactile Buttons & Digital Trims:**
-   - Dedicated rear push-buttons on `PA9` (Cancel / Back) and `PA10` (OK / Select).
+3. **Front Tactile Buttons & Digital Trims:**
+   - Dedicated front push-buttons (integrated into dual power switches) on `PA9` (Cancel / Back) and `PA10` (OK / Select).
    - Replaces mechanical trim rockers with two high-precision digital trimming modes:
-     * **Stick Modifier Mode:** Hold rear buttons while deflecting gimbals for instant thumb-on-stick trimming.
+     * **Stick Modifier Mode:** Hold front buttons while deflecting gimbals for instant thumb-on-stick trimming.
      * **Virtual Touch Targets:** Direct tap zones along the flight screen perimeter.
 4. **Zero-Disassembly DFU Bootloader:**
-   - Cold-boot combo: Holding **Rear Left (`PA9`) + Rear Right (`PA10`)** during power-on jumps straight into factory ROM DFU without opening the radio case.
+   - Cold-boot combo: Holding **Left Front (`PA9`) + Right Front (`PA10`)** during power-on jumps straight into factory ROM DFU without opening the radio case.
    - Software menu trigger: `Diag -> [OK] Reboot DFU` (via SRAM flag `0xDEADBEEF`).
    - USB CDC CLI command: `dfu` or `reboot bootloader`.
 
@@ -52,7 +52,7 @@ While sharing the STM32F072VB core and A7105 RF transceiver with the older FS-i6
 Because the STM32F072 features a permanent factory DFU bootloader in System ROM, pilots can explore different firmwares safely with **zero disassembly**:
 
 1. **Enter Bootloader Mode:**
-   - Hold both rear push-buttons (**`PA9` + `PA10`**) while powering ON.
+   - Hold both front push-buttons (**`PA9` + `PA10`**) while powering ON.
 2. **Back Up Current Firmware (Recommended):**
    ```bash
    dfu-util -a 0 -s 0x08000000:131072 -U backup_full.bin

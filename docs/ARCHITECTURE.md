@@ -35,7 +35,7 @@ flowchart TD
     subgraph Main_Thread ["Main Execution Loop (~500 Hz)"]
         WDT_Feed["0. Pet Watchdog (watchdog::feed)<br>Refreshes 2.0s hardware timer"]
         Touch_Poll["1. FT6236 I2C1 Poll & Read<br>Touch events on PC12 assert"]
-        Nav_Update["2. touch::nav::update_inputs<br>Merges touch tap/swipe, rear keys PA9/PA10, modifier trims"]
+        Nav_Update["2. touch::nav::update_inputs<br>Merges touch tap/swipe, front keys PA9/PA10, modifier trims"]
         Power_Tick["3. power_manager.update<br>PB14 hold detection >= 1.5s -> safe shutdown"]
         Flight_Tick["4. FlightPipeline::tick (multi-kHz)<br>ADC scan, matrix mixer, spline curves, RF publish"]
         Idle_Tick["5. BackgroundIdleManager::tick (30 Hz)<br>UI screens, ST7567 LCD flush, buzzer sequencer"]

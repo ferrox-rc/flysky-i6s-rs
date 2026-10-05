@@ -25,9 +25,9 @@ Technical reference documentation for the FlySky FS-i6S hardware. This document 
 
 ---
 
-## 2. Power Management, Touchscreen, & Rear Buttons
+## 2. Power Management, Touchscreen, & Front Buttons
 
-The FlySky FS-i6S eliminates the mechanical 3×4 key matrix of older transmitters, introducing an electronic power management latch, a FocalTech FT6236 capacitive multi-touchscreen, and dual rear tactile push-buttons.
+The FlySky FS-i6S eliminates the mechanical 3×4 key matrix of older transmitters, introducing an electronic power management latch, a FocalTech FT6236 capacitive multi-touchscreen, and dual front tactile push-buttons.
 
 ### Power Management & Soft Shutdown Circuitry
 
@@ -64,21 +64,21 @@ The FlySky FS-i6S eliminates the mechanical 3×4 key matrix of older transmitter
     $$ y_{lcd} = 63 - \left( \text{raw}_x \times 64 \right) / 320 $$
   - Both coordinates are clamped to $x \in [0, 127]$ and $y \in [0, 63]$.
 
-### Rear Tactile Buttons & Digital Trims
+### Front Tactile Buttons & Digital Trims
 
-- **Rear Push-Buttons:**
-  - **`PA9`**: Rear Left Tactile Button (Active LOW, internal pull-up).
-    - In Menus / Flight: Functions as **Cancel / Back / Exit**.
-    - Digital Trim Mode: Left Stick Trim Modifier.
-  - **`PA10`**: Rear Right Tactile Button (Active LOW, internal pull-up).
-    - In Menus / Flight: Functions as **OK / Select / Confirm**.
-    - Digital Trim Mode: Right Stick Trim Modifier.
+The front dual tactile buttons (integrated into the power button assemblies with blue LEDs) provide hardware navigation and in-flight trimming:
+- **`PA9`**: Left Front Tactile Button (Active LOW, internal pull-up).
+  - In Menus / Flight: Functions as **Cancel / Back / Exit**.
+  - Digital Trim Mode: Left Stick Trim Modifier.
+- **`PA10`**: Right Front Tactile Button (Active LOW, internal pull-up).
+  - In Menus / Flight: Functions as **OK / Select / Confirm**.
+  - Digital Trim Mode: Right Stick Trim Modifier.
 - **Zero-Disassembly DFU Bootloader Combo:**
   - Holding **`PA9` + `PA10`** simultaneously while pressing the power button triggers the zero-disassembly hardware cold-boot jump into the factory ROM DFU bootloader (`0x1FFF_C800`).
 - **Digital Trim Architecture (Replacing Mechanical Rockers):**
   1. **Stick Modifier Mode:**
-     - Holding **Rear Left (`PA9`)** + Left Stick deflection: Vertical adjusts Throttle Trim; Horizontal adjusts Yaw Trim.
-     - Holding **Rear Right (`PA10`)** + Right Stick deflection: Vertical adjusts Pitch Trim; Horizontal adjusts Roll Trim.
+     - Holding **Left Front (`PA9`)** + Left Stick deflection: Vertical adjusts Throttle Trim; Horizontal adjusts Yaw Trim.
+     - Holding **Right Front (`PA10`)** + Right Stick deflection: Vertical adjusts Pitch Trim; Horizontal adjusts Roll Trim.
      - Stick deflection threshold: $> 350$ counts from center.
   2. **Virtual Touch Hitboxes:**
      - Left border ($x < 16$): Throttle Trim Up / Down.
@@ -190,7 +190,7 @@ The STM32F072 contains a factory-programmed DFU bootloader in System ROM (`0x1FF
 
 ### Entry Methods (Zero-Disassembly)
 
-1. **Cold-Boot Combo:** Holding both **Rear Buttons (`PA9` + `PA10`)** simultaneously during power-on triggers `boot::check_dfu_entry()`, immediately transferring control to the factory ROM DFU bootloader.
+1. **Cold-Boot Combo:** Holding both **Front Buttons (`PA9` + `PA10`)** simultaneously during power-on triggers `boot::check_dfu_entry()`, immediately transferring control to the factory ROM DFU bootloader.
 2. **Software Touch Menu:** Navigating to **`Settings -> Diag -> [OK] Reboot DFU`** sets a magic flag (`0xDEADBEEF`) at SRAM address `0x2000_3FF0` and performs a system reset. On reboot, `boot::check_dfu_entry()` detects the flag, clears it, and jumps directly into DFU.
 3. **USB CDC Serial CLI:** Sending `dfu` or `reboot bootloader` over the virtual serial console calls `boot::reboot_to_dfu()`.
 

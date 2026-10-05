@@ -8,7 +8,7 @@ Focused on the built-in **A7105** 2.4 GHz RF transceiver (**AFHDS 2A** protocol)
 
 ## 1. Overview & Philosophy
 
-The FlySky FS-i6S features an elegant industrial design with an integrated capacitive touchscreen, electronic power latching, dual rear buttons, and ergonomic gimbals.
+The FlySky FS-i6S features an elegant industrial design with an integrated capacitive touchscreen, electronic power latching, dual front tactile buttons, and ergonomic gimbals.
 
 `flysky-i6s-rs` provides a clean-slate, standalone firmware written in bare-metal `no_std` Rust designed with:
 - **Zero-Heap, Deterministic Memory:** Fully static allocation with bare-metal `no_std`, eliminating dynamic allocation overhead, allocator stalls, and heap fragmentation.
@@ -16,8 +16,8 @@ The FlySky FS-i6S features an elegant industrial design with an integrated capac
 - **Hardware Integration for FS-i6S:**
   - **Electronic Power Latching (`PB15` / `PB14` / `PD10` / `PD11`):** Instant power rail lock at boot, soft-power hold detection (>= 1.5s) with safe Flash flush, and blue power button LED indication.
   - **FocalTech FT6236 Capacitive Touchscreen (`PB8` / `PB9` / `PA15` / `PC12`):** Hardware I2C1 Fast Mode driver @ 400 kHz, gesture decoding (Swipe Up/Down/Left/Right), direct tap zones, and virtual dashboard trims.
-  - **Rear Tactile Buttons (`PA9` / `PA10`):** Direct hardware buttons for Cancel/Back (`PA9`) and OK/Select (`PA10`), combined with stick deflections for instant digital trims.
-  - **Zero-Disassembly DFU Bootloader:** Cold boot combo (hold Rear Buttons `PA9` + `PA10`), touch menu reboot option, and USB CDC serial commands (`dfu`).
+  - **Front Tactile Buttons (`PA9` / `PA10`):** Direct hardware buttons (integrated into the dual power button switches) for Cancel/Back (`PA9`) and OK/Select (`PA10`), combined with stick deflections for instant digital trims.
+  - **Zero-Disassembly DFU Bootloader:** Cold boot combo (hold Front Buttons `PA9` + `PA10`), touch menu reboot option, and USB CDC serial commands (`dfu`).
 - **Strict Scope:** Dedicated support for built-in hardware (A7105 AFHDS 2A + i-BUS), external CRSF/ELRS modules, 4-axis gimbals, switches, 20-model storage, 14-channel matrix mixer, and 128×64 monochrome UI.
 - **Lightweight Footprint:** **~106.2 KB Binary** (out of 120 KB flash partition, leaving >13.8 KB headroom) and **~8.8 KB static RAM** (leaving >7.1 KB stack safety margin in 16 KB SRAM).
 
@@ -35,7 +35,7 @@ The FlySky FS-i6S features an elegant industrial design with an integrated capac
 | | I2C SCL / SDA | `PB8` (SCL) / `PB9` (SDA) | Hardware I2C1 (AF1) |
 | | Hardware Reset (RST) | `PA15` (Active Low) | 5 ms hardware reset pulse on initialization |
 | | Touch Interrupt (INT) | `PC12` (Active Low) | Signals available touch packets; polled at single-cycle speed |
-| **Rear Buttons** | Dual Tactile Switches | `PA9` (Left) / `PA10` (Right) | Active LOW with internal pull-ups; `PA9` = Cancel, `PA10` = OK |
+| **Front Buttons** | Dual Tactile Switches (Power assembly) | `PA9` (Left) / `PA10` (Right) | Active LOW with internal pull-ups; `PA9` = Cancel, `PA10` = OK |
 | **DFU Bootloader**| STM32 ROM DFU Bootloader | `0x1FFF_C800` | Zero-disassembly cold combo: hold `PA9` + `PA10` at power-on; soft DFU via SRAM `0x2000_3FF0` |
 | **Watchdog** | Hardware Independent Watchdog | `pac::IWDG` (40 kHz LSI) | 2.0s hard timeout, `DBGMCU_APB1_FZ` halt freeze, sub-2ms in-flight warm recovery (`RCC_CSR`) |
 | **RF Transceiver** | Amiccom **A7105** 2.4 GHz | **SPI1** + GPIOs | SPI1 (SCK, MOSI, MISO) |
@@ -91,7 +91,7 @@ flowchart TD
     end
 
     subgraph P0 ["Priority 0: Throttled UI & Background Loop (~500 Hz)"]
-        UI1["FT6236 I2C Touch Poll & Rear Button Scan"]
+        UI1["FT6236 I2C Touch Poll & Front Button Scan"]
         UI2["Power Latch & PB14 Hold Shutdown Monitor"]
         UI3["Buzzer Tone State Machine (TIM1 PWM)"]
         UI4["ST7567 Parallel LCD Framebuffer Render (30 Hz)"]
@@ -344,13 +344,13 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 | **Power Off** | **Hold Power Button (>= 1.5s)**| Displays animated shutdown modal; safely flushes Flash and cuts power rail via `PB15` |
 | **Cycle Flight Pages** | **Swipe UP / DOWN or Edge Tap** | Cycles through Page 1/5 (Gimbals & Timer), Page 2/5 (14-CH Monitor), Page 3/5 (Aux Chs), Page 4/5 (Model Dashboard), Page 5/5 (Telemetry) |
 | **Open Settings Menu** | **Center Tap on Screen or Hold OK (PA10)** | Opens 13 submenus: Model Select, Model Setup, D/R & Expo, Thr Curve, Wing/Mixer, Aux Channels, Ch Reverse, Radio Setup, Protocol Setup, Monitors, Calib, Diag, & Info |
-| **Menu Navigation** | **Swipe / Tap Zones / Rear Buttons** | Top = Up, Bottom = Down, Left = Cancel, Right = OK; Rear Left (`PA9`) = Cancel, Rear Right (`PA10`) = OK |
-| **Digital Trims: Stick Modifier** | **Rear Buttons + Gimbal Deflection** | Hold Rear Left (`PA9`) + Left Stick (Throttle/Yaw); hold Rear Right (`PA10`) + Right Stick (Pitch/Roll) |
+| **Menu Navigation** | **Swipe / Tap Zones / Front Buttons** | Top = Up, Bottom = Down, Left = Cancel, Right = OK; Left Front (`PA9`) = Cancel, Right Front (`PA10`) = OK |
+| **Digital Trims: Stick Modifier** | **Front Buttons + Gimbal Deflection** | Hold Left Front (`PA9`) + Left Stick (Throttle/Yaw); hold Right Front (`PA10`) + Right Stick (Pitch/Roll) |
 | **Digital Trims: Virtual Touch** | **Perimeter Tap Targets** | Left border = Throttle trim, Right border = Pitch trim, Bottom border = Yaw/Roll trims |
-| **Enter DFU Bootloader (Cold Boot)**| **Hold Rear Buttons (`PA9` + `PA10`)** | Zero-disassembly cold-boot combo at power-on to jump directly into factory ROM DFU |
+| **Enter DFU Bootloader (Cold Boot)**| **Hold Front Buttons (`PA9` + `PA10`)** | Zero-disassembly cold-boot combo at power-on to jump directly into factory ROM DFU |
 | **Enter DFU Bootloader (Software)** | **Diag Menu or USB CLI** | `Diag -> [OK] Reboot DFU` or USB serial command `dfu` / `reboot bootloader` |
-| **Reset Flight Timer** | **Hold `[CANCEL]` / Rear Left (>= 1.0s)** | Displays centered HUD progress bar on flight screen; resets timer on 1.0s completion |
-| **Direct Calibration (Boot)**| **Hold `OK` / Rear Right during Power-On** | Launches 2-step calibration wizard immediately on boot |
+| **Reset Flight Timer** | **Hold `[CANCEL]` / Left Front (>= 1.0s)** | Displays centered HUD progress bar on flight screen; resets timer on 1.0s completion |
+| **Direct Calibration (Boot)**| **Hold `OK` / Right Front during Power-On** | Launches 2-step calibration wizard immediately on boot |
 
 ---
 
@@ -364,9 +364,8 @@ You can enter DFU mode using any of three convenient methods:
 
 #### A. Zero-Disassembly Cold-Boot Combo (Recommended)
 1. Ensure the transmitter is powered **OFF**.
-2. Press and hold both rear tactile push-buttons simultaneously (**Rear Left `PA9` + Rear Right `PA10`**).
-3. While holding both rear buttons, press the power button to turn on the transmitter.
-4. The power latch on `PB15` automatically latches power ON, and the MCU jumps straight into the permanent STM32 factory ROM DFU bootloader (`0483:df11`). The PC immediately detects `STM32 BOOTLOADER`.
+2. Press and hold both front tactile push-buttons simultaneously (**Left Front `PA9` + Right Front `PA10`**).
+3. Holding both buttons down powers on the hardware circuit, `PB15` latches power ON, and the MCU jumps straight into the permanent STM32 factory ROM DFU bootloader (`0483:df11`). The PC immediately detects `STM32 BOOTLOADER`.
 
 #### B. Software Menu Trigger
 From the running firmware, navigate to **`Settings -> Diag (System Information)`**, scroll to **`[OK] Reboot DFU`**, and tap/press OK. The firmware writes `0xDEADBEEF` to SRAM `0x2000_3FF0`, maintains power on `PB15`, and warm-reboots directly into ROM DFU.
