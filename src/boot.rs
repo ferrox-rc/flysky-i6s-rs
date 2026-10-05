@@ -38,9 +38,9 @@ fn delay_cycles(n: u32) {
     let _ = n;
 }
 
-/// Initialize GPIO clocks and pins for the FS-i6S tactile buttons (front dual power buttons):
-/// - PA9: Left Button (Active LOW with internal pull-up) -> Cancel / Back
-/// - PA10: Right Button (Active LOW with internal pull-up) -> OK / Select
+/// Initialize GPIO clocks and pins for the FS-i6S rear tactile buttons:
+/// - PA9: Rear Left Button (Active LOW with internal pull-up) -> Cancel / Back
+/// - PA10: Rear Right Button (Active LOW with internal pull-up) -> OK / Select
 pub fn init_keys() {
     #[cfg(not(test))]
     {

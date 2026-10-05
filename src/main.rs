@@ -455,9 +455,14 @@ impl BackgroundIdleManager {
             self.trim_dirty = false;
         }
 
-        // 8. Long-press OK (1.2s) from flight dashboard opens Settings Menu
+        // 8. Open Settings Menu from flight dashboard:
+        // - Immediate open on Center Touch Tap (KEY_MENU_OPEN, bit 13)
+        // - Hold OK (1.2s) from physical button or touch hold (bit 10)
         if !menu_active {
-            if (keys & (1 << 10)) != 0 {
+            if (keys & (1 << 13)) != 0 {
+                menu_controller.open(buzzer);
+                self.ok_hold_ms = 0;
+            } else if (keys & (1 << 10)) != 0 {
                 self.ok_hold_ms = self.ok_hold_ms.saturating_add(dt_ms);
                 if self.ok_hold_ms >= 1200 {
                     menu_controller.open(buzzer);

@@ -39,6 +39,7 @@ pub const KEY_NAV_UP: u16 = 1 << 9;
 pub const KEY_NAV_OK: u16 = 1 << 10;
 pub const KEY_NAV_CANCEL: u16 = 1 << 11;
 pub const KEY_BIND: u16 = 1 << 12;
+pub const KEY_MENU_OPEN: u16 = 1 << 13;
 
 /// Evaluates a valid touch sample and screen tap zones into UI navigation key flags.
 ///
@@ -107,8 +108,9 @@ pub fn touch_to_nav_keys(sample: &TouchSample, menu_active: bool) -> u16 {
                         keys |= KEY_TRIM_ROLL_R;
                     }
                 }
+                // Center tap opens menu immediately
                 else if pt.x >= 32 && pt.x <= 96 && pt.y >= 20 && pt.y <= 44 {
-                    keys |= KEY_NAV_OK;
+                    keys |= KEY_NAV_OK | KEY_MENU_OPEN;
                 }
             }
         }
