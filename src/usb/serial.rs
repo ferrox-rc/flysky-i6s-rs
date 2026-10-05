@@ -165,9 +165,11 @@ impl SerialHandler {
             write_all(
                 serial,
                 concat!(
-                    "FlySky FS-i6S Rust Firmware v",
-                    env!("CARGO_PKG_VERSION"),
-                    "\r\n"
+                    "FlySky FS-i6S Rust Firmware ",
+                    env!("FIRMWARE_VERSION"),
+                    " (",
+                    env!("GIT_HASH"),
+                    ")\r\n"
                 )
                 .as_bytes(),
             );
