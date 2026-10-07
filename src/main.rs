@@ -97,8 +97,21 @@ impl FlightPipeline {
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
-        let state = input::poll();
+        let mut state = input::poll();
         let active_model = storage.active_model();
+
+        // Update SWE and SWF if rear buttons configured as RC switches (func == 0) and not in menu
+        let (left_btn, right_btn) = boot::read_front_buttons();
+        if !menu_active && storage.radio.rear_left_func == 0 && left_btn {
+            state.switches.swe = input::SwitchPos::Down;
+        } else {
+            state.switches.swe = input::SwitchPos::Up;
+        }
+        if !menu_active && storage.radio.rear_right_func == 0 && right_btn {
+            state.switches.swf = input::SwitchPos::Down;
+        } else {
+            state.switches.swf = input::SwitchPos::Up;
+        }
 
         // 2. Resynchronize arm state when active model changes or when exiting settings menu
         if storage.radio.active_model != self.prev_active_model {
@@ -230,6 +243,8 @@ struct BackgroundIdleManager {
     rx_id_dirty: bool,
     trim_dirty: bool,
     trim_save_cooldown_ms: u16,
+    prev_left_btn: bool,
+    prev_right_btn: bool,
 }
 
 impl BackgroundIdleManager {
@@ -269,6 +284,8 @@ impl BackgroundIdleManager {
             rx_id_dirty: false,
             trim_dirty: false,
             trim_save_cooldown_ms: 0,
+            prev_left_btn: false,
+            prev_right_btn: false,
         }
     }
 
@@ -505,6 +522,39 @@ impl BackgroundIdleManager {
         }
         if !cancel_key {
             self.cancel_waiting_release = false;
+        }
+
+        // Physical rear button edge detection for special functions in flight mode
+        let (left_btn, right_btn) = boot::read_front_buttons();
+        let left_clicked = left_btn && !self.prev_left_btn;
+        let right_clicked = right_btn && !self.prev_right_btn;
+        self.prev_left_btn = left_btn;
+        self.prev_right_btn = right_btn;
+
+        // Instant Timer Reset via Left Rear Button (func == 1)
+        if !menu_active
+            && left_clicked
+            && storage.radio.rear_left_func == 1
+            && self.timer_reset_cooldown_ms == 0
+        {
+            self.timer_remaining_secs = model.timer_secs;
+            self.timer_elapsed_secs = 0;
+            self.timer_ms_acc = 0;
+            self.timer_latched = false;
+            self.timer_reset_toast_ms = 800;
+            self.timer_reset_cooldown_ms = 500;
+            buzzer.play_tone(2400, 100);
+        }
+
+        // Instant Trim via Right Rear Button (func == 1)
+        if !menu_active && right_clicked && storage.radio.rear_right_func == 1 {
+            let delta_roll = (flight.state.sticks.roll / 40) as i8;
+            let delta_pitch = (flight.state.sticks.pitch / 40) as i8;
+            trims.values.roll = (trims.values.roll + delta_roll).clamp(-25, 25);
+            trims.values.pitch = (trims.values.pitch + delta_pitch).clamp(-25, 25);
+            self.trim_dirty = true;
+            self.trim_save_cooldown_ms = 1000;
+            buzzer.play_tone_pattern(2400, 60, 40, 2);
         }
 
         // Check for manual reset via [CANCEL] held for >= 1.0s on flight dashboard
@@ -1036,12 +1086,21 @@ fn main() -> ! {
             None
         };
         let current_sticks = input::poll().sticks;
-        let keys = touch::nav::update_inputs(touch_sample.as_ref(), &current_sticks, menu_active);
+        let keys = touch::nav::update_inputs(
+            touch_sample.as_ref(),
+            &current_sticks,
+            menu_active,
+            storage.radio.rear_left_func,
+            storage.radio.rear_right_func,
+            storage.radio.throttle_trim != 0,
+        );
 
         if dt_ms > 0 {
             last_tick_ms = now;
             buzzer.tick(dt_ms);
-            trims.update(keys, dt_ms, &mut buzzer);
+            if !menu_active {
+                trims.update(keys, dt_ms, &mut buzzer);
+            }
 
             // Once the transmitter has been running steadily in the flight loop for >5 seconds,
             // clear the consecutive panic count.

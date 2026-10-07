@@ -57,7 +57,9 @@ pub struct RadioConfig {
     pub servo_rate_hz: u16,        // 66..68 (50..400 Hz, default 50 Hz for analog servo safety)
     pub rx_out_mode: u8,           // 68 (0: PWM, 1: PPM, default 0)
     pub rx_serial_proto: u8,       // 69 (0: i-BUS, 1: S.BUS, default 0)
-    pub _reserved: [u8; 58],       // 70..128
+    pub rear_left_func: u8,        // 70 (0: SW-E, 1: Timer Reset, 2: Trims)
+    pub rear_right_func: u8,       // 71 (0: SW-F, 1: Instant Trim, 2: Trims)
+    pub _reserved: [u8; 56],       // 72..128
 }
 
 impl RadioConfig {
@@ -112,7 +114,9 @@ impl RadioConfig {
             servo_rate_hz: 50,
             rx_out_mode: 0,
             rx_serial_proto: 0,
-            _reserved: [0; 58],
+            rear_left_func: 0,
+            rear_right_func: 0,
+            _reserved: [0; 56],
         }
     }
 }
@@ -300,6 +304,12 @@ impl RadioStorage {
         }
         if self.radio.rx_serial_proto > 1 {
             self.radio.rx_serial_proto = 0;
+        }
+        if self.radio.rear_left_func > 2 {
+            self.radio.rear_left_func = 0;
+        }
+        if self.radio.rear_right_func > 2 {
+            self.radio.rear_right_func = 0;
         }
 
         for stick in self.radio.sticks.iter_mut() {
@@ -1052,6 +1062,8 @@ mod tests {
         assert_eq!(storage.radio.servo_rate_hz, 50);
         assert_eq!(storage.radio.rx_out_mode, 0);
         assert_eq!(storage.radio.rx_serial_proto, 0);
+        assert_eq!(storage.radio.rear_left_func, 0);
+        assert_eq!(storage.radio.rear_right_func, 0);
 
         for (idx, m) in storage.models.iter().enumerate() {
             assert!(m.arm_switch <= 10, "arm_switch must be sanitized <= 10");

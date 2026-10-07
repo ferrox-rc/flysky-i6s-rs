@@ -74,13 +74,16 @@ pub fn update_aux_channels(
             buzzer.click();
         }
     } else {
+        const AUX_SOURCES: [u8; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32];
         let cur = storage.models[active_idx].aux_channels[ctrl.selected_item];
+        let mut cur_pos = AUX_SOURCES.iter().position(|&s| s == cur).unwrap_or(0);
         if keys.up {
-            storage.models[active_idx].aux_channels[ctrl.selected_item] = (cur + 1) % 11;
+            cur_pos = (cur_pos + 1) % AUX_SOURCES.len();
+            storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[cur_pos];
             buzzer.play_tone(2200, 20);
         } else if keys.down {
-            storage.models[active_idx].aux_channels[ctrl.selected_item] =
-                if cur == 0 { 10 } else { cur - 1 };
+            cur_pos = if cur_pos == 0 { AUX_SOURCES.len() - 1 } else { cur_pos - 1 };
+            storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[cur_pos];
             buzzer.play_tone(2200, 20);
         }
         if keys.ok {
@@ -109,8 +112,13 @@ pub fn update_aux_channels(
         }
         let ch_label = ascii_as_str(&ch_buf);
 
-        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(10);
-        widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(SOURCE_NAMES[src_idx]), 48);
+        let src_idx = storage.models[active_idx].aux_channels[idx] as usize;
+        let src_str = if src_idx < SOURCE_NAMES.len() {
+            SOURCE_NAMES[src_idx]
+        } else {
+            "None"
+        };
+        widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(src_str), 48);
     }
 
     let footer = if ctrl.editing {

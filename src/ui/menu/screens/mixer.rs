@@ -686,11 +686,12 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
+                let max_src = SOURCE_NAMES.len() as u8;
                 if keys.up {
-                    mix.source = (mix.source + 1) % 31;
+                    mix.source = (mix.source + 1) % max_src;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.source = if mix.source == 0 { 30 } else { mix.source - 1 };
+                    mix.source = if mix.source == 0 { max_src - 1 } else { mix.source - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -713,14 +714,15 @@ pub fn update_mixer_line_edit(
                 }
             }
             4 => {
+                let max_sw = SWITCH_COND_NAMES.len() as u8;
                 if let Some(sw) = keys.sw_change {
                     mix.switch = sw;
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
-                    mix.switch = (mix.switch + 1) % 11;
+                    mix.switch = (mix.switch + 1) % max_sw;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.switch = if mix.switch == 0 { 10 } else { mix.switch - 1 };
+                    mix.switch = if mix.switch == 0 { max_sw - 1 } else { mix.switch - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -774,7 +776,7 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                let s_idx = (mix.source as usize).min(30);
+                let s_idx = (mix.source as usize).min(SOURCE_NAMES.len() - 1);
                 widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
             }
             2 => {
@@ -786,7 +788,7 @@ pub fn update_mixer_line_edit(
                 widgets::draw_list_row(lcd, slot, is_sel, "Offset:", Some(o_str), 56);
             }
             4 => {
-                let sw_idx = (mix.switch as usize).min(10);
+                let sw_idx = (mix.switch as usize).min(SWITCH_COND_NAMES.len() - 1);
                 widgets::draw_list_row(
                     lcd,
                     slot,

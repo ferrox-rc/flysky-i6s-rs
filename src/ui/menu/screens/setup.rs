@@ -31,7 +31,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 9;
+    const SETUP_ITEMS: usize = 11;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -115,6 +115,16 @@ pub fn update_radio_setup(
                 crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
                 storage::save_radio_config(storage);
             }
+            9 => {
+                buzzer.click();
+                storage.radio.rear_left_func = (storage.radio.rear_left_func + 1) % 3;
+                storage::save_radio_config(storage);
+            }
+            10 => {
+                buzzer.click();
+                storage.radio.rear_right_func = (storage.radio.rear_right_func + 1) % 3;
+                storage::save_radio_config(storage);
+            }
             _ => {}
         }
     }
@@ -182,6 +192,22 @@ pub fn update_radio_setup(
             8 => {
                 let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
                 widgets::draw_list_row(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str), 62);
+            }
+            9 => {
+                let left_str = match storage.radio.rear_left_func {
+                    1 => "TIMER RESET",
+                    2 => "TRIMS MOD",
+                    _ => "RC SW (SWE)",
+                };
+                widgets::draw_list_row(lcd, slot, is_sel, "Rear L Key:", Some(left_str), 62);
+            }
+            10 => {
+                let right_str = match storage.radio.rear_right_func {
+                    1 => "INSTANT TRIM",
+                    2 => "TRIMS MOD",
+                    _ => "RC SW (SWF)",
+                };
+                widgets::draw_list_row(lcd, slot, is_sel, "Rear R Key:", Some(right_str), 62);
             }
             _ => {}
         }

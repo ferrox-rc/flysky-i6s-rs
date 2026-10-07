@@ -42,13 +42,44 @@ pub const KEY_BIND: u16 = 1 << 12;
 pub const KEY_MENU_OPEN: u16 = 1 << 13;
 
 /// Evaluates a valid touch sample and screen tap zones into UI navigation key flags.
+/// Software drag displacement tracking state across consecutive touch interrupt frames.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SwipeTracker {
+    pub start_x: u8,
+    pub start_y: u8,
+    pub last_x: u8,
+    pub last_y: u8,
+    pub active: bool,
+    pub swiped: bool,
+}
+
+static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
+    start_x: 0,
+    start_y: 0,
+    last_x: 0,
+    last_y: 0,
+    active: false,
+    swiped: false,
+};
+
+/// Evaluates a valid touch sample and screen tap zones into UI navigation key flags.
 ///
 /// Only invoked when a touch interrupt event (pulse on PC12) has occurred and a valid
 /// `TouchSample` was read from the FT6236 controller.
 pub fn touch_to_nav_keys(sample: &TouchSample, menu_active: bool) -> u16 {
+    let tracker = unsafe { &mut *core::ptr::addr_of_mut!(GLOBAL_SWIPE_TRACKER) };
+    touch_to_nav_keys_with_tracker(sample, menu_active, tracker)
+}
+
+/// Evaluates touch sample with an explicit swipe tracker instance (testable without globals).
+pub fn touch_to_nav_keys_with_tracker(
+    sample: &TouchSample,
+    menu_active: bool,
+    tracker: &mut SwipeTracker,
+) -> u16 {
     let mut keys = 0u16;
 
-    // 1. Gesture Decoding
+    // 1. Hardware Gesture Register Decoding (if provided by controller)
     match sample.gesture {
         Gesture::SwipeUp => keys |= KEY_NAV_UP,
         Gesture::SwipeDown => keys |= KEY_NAV_DOWN,
@@ -57,86 +88,200 @@ pub fn touch_to_nav_keys(sample: &TouchSample, menu_active: bool) -> u16 {
         Gesture::None => {}
     }
 
-    // 2. Direct Tap Hitboxes (Active on PressDown, Contact, or LiftUp when no swipe gesture)
-    if keys == 0 {
-        if let Some(pt) = sample.point {
-            if pt.event != TouchEventKind::NoEvent {
-            if menu_active {
-                // Menu Navigation Zones:
-                // Top header / row 0: Up
-                // Bottom footer / row 2: Down
-                // Left 25%: Cancel
-                // Right 25%: OK
-                if pt.y < 22 {
-                    keys |= KEY_NAV_UP;
-                } else if pt.y > 44 {
-                    keys |= KEY_NAV_DOWN;
-                } else if pt.x < 32 {
-                    keys |= KEY_NAV_CANCEL;
-                } else if pt.x > 96 {
-                    keys |= KEY_NAV_OK;
+    if let Some(pt) = sample.point {
+        match pt.event {
+            TouchEventKind::PressDown => {
+                tracker.start_x = pt.x;
+                tracker.start_y = pt.y;
+                tracker.last_x = pt.x;
+                tracker.last_y = pt.y;
+                tracker.active = true;
+                tracker.swiped = false;
+            }
+            TouchEventKind::Contact => {
+                if !tracker.active {
+                    tracker.start_x = pt.x;
+                    tracker.start_y = pt.y;
+                    tracker.active = true;
+                    tracker.swiped = false;
+                }
+                tracker.last_x = pt.x;
+                tracker.last_y = pt.y;
+
+                // Software swipe detection on drag displacement
+                let dx = pt.x as i16 - tracker.start_x as i16;
+                let dy = pt.y as i16 - tracker.start_y as i16;
+
+                if menu_active {
+                    // Vertical displacement takes priority for vertical list/page navigation
+                    if dy <= -16 {
+                        keys |= KEY_NAV_UP;
+                        tracker.start_y = pt.y;
+                        tracker.swiped = true;
+                    } else if dy >= 16 {
+                        keys |= KEY_NAV_DOWN;
+                        tracker.start_y = pt.y;
+                        tracker.swiped = true;
+                    } else if dx <= -20 {
+                        keys |= KEY_NAV_CANCEL;
+                        tracker.start_x = pt.x;
+                        tracker.swiped = true;
+                    } else if dx >= 20 {
+                        keys |= KEY_NAV_OK;
+                        tracker.start_x = pt.x;
+                        tracker.swiped = true;
+                    }
                 } else {
-                    keys |= KEY_NAV_OK; // Center tap selects
-                }
-            } else {
-                // Flight Dashboard Virtual Trims:
-                // Left border: Throttle trim (Up / Down)
-                if pt.x < 16 {
-                    if pt.y < 32 {
-                        keys |= KEY_TRIM_THR_U;
-                    } else {
-                        keys |= KEY_TRIM_THR_D;
+                    // Dashboard mode: horizontal and vertical swipes cycle dashboard pages
+                    if dx <= -20 || dy >= 16 {
+                        keys |= KEY_NAV_DOWN;
+                        tracker.start_x = pt.x;
+                        tracker.start_y = pt.y;
+                        tracker.swiped = true;
+                    } else if dx >= 20 || dy <= -16 {
+                        keys |= KEY_NAV_UP;
+                        tracker.start_x = pt.x;
+                        tracker.start_y = pt.y;
+                        tracker.swiped = true;
                     }
-                }
-                // Right border: Pitch trim (Up / Down)
-                else if pt.x > 112 {
-                    if pt.y < 32 {
-                        keys |= KEY_TRIM_PITCH_U;
-                    } else {
-                        keys |= KEY_TRIM_PITCH_D;
-                    }
-                }
-                // Bottom border: Yaw and Roll trims
-                else if pt.y > 52 {
-                    if pt.x < 36 {
-                        keys |= KEY_TRIM_YAW_L;
-                    } else if pt.x < 64 {
-                        keys |= KEY_TRIM_YAW_R;
-                    } else if pt.x < 92 {
-                        keys |= KEY_TRIM_ROLL_L;
-                    } else {
-                        keys |= KEY_TRIM_ROLL_R;
-                    }
-                }
-                // Center tap opens menu immediately
-                else if pt.x >= 32 && pt.x <= 96 && pt.y >= 20 && pt.y <= 44 {
-                    keys |= KEY_NAV_OK | KEY_MENU_OPEN;
                 }
             }
+            TouchEventKind::LiftUp => {
+                // If finger lifted without having triggered a swipe gesture, process as a tap
+                if tracker.active && !tracker.swiped {
+                    let tap_x = tracker.start_x;
+                    let tap_y = tracker.start_y;
+                    keys |= evaluate_tap_zones(tap_x, tap_y, menu_active);
+                }
+                tracker.active = false;
+                tracker.swiped = false;
+            }
+            TouchEventKind::NoEvent => {}
         }
+
+        // On flight dashboard only: virtual trims on screen edges evaluate immediately during press/hold
+        if !menu_active && !tracker.swiped && keys == 0 {
+            if pt.x < 16 || pt.x > 112 || pt.y > 52 {
+                keys |= evaluate_tap_zones(pt.x, pt.y, false);
+            }
+        }
+    } else {
+        // Touch point is None: finger released / lifted
+        if tracker.active && !tracker.swiped {
+            keys |= evaluate_tap_zones(tracker.start_x, tracker.start_y, menu_active);
+        }
+        tracker.active = false;
+        tracker.swiped = false;
     }
+
+    keys
 }
 
+/// Evaluates static screen tap coordinates into navigation or trim actions.
+pub fn evaluate_tap_zones(x: u8, y: u8, menu_active: bool) -> u16 {
+    let mut keys = 0u16;
+
+    if menu_active {
+        // Priority 1: Footer navigation buttons ([ESC] Back / [OK] Select)
+        if y >= 48 {
+            if x >= 70 {
+                // Right side of footer: "[ESC] Back" -> Cancel
+                keys |= KEY_NAV_CANCEL;
+            } else if x <= 58 {
+                // Left side of footer: "[OK] Select" -> OK
+                keys |= KEY_NAV_OK;
+            } else {
+                // Center footer -> Down
+                keys |= KEY_NAV_DOWN;
+            }
+        }
+        // Priority 2: Header / Up navigation
+        else if y < 20 {
+            keys |= KEY_NAV_UP;
+        }
+        // Priority 3: Outer border Cancel / OK
+        else if x < 28 {
+            keys |= KEY_NAV_CANCEL;
+        } else if x > 100 {
+            keys |= KEY_NAV_OK;
+        }
+        // Priority 4: Content body -> Select
+        else {
+            keys |= KEY_NAV_OK;
+        }
+    } else {
+        // Flight Dashboard:
+        // Left border: Throttle trim (Up / Down)
+        if x < 16 {
+            if y < 32 {
+                keys |= KEY_TRIM_THR_U;
+            } else {
+                keys |= KEY_TRIM_THR_D;
+            }
+        }
+        // Right border: Pitch trim (Up / Down)
+        else if x > 112 {
+            if y < 32 {
+                keys |= KEY_TRIM_PITCH_U;
+            } else {
+                keys |= KEY_TRIM_PITCH_D;
+            }
+        }
+        // Bottom border: Yaw and Roll trims
+        else if y > 52 {
+            if x < 36 {
+                keys |= KEY_TRIM_YAW_L;
+            } else if x < 64 {
+                keys |= KEY_TRIM_YAW_R;
+            } else if x < 92 {
+                keys |= KEY_TRIM_ROLL_L;
+            } else {
+                keys |= KEY_TRIM_ROLL_R;
+            }
+        }
+        // Center tap opens menu immediately
+        else if (32..=96).contains(&x) && (20..=44).contains(&y) {
+            keys |= KEY_NAV_OK | KEY_MENU_OPEN;
+        }
+    }
+
+    keys
+}
+
+/// Evaluates touch release when no touch packet / interrupt is asserted.
+pub fn process_touch_release(menu_active: bool) -> u16 {
+    let tracker = unsafe { &mut *core::ptr::addr_of_mut!(GLOBAL_SWIPE_TRACKER) };
+    let mut keys = 0u16;
+    if tracker.active && !tracker.swiped {
+        keys |= evaluate_tap_zones(tracker.start_x, tracker.start_y, menu_active);
+    }
+    tracker.active = false;
+    tracker.swiped = false;
     keys
 }
 
 /// Evaluates modifier trims using Left Front (`PA9`) and Right Front (`PA10`) buttons
 /// combined with gimbal stick deflections.
-///
-/// Returns:
-/// - `trim_keys`: Trim bitmask (`KEY_TRIM_*`)
-/// - `suppress_left_nav`: True if Left Front button was consumed as trim modifier
-/// - `suppress_right_nav`: True if Right Front button was consumed as trim modifier
 pub fn process_modifier_trims(
     left_held: bool,
     right_held: bool,
     sticks: &Sticks,
 ) -> (u16, bool, bool) {
+    process_modifier_trims_cfg(left_held, right_held, sticks, false)
+}
+
+/// Evaluates modifier trims with configurable throttle trim enablement.
+pub fn process_modifier_trims_cfg(
+    left_held: bool,
+    right_held: bool,
+    sticks: &Sticks,
+    throttle_trim_enabled: bool,
+) -> (u16, bool, bool) {
     let mut trim_keys = 0u16;
     let mut suppress_left = false;
     let mut suppress_right = false;
 
-    // Left Front held -> Left Stick controls Throttle & Yaw trims
+    // Left Front held -> Left Stick controls Throttle (if enabled) & Yaw trims
     if left_held {
         if sticks.yaw < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_YAW_L;
@@ -146,12 +291,14 @@ pub fn process_modifier_trims(
             suppress_left = true;
         }
 
-        if sticks.throttle < -TRIM_MODIFIER_STICK_THRESHOLD {
-            trim_keys |= KEY_TRIM_THR_D;
-            suppress_left = true;
-        } else if sticks.throttle > TRIM_MODIFIER_STICK_THRESHOLD {
-            trim_keys |= KEY_TRIM_THR_U;
-            suppress_left = true;
+        if throttle_trim_enabled {
+            if sticks.throttle < -TRIM_MODIFIER_STICK_THRESHOLD {
+                trim_keys |= KEY_TRIM_THR_D;
+                suppress_left = true;
+            } else if sticks.throttle > TRIM_MODIFIER_STICK_THRESHOLD {
+                trim_keys |= KEY_TRIM_THR_U;
+                suppress_left = true;
+            }
         }
     }
 
@@ -185,29 +332,45 @@ pub fn update_inputs(
     touch_sample: Option<&TouchSample>,
     sticks: &Sticks,
     menu_active: bool,
+    rear_left_func: u8,
+    rear_right_func: u8,
+    throttle_trim_enabled: bool,
 ) -> u16 {
     let (left_btn, right_btn) = boot::read_front_buttons();
 
-    // 1. Process modifier trims
-    let (mod_trims, suppress_left, suppress_right) =
-        process_modifier_trims(left_btn, right_btn, sticks);
+    let mut combined = 0u16;
 
-    // 2. Process touch navigation & virtual trims only when touch event happened
+    if menu_active {
+        // When any menu or wizard is open, rear buttons unconditionally act as UI navigation
+        if left_btn {
+            combined |= KEY_NAV_CANCEL;
+        }
+        if right_btn {
+            combined |= KEY_NAV_OK;
+        }
+    } else {
+        // When in flight / dashboard mode:
+        // func 2: Trims Modifier
+        let left_mod = rear_left_func == 2;
+        let right_mod = rear_right_func == 2;
+        if (left_mod && left_btn) || (right_mod && right_btn) {
+            let (mod_trims, _, _) = process_modifier_trims_cfg(
+                left_btn && left_mod,
+                right_btn && right_mod,
+                sticks,
+                throttle_trim_enabled,
+            );
+            combined |= mod_trims;
+        }
+    }
+
+    // 2. Process touch navigation & virtual trims
     let touch_keys = if let Some(sample) = touch_sample {
         touch_to_nav_keys(sample, menu_active)
     } else {
-        0
+        process_touch_release(menu_active)
     };
-
-    // 3. Assemble composite keys
-    let mut combined = mod_trims | touch_keys;
-
-    if left_btn && !suppress_left {
-        combined |= KEY_NAV_CANCEL;
-    }
-    if right_btn && !suppress_right {
-        combined |= KEY_NAV_OK;
-    }
+    combined |= touch_keys;
 
     boot::set_touch_keys(combined);
     combined
@@ -246,64 +409,48 @@ mod tests {
 
     #[test]
     fn test_menu_tap_zones() {
-        let pt_top = TouchPoint {
-            x: 64,
-            y: 10,
-            raw_x: 20,
-            raw_y: 128,
-            event: TouchEventKind::PressDown,
-        };
-        let sample_top = TouchSample {
-            gesture: Gesture::None,
-            point: Some(pt_top),
-        };
-        assert_ne!(touch_to_nav_keys(&sample_top, true) & KEY_NAV_UP, 0);
-
-        let pt_bottom = TouchPoint {
-            x: 64,
-            y: 50,
-            raw_x: 100,
-            raw_y: 128,
-            event: TouchEventKind::PressDown,
-        };
-        let sample_bottom = TouchSample {
-            gesture: Gesture::None,
-            point: Some(pt_bottom),
-        };
-        assert_ne!(touch_to_nav_keys(&sample_bottom, true) & KEY_NAV_DOWN, 0);
+        assert_ne!(evaluate_tap_zones(64, 10, true) & KEY_NAV_UP, 0);
+        assert_ne!(evaluate_tap_zones(64, 50, true) & KEY_NAV_DOWN, 0);
+        assert_eq!(evaluate_tap_zones(80, 55, true), KEY_NAV_CANCEL); // [ESC] Back
+        assert_eq!(evaluate_tap_zones(40, 55, true), KEY_NAV_OK);     // [OK] Select
     }
 
     #[test]
     fn test_menu_tap_zones_contact_and_liftup() {
-        // Contact event (finger held / active touch) should trigger tap zones
-        let pt_contact = TouchPoint {
-            x: 10,
-            y: 30,
-            raw_x: 60,
-            raw_y: 236,
-            event: TouchEventKind::Contact,
-        };
-        let sample_contact = TouchSample {
-            gesture: Gesture::None,
-            point: Some(pt_contact),
-        };
-        assert_eq!(touch_to_nav_keys(&sample_contact, true), KEY_NAV_CANCEL);
+        let mut tracker = SwipeTracker::default();
 
-        // LiftUp event (release / quick tap) should also trigger tap zones
+        // 1. Initial press down at [ESC] Back zone
+        let pt_press = TouchPoint {
+            x: 80,
+            y: 55,
+            raw_x: 110,
+            raw_y: 96,
+            event: TouchEventKind::PressDown,
+        };
+        let sample_press = TouchSample {
+            gesture: Gesture::None,
+            point: Some(pt_press),
+        };
+        // During initial press down, keys are 0 while tracker awaits drag vs tap
+        assert_eq!(touch_to_nav_keys_with_tracker(&sample_press, true, &mut tracker), 0);
+        assert!(tracker.active);
+
+        // 2. LiftUp event (release / quick tap) emits KEY_NAV_CANCEL
         let pt_lift = TouchPoint {
-            x: 110,
-            y: 30,
-            raw_x: 60,
-            raw_y: 36,
+            x: 80,
+            y: 55,
+            raw_x: 110,
+            raw_y: 96,
             event: TouchEventKind::LiftUp,
         };
         let sample_lift = TouchSample {
             gesture: Gesture::None,
             point: Some(pt_lift),
         };
-        assert_eq!(touch_to_nav_keys(&sample_lift, true), KEY_NAV_OK);
+        assert_eq!(touch_to_nav_keys_with_tracker(&sample_lift, true, &mut tracker), KEY_NAV_CANCEL);
+        assert!(!tracker.active);
 
-        // NoEvent should NOT trigger any keys
+        // 3. NoEvent should NOT trigger any keys
         let pt_none = TouchPoint {
             x: 110,
             y: 30,
@@ -315,7 +462,55 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_none),
         };
-        assert_eq!(touch_to_nav_keys(&sample_none, true), 0);
+        assert_eq!(touch_to_nav_keys_with_tracker(&sample_none, true, &mut SwipeTracker::default()), 0);
+    }
+
+    #[test]
+    fn test_software_swipe_drag() {
+        let mut tracker = SwipeTracker::default();
+
+        // Press down at center of menu
+        let pt_start = TouchPoint {
+            x: 60,
+            y: 35,
+            raw_x: 70,
+            raw_y: 136,
+            event: TouchEventKind::PressDown,
+        };
+        let s_start = TouchSample {
+            gesture: Gesture::None,
+            point: Some(pt_start),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_start, true, &mut tracker), 0);
+
+        // Drag down by 20 pixels (y: 35 -> 55)
+        let pt_drag = TouchPoint {
+            x: 60,
+            y: 55,
+            raw_x: 110,
+            raw_y: 136,
+            event: TouchEventKind::Contact,
+        };
+        let s_drag = TouchSample {
+            gesture: Gesture::None,
+            point: Some(pt_drag),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_drag, true, &mut tracker), KEY_NAV_DOWN);
+        assert!(tracker.swiped);
+
+        // Release after swipe should NOT emit a tap
+        let pt_end = TouchPoint {
+            x: 60,
+            y: 55,
+            raw_x: 110,
+            raw_y: 136,
+            event: TouchEventKind::LiftUp,
+        };
+        let s_end = TouchSample {
+            gesture: Gesture::None,
+            point: Some(pt_end),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_end, true, &mut tracker), 0);
     }
 
     #[test]
@@ -354,7 +549,7 @@ mod tests {
         let mut sticks = Sticks {
             roll: 0,
             pitch: 0,
-            throttle: 0,
+            throttle: -1000, // Real-world idle throttle at rest
             yaw: 0,
         };
 
@@ -364,7 +559,12 @@ mod tests {
         assert!(!supp_l);
         assert!(!supp_r);
 
-        // Left Front held + Yaw stick left
+        // Left Front held with throttle at -1000 but throttle trim disabled -> No false trim!
+        let (trims, supp_l, _) = process_modifier_trims(true, false, &sticks);
+        assert_eq!(trims, 0);
+        assert!(!supp_l); // Normal Cancel NOT suppressed!
+
+        // Left Front held + Yaw stick left -> Yaw trim emitted
         sticks.yaw = -500;
         let (trims, supp_l, _) = process_modifier_trims(true, false, &sticks);
         assert_eq!(trims, KEY_TRIM_YAW_L);

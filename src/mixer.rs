@@ -148,6 +148,10 @@ pub fn is_switch_active(condition: u8, switches: &Switches) -> bool {
         8 => switches.sc == SwitchPos::Down,
         9 => switches.sd == SwitchPos::Up,
         10 => switches.sd == SwitchPos::Down,
+        11 => switches.swe == SwitchPos::Up,
+        12 => switches.swe == SwitchPos::Down,
+        13 => switches.swf == SwitchPos::Up,
+        14 => switches.swf == SwitchPos::Down,
         _ => true,
     }
 }
@@ -260,6 +264,20 @@ pub fn evaluate_source(
         30 => {
             let thr = cond_sticks[2] as i32;
             ((thr + MIXER_MAX as i32) / 2).clamp(0, MIXER_MAX as i32)
+        }
+        31 => {
+            if switches.swe == SwitchPos::Up {
+                MIXER_MIN as i32
+            } else {
+                MIXER_MAX as i32
+            }
+        }
+        32 => {
+            if switches.swf == SwitchPos::Up {
+                MIXER_MIN as i32
+            } else {
+                MIXER_MAX as i32
+            }
         }
         _ => MIXER_CENTER as i32,
     }
@@ -483,6 +501,8 @@ mod tests {
             sb: SwitchPos::Mid,
             sc: SwitchPos::Down,
             sd: SwitchPos::Up,
+            swe: SwitchPos::Up,
+            swf: SwitchPos::Down,
         };
 
         assert!(is_switch_active(0, &switches), "Switch 0 is always active");
@@ -496,18 +516,17 @@ mod tests {
         assert!(is_switch_active(8, &switches), "SC Down");
         assert!(is_switch_active(9, &switches), "SD Up");
         assert!(!is_switch_active(10, &switches), "SD Down");
+        assert!(is_switch_active(11, &switches), "SWE Up");
+        assert!(!is_switch_active(12, &switches), "SWE Down");
+        assert!(!is_switch_active(13, &switches), "SWF Up");
+        assert!(is_switch_active(14, &switches), "SWF Down");
     }
 
     #[test]
     fn test_compute_channels_normal_centered() {
         let model = ModelConfig::default_for_index(0);
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-        };
+        let switches = Switches::default();
         let pots = [0i16, 0i16];
 
         // Neutral inputs: roll=0, pitch=0, throttle=500 (idle = 0), yaw=0
@@ -535,12 +554,7 @@ mod tests {
     fn test_compute_channels_full_deflection_and_pulse_bounds() {
         let model = ModelConfig::default_for_index(0);
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-        };
+        let switches = Switches::default();
         let pots = [0i16, 0i16];
 
         // Full roll right (1000)
@@ -575,12 +589,7 @@ mod tests {
         let mut model = ModelConfig::default_for_index(0);
         model.wing_tail_mix = 1; // Elevon
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-        };
+        let switches = Switches::default();
         let pots = [0i16, 0i16];
 
         // Pitch up (1000), Roll zero -> Both elevons deflect together with 50% throw
@@ -614,12 +623,7 @@ mod tests {
         let mut model = ModelConfig::default_for_index(0);
         model.wing_tail_mix = 2; // VTail
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-        };
+        let switches = Switches::default();
         let pots = [0i16, 0i16];
 
         // Pitch up (1000), Yaw zero -> Both V-tail ruddervators deflect up together with 50% authority
@@ -649,12 +653,7 @@ mod tests {
             switch: 0,
         };
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-        };
+        let switches = Switches::default();
         let pots = [0i16, 0i16];
 
         // At zero throttle (curved_throttle = 0): Thr+ evaluates to 0 -> zero elevator compensation!
@@ -694,6 +693,7 @@ mod tests {
             sb: SwitchPos::Mid,  // CH16 -> CENTER (1500)
             sc: SwitchPos::Up,   // CH17 -> MIN (988)
             sd: SwitchPos::Down, // CH18 -> normally MAX (2012), but reversed -> MIN (988)
+            ..Default::default()
         };
         let pots = [0i16, 0i16];
 
@@ -723,12 +723,7 @@ mod tests {
         let mut model = ModelConfig::default_for_index(0);
         model.channel_reverse = 0b0000_0001; // Reverse CH1 (Roll)
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-        };
+        let switches = Switches::default();
         let pots = [0i16, 0i16];
 
         // Roll right (+1000) with reversed CH1 should yield CHANNEL_MIN_US instead of CHANNEL_MAX_US
@@ -755,12 +750,7 @@ mod tests {
         };
 
         let trims = TrimController::new();
-        let switches = Switches {
-            sa: SwitchPos::Up,
-            sb: SwitchPos::Up,
-            sc: SwitchPos::Up,
-            sd: SwitchPos::Up,
-        };
+        let switches = Switches::default();
         let pots = [0i16, 0i16];
 
         let chs = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
@@ -782,6 +772,7 @@ mod tests {
             sb: SwitchPos::Mid,
             sc: SwitchPos::Down,
             sd: SwitchPos::Up,
+            ..Default::default()
         };
 
         // 0: Disabled

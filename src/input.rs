@@ -3,8 +3,9 @@
 use crate::adc;
 
 /// 3-position switch states.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum SwitchPos {
+    #[default]
     Up,
     Mid,
     Down,
@@ -37,16 +38,29 @@ pub struct Pots {
 }
 
 /// Physical switch states on the radio.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct Switches {
-    pub sa: SwitchPos, // 2-pos
-    pub sb: SwitchPos, // 3-pos
-    pub sc: SwitchPos, // 3-pos
-    pub sd: SwitchPos, // 2-pos
+    pub sa: SwitchPos,  // 2-pos
+    pub sb: SwitchPos,  // 3-pos
+    pub sc: SwitchPos,  // 3-pos
+    pub sd: SwitchPos,  // 2-pos
+    pub swe: SwitchPos, // 2-pos (Rear Left PA9)
+    pub swf: SwitchPos, // 2-pos (Rear Right PA10)
 }
 
 impl Switches {
-    /// Detect if a switch moved between prev and self, returning the matching condition index 1..10.
+    pub const fn new() -> Self {
+        Self {
+            sa: SwitchPos::Up,
+            sb: SwitchPos::Up,
+            sc: SwitchPos::Up,
+            sd: SwitchPos::Up,
+            swe: SwitchPos::Up,
+            swf: SwitchPos::Up,
+        }
+    }
+
+    /// Detect if a switch moved between prev and self, returning the matching condition index 1..14.
     pub fn detect_condition_change(&self, prev: &Switches) -> Option<u8> {
         if self.sa != prev.sa {
             return Some(if self.sa == SwitchPos::Up { 1 } else { 2 });
@@ -67,6 +81,12 @@ impl Switches {
         }
         if self.sd != prev.sd {
             return Some(if self.sd == SwitchPos::Up { 9 } else { 10 });
+        }
+        if self.swe != prev.swe {
+            return Some(if self.swe == SwitchPos::Up { 11 } else { 12 });
+        }
+        if self.swf != prev.swf {
+            return Some(if self.swf == SwitchPos::Up { 13 } else { 14 });
         }
         None
     }
@@ -329,6 +349,8 @@ pub fn poll() -> InputState {
         sb: decode_switch(raw[5]), // PA5
         sc: decode_switch(raw[8]), // PB0
         sd: decode_switch(raw[9]), // PB1
+        swe: SwitchPos::Up,
+        swf: SwitchPos::Up,
     };
 
     let instant_mv = calculate_battery_mv(raw[10]); // PC0
