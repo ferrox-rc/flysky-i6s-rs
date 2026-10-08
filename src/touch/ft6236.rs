@@ -192,7 +192,65 @@ pub fn init() {
 
             // Enable I2C1 peripheral (PE = 1)
             i2c1.cr1.modify(|_, w| w.pe().set_bit());
+
+            // 8. Configure FT6236 Interrupt Polling Mode (G_MODE register 0xA4 = 0x00)
+            // In polling mode, INT (PC12) stays LOW for the entirety of active touch / gesture
+            write_reg(0xA4, 0x00);
         }
+    }
+}
+
+/// Write a single 8-bit value to an FT6236 register at address `0x38`.
+pub fn write_reg(reg: u8, val: u8) -> bool {
+    #[cfg(not(test))]
+    {
+        let i2c1 = unsafe { &*pac::I2C1::ptr() };
+        unsafe {
+            // SADD = 0x38 << 1, NBYTES = 2, RD_WRN = 0 (write), START = 1, AUTOEND = 1
+            let cr2_val = ((FT6236_I2C_ADDR as u32) << 1) | (2 << 16) | (1 << 13) | (1 << 25);
+            i2c1.cr2.write(|w| w.bits(cr2_val));
+
+            // Write register address
+            let mut timeout = 10_000u32;
+            while !i2c1.isr.read().txis().bit() && timeout > 0 {
+                if i2c1.isr.read().nackf().bit() {
+                    i2c1.icr.write(|w| w.nackcf().set_bit());
+                    return false;
+                }
+                timeout -= 1;
+            }
+            if timeout == 0 {
+                return false;
+            }
+            i2c1.txdr.write(|w| w.txdata().bits(reg));
+
+            // Write register value
+            timeout = 10_000;
+            while !i2c1.isr.read().txis().bit() && timeout > 0 {
+                if i2c1.isr.read().nackf().bit() {
+                    i2c1.icr.write(|w| w.nackcf().set_bit());
+                    return false;
+                }
+                timeout -= 1;
+            }
+            if timeout == 0 {
+                return false;
+            }
+            i2c1.txdr.write(|w| w.txdata().bits(val));
+
+            // Wait for STOPF
+            timeout = 10_000;
+            while !i2c1.isr.read().stopf().bit() && timeout > 0 {
+                timeout -= 1;
+            }
+            i2c1.icr.write(|w| w.stopcf().set_bit());
+            true
+        }
+    }
+    #[cfg(test)]
+    {
+        let _ = (reg, val);
+        true
     }
 }
 

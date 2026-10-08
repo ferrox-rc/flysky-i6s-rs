@@ -71,6 +71,8 @@ pub struct MenuController {
     prev_switches: crate::input::Switches,
     prev_vr1: i16,
     prev_vr2: i16,
+    jog_repeat_timer_ms: u16,
+    jog_was_deflected: bool,
 }
 
 impl Default for MenuController {
@@ -102,6 +104,8 @@ impl MenuController {
             prev_switches: crate::input::Switches::new(),
             prev_vr1: 0,
             prev_vr2: 0,
+            jog_repeat_timer_ms: 0,
+            jog_was_deflected: false,
         }
     }
 
@@ -212,43 +216,52 @@ impl MenuController {
             self.repeat_timer_ms = 0;
         }
 
-        // Jog Wheels (VRA / VRB) menu list navigation and auto-assignment on change
-        let d_vr1 = pots.vr1 - self.prev_vr1;
-        let d_vr2 = pots.vr2 - self.prev_vr2;
-
+        // Spring-Loaded Jog Wheels (VRA / VRB) Jog-Shuttle Navigation
+        // Neutral deadband: [-200, 200]
+        // Clockwise deflection (> 200): scroll DOWN
+        // Counter-clockwise deflection (< -200): scroll UP
+        // Release (spring centering into [-200, 200]): scroll stops immediately without reversal!
         let mut pot_change = None;
-        if d_vr1.abs() >= 120 {
-            pot_change = Some(5); // MixSource::Vra
-            self.prev_vr1 = pots.vr1;
-        } else if d_vr2.abs() >= 120 {
-            pot_change = Some(6); // MixSource::Vrb
-            self.prev_vr2 = pots.vr2;
-        }
-
-        if !self.editing {
-            if d_vr1 >= 60 || d_vr2 >= 60 {
-                down_pressed = true;
-                if d_vr1 >= 60 {
-                    self.prev_vr1 = pots.vr1;
-                }
-                if d_vr2 >= 60 {
-                    self.prev_vr2 = pots.vr2;
-                }
-            } else if d_vr1 <= -60 || d_vr2 <= -60 {
-                up_pressed = true;
-                if d_vr1 <= -60 {
-                    self.prev_vr1 = pots.vr1;
-                }
-                if d_vr2 <= -60 {
-                    self.prev_vr2 = pots.vr2;
-                }
+        if self.editing {
+            if pots.vr1.abs() >= 300 {
+                pot_change = Some(5); // MixSource::Vra
+            } else if pots.vr2.abs() >= 300 {
+                pot_change = Some(6); // MixSource::Vrb
             }
+            self.jog_was_deflected = false;
+            self.jog_repeat_timer_ms = 0;
         } else {
-            if d_vr1.abs() >= 60 {
-                self.prev_vr1 = pots.vr1;
-            }
-            if d_vr2.abs() >= 60 {
-                self.prev_vr2 = pots.vr2;
+            let deflected_down = pots.vr1 > 200 || pots.vr2 > 200;
+            let deflected_up = pots.vr1 < -200 || pots.vr2 < -200;
+
+            if deflected_down {
+                if !self.jog_was_deflected {
+                    down_pressed = true;
+                    self.jog_was_deflected = true;
+                    self.jog_repeat_timer_ms = 0;
+                } else {
+                    self.jog_repeat_timer_ms = self.jog_repeat_timer_ms.saturating_add(33);
+                    if self.jog_repeat_timer_ms >= 180 {
+                        down_pressed = true;
+                        self.jog_repeat_timer_ms = 0;
+                    }
+                }
+            } else if deflected_up {
+                if !self.jog_was_deflected {
+                    up_pressed = true;
+                    self.jog_was_deflected = true;
+                    self.jog_repeat_timer_ms = 0;
+                } else {
+                    self.jog_repeat_timer_ms = self.jog_repeat_timer_ms.saturating_add(33);
+                    if self.jog_repeat_timer_ms >= 180 {
+                        up_pressed = true;
+                        self.jog_repeat_timer_ms = 0;
+                    }
+                }
+            } else {
+                // Centered in deadband: reset deflection flag and repeat timer
+                self.jog_was_deflected = false;
+                self.jog_repeat_timer_ms = 0;
             }
         }
 
@@ -389,8 +402,8 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 0);
 
-        // Rotating VR1 clockwise by +80 counts triggers DOWN
-        pots.vr1 = 80;
+        // Deflecting VR1 clockwise (> 200 counts) triggers DOWN
+        pots.vr1 = 300;
         ctrl.update(
             &mut lcd,
             0,
@@ -404,8 +417,23 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 1);
 
-        // Rotating VR2 clockwise by +90 counts triggers DOWN again
-        pots.vr2 = 90;
+        // Spring returns VR1 back to center (0 counts) -> position remains UNCHANGED!
+        pots.vr1 = 0;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Deflecting VR2 clockwise (> 200 counts) triggers DOWN again
+        pots.vr2 = 300;
         ctrl.update(
             &mut lcd,
             0,
@@ -419,7 +447,37 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 2);
 
-        // Rotating VR1 counter-clockwise by -80 counts triggers UP
+        // Spring returns VR2 back to center (0 counts) -> position remains UNCHANGED!
+        pots.vr2 = 0;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 2);
+
+        // Deflecting VR1 counter-clockwise (< -200 counts) triggers UP
+        pots.vr1 = -300;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Spring returns VR1 back to center (0 counts) -> position remains UNCHANGED!
         pots.vr1 = 0;
         ctrl.update(
             &mut lcd,
@@ -463,8 +521,8 @@ mod tests {
             &mut buzzer,
         );
 
-        // Rotate VR1 by +150 counts -> auto-assigns MixSource::Vra (5)
-        pots.vr1 = 150;
+        // Deflect VR1 past 300 counts -> auto-assigns MixSource::Vra (5)
+        pots.vr1 = 350;
         ctrl.update(
             &mut lcd,
             0,
@@ -478,8 +536,9 @@ mod tests {
         );
         assert_eq!(storage.models[0].aux_channels[0], 5);
 
-        // Rotate VR2 by +150 counts -> auto-assigns MixSource::Vrb (6)
-        pots.vr2 = 150;
+        // Spring returns VR1 to 0, deflect VR2 past 300 counts -> auto-assigns MixSource::Vrb (6)
+        pots.vr1 = 0;
+        pots.vr2 = 350;
         ctrl.update(
             &mut lcd,
             0,

@@ -25,7 +25,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 11;
+    const SETUP_ITEMS: usize = 12;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -119,6 +119,11 @@ pub fn update_radio_setup(
                 storage.radio.rear_right_func = (storage.radio.rear_right_func + 1) % 3;
                 storage::save_radio_config(storage);
             }
+            11 => {
+                buzzer.click();
+                storage.radio.touch_enabled = if storage.radio.touch_enabled == 0 { 1 } else { 0 };
+                storage::save_radio_config(storage);
+            }
             _ => {}
         }
     }
@@ -202,6 +207,10 @@ pub fn update_radio_setup(
                     _ => "RC SW (SWF)",
                 };
                 widgets::draw_list_row(lcd, slot, is_sel, "Rear R Key:", Some(right_str), 62);
+            }
+            11 => {
+                let touch_str = if storage.radio.touch_enabled != 0 { "ENABLED" } else { "DISABLED" };
+                widgets::draw_list_row(lcd, slot, is_sel, "Touch Screen:", Some(touch_str), 62);
             }
             _ => {}
         }

@@ -113,7 +113,8 @@ pub fn touch_to_nav_keys_with_tracker(
                 let dy = pt.y as i16 - tracker.start_y as i16;
 
                 if menu_active {
-                    // Vertical displacement takes priority for vertical list/page navigation
+                    // Vertical displacement strictly scrolls list UP / DOWN
+                    // Horizontal displacement is intentionally ignored so swiping never accidentally selects or cancels!
                     if dy <= -8 {
                         keys |= KEY_NAV_UP;
                         tracker.start_y = pt.y;
@@ -121,14 +122,6 @@ pub fn touch_to_nav_keys_with_tracker(
                     } else if dy >= 8 {
                         keys |= KEY_NAV_DOWN;
                         tracker.start_y = pt.y;
-                        tracker.swiped = true;
-                    } else if dx <= -14 {
-                        keys |= KEY_NAV_CANCEL;
-                        tracker.start_x = pt.x;
-                        tracker.swiped = true;
-                    } else if dx >= 14 {
-                        keys |= KEY_NAV_OK;
-                        tracker.start_x = pt.x;
                         tracker.swiped = true;
                     }
                 } else {
@@ -161,6 +154,9 @@ pub fn touch_to_nav_keys_with_tracker(
         if !menu_active && !tracker.swiped && keys == 0 {
             if pt.x < 16 || pt.x > 112 || pt.y > 52 {
                 keys |= evaluate_tap_zones(pt.x, pt.y, false);
+            } else if (32..=96).contains(&pt.x) && (20..=44).contains(&pt.y) {
+                // Continuous center hold emits KEY_NAV_OK to accumulate towards the 1.2s menu open requirement
+                keys |= KEY_NAV_OK;
             }
         }
     } else {
@@ -191,19 +187,11 @@ pub fn evaluate_tap_zones(x: u8, y: u8, menu_active: bool) -> u16 {
             }
         }
         // Priority 2: Header / Up navigation
-        else if y < 20 {
+        else if y < 18 {
             keys |= KEY_NAV_UP;
         }
-        // Priority 3: Outer border Cancel / OK
-        else if x < 28 {
-            keys |= KEY_NAV_CANCEL;
-        } else if x > 100 {
-            keys |= KEY_NAV_OK;
-        }
-        // Priority 4: Content body -> Select
-        else {
-            keys |= KEY_NAV_OK;
-        }
+        // Content body (18..=45) intentionally does NOT emit OK on tap to prevent accidental selection!
+        // Pilots select via the dedicated [OK] footer button or tactile OK (PA10).
     } else {
         // Flight Dashboard:
         // Left border: Throttle trim (Up / Down)
@@ -234,9 +222,9 @@ pub fn evaluate_tap_zones(x: u8, y: u8, menu_active: bool) -> u16 {
                 keys |= KEY_TRIM_ROLL_R;
             }
         }
-        // Center tap opens menu immediately
+        // Center area emits KEY_NAV_OK to accumulate towards the 1.2s menu open requirement
         else if (32..=96).contains(&x) && (20..=44).contains(&y) {
-            keys |= KEY_NAV_OK | KEY_MENU_OPEN;
+            keys |= KEY_NAV_OK;
         }
     }
 
