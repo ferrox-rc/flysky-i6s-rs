@@ -1,6 +1,6 @@
-//! CRSF / ExpressLRS protocol subsystem for FlySky FS-i6X.
+//! CRSF / ExpressLRS protocol subsystem for FlySky FS-i6S.
 //!
-//! Handles USART2 hardware setup on PD5/PA15, PC13 module power management,
+//! Handles USART1 hardware setup on PB6/PB7 (J15 header), PF6 module power management (H1),
 //! periodic channel packet framing, and incoming telemetry processing.
 
 #![allow(dead_code)]
@@ -19,24 +19,28 @@ static mut RX_BUF: [u8; 64] = [0; 64];
 static mut RX_LEN: usize = 0;
 static mut LAST_RX_BYTE_MS: u32 = 0;
 
-/// Initialize CRSF subsystem hardware pins with configured PC13 power switch polarity.
+/// Initialize CRSF subsystem hardware pins with configured PF6 power switch polarity.
 pub fn init(active_high: bool) {
     uart::init(active_high);
 }
 
-/// Set external module power switch polarity (PC13).
+/// Set external module power switch polarity (H1 PF6).
 pub fn set_power_polarity(active_high: bool) {
     uart::set_power_polarity(active_high);
 }
 
-/// Enable or disable CRSF protocol, power external module, and configure baud rate.
-pub fn set_enabled(enabled: bool, baud_idx: u8) {
+static mut CURRENT_DUPLEX: u8 = 0xFF;
+
+/// Enable or disable CRSF protocol, power external module, and configure baud rate and duplex mode.
+pub fn set_enabled(enabled: bool, baud_idx: u8, half_duplex: bool) {
+    let duplex_val = if half_duplex { 1 } else { 0 };
     unsafe {
-        if enabled != CRSF_ENABLED || (enabled && baud_idx != CURRENT_BAUD) {
+        if enabled != CRSF_ENABLED || (enabled && (baud_idx != CURRENT_BAUD || duplex_val != CURRENT_DUPLEX)) {
             CRSF_ENABLED = enabled;
             CURRENT_BAUD = baud_idx;
+            CURRENT_DUPLEX = duplex_val;
 
-            uart::set_uart_enabled(enabled, baud_idx);
+            uart::set_uart_enabled(enabled, baud_idx, half_duplex);
             uart::set_module_power(enabled);
 
             if !enabled {

@@ -25,7 +25,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 12;
+    const SETUP_ITEMS: usize = 15;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -111,15 +111,32 @@ pub fn update_radio_setup(
             }
             9 => {
                 buzzer.click();
-                storage.radio.rear_left_func = (storage.radio.rear_left_func + 1) % 3;
+                storage.radio.j4_sg_sh_en = if storage.radio.j4_sg_sh_en == 0 { 1 } else { 0 };
+                crate::boot::init_j4_keys(storage.radio.j4_sg_sh_en != 0);
                 storage::save_radio_config(storage);
             }
             10 => {
                 buzzer.click();
-                storage.radio.rear_right_func = (storage.radio.rear_right_func + 1) % 3;
+                storage.radio.crsf_duplex = if storage.radio.crsf_duplex == 0 { 1 } else { 0 };
                 storage::save_radio_config(storage);
             }
             11 => {
+                buzzer.click();
+                storage.radio.ppm_out_en = if storage.radio.ppm_out_en == 0 { 1 } else { 0 };
+                crate::rf::ppm_out::set_enabled(storage.radio.ppm_out_en != 0);
+                storage::save_radio_config(storage);
+            }
+            12 => {
+                buzzer.click();
+                storage.radio.rear_left_func = (storage.radio.rear_left_func + 1) % 3;
+                storage::save_radio_config(storage);
+            }
+            13 => {
+                buzzer.click();
+                storage.radio.rear_right_func = (storage.radio.rear_right_func + 1) % 3;
+                storage::save_radio_config(storage);
+            }
+            14 => {
                 buzzer.click();
                 storage.radio.touch_disabled = if storage.radio.touch_disabled == 0 { 1 } else { 0 };
                 storage::save_radio_config(storage);
@@ -190,9 +207,21 @@ pub fn update_radio_setup(
             }
             8 => {
                 let pwr_str = if storage.radio.ext_module_pwr == 0 { "HIGH (N)" } else { "LOW (P)" };
-                widgets::draw_list_row(lcd, slot, is_sel, "PC13 Pwr:", Some(pwr_str), 62);
+                widgets::draw_list_row(lcd, slot, is_sel, "H1 PF6 Pwr:", Some(pwr_str), 62);
             }
             9 => {
+                let j4_str = if storage.radio.j4_sg_sh_en != 0 { "SG/SH BTN" } else { "SWD (DBG)" };
+                widgets::draw_list_row(lcd, slot, is_sel, "J4 Mode:", Some(j4_str), 62);
+            }
+            10 => {
+                let dup_str = if storage.radio.crsf_duplex != 0 { "HALF (PB6)" } else { "FULL (PB6/7)" };
+                widgets::draw_list_row(lcd, slot, is_sel, "CRSF Bay:", Some(dup_str), 62);
+            }
+            11 => {
+                let ppm_str = if storage.radio.ppm_out_en != 0 { "ENABLED" } else { "OFF" };
+                widgets::draw_list_row(lcd, slot, is_sel, "PF10 PPM:", Some(ppm_str), 62);
+            }
+            12 => {
                 let left_str = match storage.radio.rear_left_func {
                     1 => "TIMER RESET",
                     2 => "TRIMS MOD",
@@ -200,7 +229,7 @@ pub fn update_radio_setup(
                 };
                 widgets::draw_list_row(lcd, slot, is_sel, "Rear L Key:", Some(left_str), 62);
             }
-            10 => {
+            13 => {
                 let right_str = match storage.radio.rear_right_func {
                     1 => "INSTANT TRIM",
                     2 => "TRIMS MOD",
@@ -208,7 +237,7 @@ pub fn update_radio_setup(
                 };
                 widgets::draw_list_row(lcd, slot, is_sel, "Rear R Key:", Some(right_str), 62);
             }
-            11 => {
+            14 => {
                 let touch_str = if storage.radio.touch_disabled == 0 { "ENABLED" } else { "DISABLED" };
                 widgets::draw_list_row(lcd, slot, is_sel, "Touch Screen:", Some(touch_str), 62);
             }

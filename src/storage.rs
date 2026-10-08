@@ -60,7 +60,10 @@ pub struct RadioConfig {
     pub rear_left_func: u8,        // 70 (0: SW-E, 1: Timer Reset, 2: Trims)
     pub rear_right_func: u8,       // 71 (0: SW-F, 1: Instant Trim, 2: Trims)
     pub touch_disabled: u8,        // 72 (0: Enabled [default], 1: Disabled)
-    pub _reserved: [u8; 55],       // 73..128
+    pub j4_sg_sh_en: u8,           // 73 (0: Disabled / SWD PA13/PA14, 1: Enabled SG/SH tactile buttons)
+    pub crsf_duplex: u8,           // 74 (0: Full-Duplex PB6 TX / PB7 RX, 1: Half-Duplex single-wire PB6)
+    pub ppm_out_en: u8,            // 75 (0: Disabled, 1: Enabled PPM output on PF10)
+    pub _reserved: [u8; 52],       // 76..128
 }
 
 impl RadioConfig {
@@ -118,7 +121,10 @@ impl RadioConfig {
             rear_left_func: 0,
             rear_right_func: 0,
             touch_disabled: 0,
-            _reserved: [0; 55],
+            j4_sg_sh_en: 0,
+            crsf_duplex: 0,
+            ppm_out_en: 0,
+            _reserved: [0; 52],
         }
     }
 }
@@ -315,6 +321,15 @@ impl RadioStorage {
         }
         if self.radio.touch_disabled > 1 {
             self.radio.touch_disabled = 0;
+        }
+        if self.radio.j4_sg_sh_en > 1 {
+            self.radio.j4_sg_sh_en = 0;
+        }
+        if self.radio.crsf_duplex > 1 {
+            self.radio.crsf_duplex = 0;
+        }
+        if self.radio.ppm_out_en > 1 {
+            self.radio.ppm_out_en = 0;
         }
 
         for stick in self.radio.sticks.iter_mut() {
@@ -1070,6 +1085,9 @@ mod tests {
         assert_eq!(storage.radio.rear_left_func, 0);
         assert_eq!(storage.radio.rear_right_func, 0);
         assert_eq!(storage.radio.touch_disabled, 0);
+        assert_eq!(storage.radio.j4_sg_sh_en, 0);
+        assert_eq!(storage.radio.crsf_duplex, 0);
+        assert_eq!(storage.radio.ppm_out_en, 0);
 
         for (idx, m) in storage.models.iter().enumerate() {
             assert!(m.arm_switch <= 10, "arm_switch must be sanitized <= 10");

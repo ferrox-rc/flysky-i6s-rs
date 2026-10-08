@@ -319,7 +319,12 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
   - **`JOYSTICK`**: 100 Hz native USB Gamepad for flight simulators with silent RF standby (zero RF radiation, cool running).
   - **`SERIAL`**: Virtual COM Port (CDC-ACM) at 115200 baud streaming live JSON telemetry while maintaining normal RF transmission.
   - **`COMPOSITE`**: Simultaneous HID Gamepad + CDC-ACM Virtual COM Port.
-- **`PC13 Pwr:`**: Configures external module power polarity on `PC13`: `HIGH (N)` (default active-HIGH for N-channel MOSFET switches) or `LOW (P)` (active-LOW for P-channel MOSFET switches).
+- **`H1 PF6 Pwr:`**: Configures external module power polarity on `PF6` (header `H1` right pin): `HIGH (N)` (default active-HIGH for N-channel MOSFET switches) or `LOW (P)` (active-LOW for P-channel MOSFET switches).
+- **`J4 Mode:`**: Configures 4-pin SWD header `J4`: `SWD (DBG)` (standard ARM SWD debugger) or `SG/SH BTN` (enables `PA13` and `PA14` as momentary push-buttons / 2-pos switches SG and SH).
+- **`CRSF Bay:`**: Selects CRSF duplex mode on expansion connector `J15`: `FULL (PB6/7)` (full duplex PB6 TX, PB7 RX) or `HALF (PB6)` (single-wire half duplex on PB6).
+- **`PF10 PPM:`**: Configures analog 8-channel PPM frame generation on `PF10` (`J15`): `OFF` or `ENABLED`.
+- **`Rear L Key:`** / **`Rear R Key:`**: Configures front/rear tactile buttons `PA9`/`PA10` function: `RC SW (SWE/SWF)`, `TIMER RESET`, `INSTANT TRIM`, or `TRIMS MOD`.
+- **`Touch Screen:`**: Enables or disables FT6236 capacitive touch controller scanning.
 
 ### Submenu 9: Protocol Setup (`PROTOCOL SETUP`)
 Universal RF protocol and receiver configuration, saved per-model:
@@ -329,7 +334,7 @@ Universal RF protocol and receiver configuration, saved per-model:
     > **Servo Safety Warning**: Standard analog servos (e.g. SG90, MG90S) **MUST** be driven at 50 Hz. Feeding higher frequencies to analog servos can cause severe jitter, excessive heating, and motor burnout. Only select rates above 50 Hz when all connected servos are high-speed digital servos rated for higher frame rates.
   - `RX Out:`: Receiver output signal format: **`PWM`** (individual servo pin outputs) or **`PPM`** (composite Pulse Position Modulation stream on CH1).
   - `Serial:`: Receiver serial bus protocol: **`i-BUS`** (`0xDE`, FlySky proprietary bidirectional serial protocol) or **`S.BUS`** (`0xDD`, Futaba/FrSky inverted serial stream for flight controllers). Transmitted immediately over the air to reconfigure the receiver hardware dynamically.
-- **`Proto: CRSF`**: Drives external Crossfire, ExpressLRS, or compatible CRSF transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`. Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, and Configure Module:
+- **`Proto: CRSF`**: Drives external Crossfire, ExpressLRS, or compatible CRSF transmitter modules connected to the expansion header `J15` (`PB6` TX, `PB7` RX) with hardware power control on `PF6` (`H1`). Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, and Configure Module:
   - `Baud: 420k (ELRS)`: Default recommended speed for ExpressLRS.
   - `Baud: 416.6k (TBS)`: Standard TBS Crossfire module rate.
   - `Baud: 115.2k (Low)`: Low-speed compatibility / diagnostic rate.

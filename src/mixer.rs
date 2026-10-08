@@ -152,6 +152,10 @@ pub fn is_switch_active(condition: u8, switches: &Switches) -> bool {
         12 => switches.swe == SwitchPos::Down,
         13 => switches.swf == SwitchPos::Up,
         14 => switches.swf == SwitchPos::Down,
+        15 => switches.sg == SwitchPos::Up,
+        16 => switches.sg == SwitchPos::Down,
+        17 => switches.sh == SwitchPos::Up,
+        18 => switches.sh == SwitchPos::Down,
         _ => true,
     }
 }
@@ -274,6 +278,20 @@ pub fn evaluate_source(
         }
         32 => {
             if switches.swf == SwitchPos::Up {
+                MIXER_MIN as i32
+            } else {
+                MIXER_MAX as i32
+            }
+        }
+        33 => {
+            if switches.sg == SwitchPos::Up {
+                MIXER_MIN as i32
+            } else {
+                MIXER_MAX as i32
+            }
+        }
+        34 => {
+            if switches.sh == SwitchPos::Up {
                 MIXER_MIN as i32
             } else {
                 MIXER_MAX as i32
@@ -503,6 +521,8 @@ mod tests {
             sd: SwitchPos::Up,
             swe: SwitchPos::Up,
             swf: SwitchPos::Down,
+            sg: SwitchPos::Up,
+            sh: SwitchPos::Down,
         };
 
         assert!(is_switch_active(0, &switches), "Switch 0 is always active");
@@ -520,6 +540,10 @@ mod tests {
         assert!(!is_switch_active(12, &switches), "SWE Down");
         assert!(!is_switch_active(13, &switches), "SWF Up");
         assert!(is_switch_active(14, &switches), "SWF Down");
+        assert!(is_switch_active(15, &switches), "SG Up");
+        assert!(!is_switch_active(16, &switches), "SG Down");
+        assert!(!is_switch_active(17, &switches), "SH Up");
+        assert!(is_switch_active(18, &switches), "SH Down");
     }
 
     #[test]

@@ -251,27 +251,44 @@ The FlySky FS-i6S mainboard routes the Micro-USB port directly to the STM32F072 
   - **Composite (`0x1209:0x4968`)**: Simultaneous HID Gamepad and CDC-ACM Virtual COM Port via USB Interface Association Descriptors (IAD).
   - **Off**: D+ pull-up disconnected, peripheral clock gated to eliminate battery consumption during charging.
 
-### Rear Expansion Bay & Trainer Port (CRSF / ELRS Ready)
-The 4-pin round rear port (and internal expansion header / connector `J15`) connects to the MCU's hardware `USART2`:
+### Rear Expansion Bay & Internal Headers (CRSF / ELRS / PPM / Switches Ready)
 
-| Pin / Net | MCU Pin | Function | Notes |
+The FS-i6S mainboard provides dedicated extension headers for external modules, trainer output, and additional switches:
+
+#### Expansion Header `J15` & Hardware `USART1`
+
+Internal header `J15` routes MCU pins directly for CRSF/ELRS serial communication and analog PPM-out:
+
+| Signal | MCU Pin | Peripheral | Description |
 | :--- | :--- | :--- | :--- |
-| **Signal TX** | `PD5` | `USART2_TX` (AF0) | Serial output to external module; broken out at test pad **`TX`** directly above `J15` |
-| **Signal RX** | `PA15` | `USART2_RX` (AF1) | Serial telemetry downlink; broken out at test pad **`RX`** directly above `J15` (shared with `TOUCH_RST`) |
-| **Module Power**| `PC13` | Power Switch GPIO | Configurable polarity (Default High / Active Low supported in Radio Setup) |
-| **Baud Rate** | Selectable | 8N1 | 420k (ELRS), 416.6k (TBS), 115.2k (Low), 921.6k (Fast) |
+| **CRSF TX / Single-Wire** | `PB6` | `USART1_TX` (AF0) | Full-duplex serial TX or single-wire half-duplex bidirectional pin (`HDSEL`) |
+| **CRSF RX** | `PB7` | `USART1_RX` (AF0) | Full-duplex serial RX (telemetry downlink) |
+| **PPM Out** | `PF10` | GPIO Out | Standard 8-channel PPM pulse train (22.5 ms frame period, 400 µs sync) |
 
-#### PCB Test Pads & Wiring (`J15`)
-Directly above internal connector `J15` (between the 8-pin harness and the internal RF module shield), two circular solder test pads are silk-screened **`TX`** and **`RX`**:
-- **`TX` Pad:** `PD5` (`USART2_TX`). Wire to external CRSF module `RX`.
-- **`RX` Pad:** `PA15` (`USART2_RX`). Wire to external CRSF module `TX` (telemetry).
+- **Baud Rates**: 420,000 bps (ELRS default), 416,666 bps (TBS), 115,200 bps (Low), 921,600 bps (Fast).
+- **Duplex Mode**: Configurable via `Radio Setup` -> `CRSF Bay`: `FULL (PB6/7)` or `HALF (PB6)`. In half-duplex mode, `PB6` functions as open-drain bidirectional line with internal pull-up.
 
-#### PA15 Decoupling from Touch Controller (`TOUCH_RST`)
-On the FS-i6S, `PA15` is also connected to Pin 4 (`RST`) of touch FPC connector `J13` (`TOUCH_RST`). For full-duplex operation, several decoupling options exist:
-1. **Low-Pass RC Filter (Non-Destructive):** Place an inline $10\text{ k}\Omega$ resistor and $100\text{ nF}$ capacitor to GND ($\tau = 1.0\text{ ms}$) on the touch reset line. Filters out 420 kbaud serial transitions ($\sim 2.4\ \mu\text{s}$) while allowing the 20 ms boot pulse to pass.
-2. **Permanent VDD Tie-High:** Remove the series resistor / cut the trace between `PA15` and `J13` Pin 4, and tie `J13` Pin 4 to 3.3V (FT6236 uses internal Power-On Reset).
-3. **GPIO Remap:** Rewire `J13` Pin 4 to an unused RF module pad (e.g. `RF_GIO1` / `PE14`) and update the driver in `src/touch/ft6236.rs`.
-4. **Single-Wire Half-Duplex:** Alternatively, run single-wire half-duplex CRSF on `PD5` (`HDSEL = 1`), leaving `PA15` untouched as a static GPIO High.
+#### External Power Switch Header `H1`
+
+Header `H1` provides external module power switching:
+- **Right pin**: `PF6` (GPIO Output)
+- **Left pin**: GND
+
+Configurable polarity via `Radio Setup` -> `H1 PF6 Pwr`:
+- **`HIGH (N)`**: Active HIGH logic level (powers N-channel MOSFET or active-high switch).
+- **`LOW (P)`**: Active LOW logic level (powers P-channel MOSFET or PNP power stage).
+
+#### Tactile Button Extension Header `J4` (SWD / SG & SH Buttons)
+
+Header `J4` is the 4-pin SWD programming header:
+- Pin 1: GND
+- Pin 2: `PA14` (SWCLK / Switch SH)
+- Pin 3: `PA13` (SWDIO / Switch SG)
+- Pin 4: 3.3V
+
+Configurable via `Radio Setup` -> `J4 Mode`:
+- **`SWD (DBG)`**: Standard ARM SWD debugging and programming mode.
+- **`SG/SH BTN`**: Configures `PA13` and `PA14` as GPIO inputs with internal pull-ups, functioning as momentary push-buttons / 2-position switches for **SG** and **SH**. When enabled, SG and SH are displayed on the main-page dashboard and available in mixer sources / conditions.
 
 See [CRSF / ExpressLRS Subsystem Guide](CRSF_ELRS_GUIDE.md) for complete details.
 

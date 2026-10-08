@@ -56,8 +56,8 @@ The FlySky FS-i6S features an elegant industrial design with an integrated capac
 | | Potentiometers (VRA, VRB)| `PA6`, `PA7` | Channels 6 (VR1 / Left), 7 (VR2 / Right) |
 | | Switches (SA, SB, SC, SD)| `PA4`, `PA5`, `PB0`, `PB1` | Channels 4 (2-pos), 5 (3-pos), 8 (3-pos), 9 (2-pos) |
 | | Battery Sense | `PC0` | Channel 10 ($10\text{ k}\Omega / 5.1\text{ k}\Omega$ divider: `(raw * 977064) / 409500`) |
-| **Storage** | On-chip Flash (Pages 60–63)| `0x0801_E000 .. 0x0801_FFFF` (8 KB) | Append-only sequential storage (Keys 0..20, ~2.8 ms save) |
-| **Telemetry / Serial**| UART Interfaces | `USART2` (PD5 Tx / PA15 Rx) | External CRSF / ELRS module bay; interrupt RX with 128B ring buffer & ORE recovery |
+| **Telemetry / Serial**| UART Interfaces | `USART1` (PB6 Tx / PB7 Rx on J15) | External CRSF / ELRS module bay; full & half-duplex, interrupt RX with 128B ring buffer & ORE recovery |
+| **Extensions** | J15 & H1 & J4 | `PF10` PPM / `PF6` Pwr / `PA13-14` SG-SH | Analog PPM output, configurable power switch polarity, SWD tactile button expansion |
 | **USB Controller** | Native USB Full-Speed (12 Mbps)| `PA11` (D-) / `PA12` (D+) | Joystick HID, CDC-ACM Serial, Composite, Off |
 | **Audio** | Piezo Buzzer | `TIM1_CH1` (`PA8`) | Hardware PWM frequency & tone generator |
 
@@ -256,9 +256,11 @@ Comprehensive technical documentation is maintained in the [`docs/`](docs/) dire
 - [x] Non-volatile `USB Mode` setting in `Radio Setup` (`OFF`, `JOYSTICK`, `SERIAL`, `COMPOSITE`).
 - [x] Main Menu Item 9 repurposed as `Protocol Setup` supporting `AFHDS 2A` internal RF and external `CRSF / ELRS` transmitter modules.
 
-### Phase 14: CRSF / ExpressLRS & Memory Hardening (COMPLETED)
-- [x] Full Crossfire (CRSF) & ExpressLRS driver on `USART2` (`PD5` TX, `PA15` RX) with selectable baud rates (420k, 416.6k, 115.2k, 921.6k).
-- [x] Configurable external module power switch polarity on `PC13` (`Radio Setup` -> `Ext Module Power: HIGH/LOW`).
+### Phase 14: CRSF / ExpressLRS & FS-i6S Extension Bay (COMPLETED)
+- [x] Full Crossfire (CRSF) & ExpressLRS driver on `USART1` (`PB6` TX, `PB7` RX on `J15`) with selectable baud rates (420k, 416.6k, 115.2k, 921.6k) and full/half-duplex modes (`HDSEL`).
+- [x] Configurable external module power switch polarity on `PF6` (header `H1`: `HIGH (N)` / `LOW (P)`).
+- [x] Analog PPM output generator on `PF10` (`J15` header) with 22.5 ms frame timing.
+- [x] J4 SWD tactile button expansion: `PA13` (SG) and `PA14` (SH) with UI dashboard indicators.
 - [x] Native on-radio ExpressLRS configurator engine (0 heap allocations, reads/writes parameters and runs module commands).
 - [x] Native CRSF link diagnostics screen on Flight Page 4 (LQ, RSSI dBm, SNR dB, Active Antenna, TX Power mW, RF Rate, Battery Voltage, Capacity).
 - [x] Universal JSON telemetry streaming over USB CDC including full CRSF downlink telemetry metrics.

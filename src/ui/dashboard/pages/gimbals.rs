@@ -60,21 +60,50 @@ pub fn render(
     lcd.draw_str_6x10(92, 35, p4, false);
 
     // Switches Line with graphic arrows (y = 46..53, text baseline was 53 -> top-left y = 45)
-    lcd.draw_str_6x10(2, 45, "A", false);
-    draw_switch_arrow(lcd, 9, 46, state.switches.sa);
+    let sg_sh_active = storage.radio.j4_sg_sh_en != 0;
 
-    lcd.draw_str_6x10(20, 45, "B", false);
-    draw_switch_arrow(lcd, 27, 46, state.switches.sb);
+    if sg_sh_active {
+        // 8 switches: A, B, C, D, E, F, G, H with 4x6 labels and compact arrows
+        let sw_list = [
+            ("A", state.switches.sa),
+            ("B", state.switches.sb),
+            ("C", state.switches.sc),
+            ("D", state.switches.sd),
+            ("E", state.switches.swe),
+            ("F", state.switches.swf),
+            ("G", state.switches.sg),
+            ("H", state.switches.sh),
+        ];
+        let mut x = 2;
+        for (lbl, pos) in sw_list.iter() {
+            lcd.draw_str_4x6(x, 47, lbl, false);
+            draw_switch_arrow(lcd, x + 5, 46, *pos);
+            x += 12;
+        }
 
-    lcd.draw_str_6x10(38, 45, "C", false);
-    draw_switch_arrow(lcd, 45, 46, state.switches.sc);
+        // Pots: Compact split bar on right (x = 98..126)
+        widgets::draw_split_pot_bar(lcd, 100, 46, 26, state.pots.vr1, state.pots.vr2);
+    } else {
+        // 6 switches: A, B, C, D, E, F
+        let sw_list = [
+            ("A", state.switches.sa),
+            ("B", state.switches.sb),
+            ("C", state.switches.sc),
+            ("D", state.switches.sd),
+            ("E", state.switches.swe),
+            ("F", state.switches.swf),
+        ];
+        let mut x = 2;
+        for (lbl, pos) in sw_list.iter() {
+            lcd.draw_str_4x6(x, 47, lbl, false);
+            draw_switch_arrow(lcd, x + 6, 46, *pos);
+            x += 14;
+        }
 
-    lcd.draw_str_6x10(56, 45, "D", false);
-    draw_switch_arrow(lcd, 63, 46, state.switches.sd);
-
-    // Pots: Split bar on right (Top: VRa, Bottom: VRb) (text baseline was 52, 4x6 -> top-left y = 47)
-    lcd.draw_str_4x6(74, 47, "VR", false);
-    widgets::draw_split_pot_bar(lcd, 84, 46, 42, state.pots.vr1, state.pots.vr2);
+        // Pots: Split bar on right (Top: VRa, Bottom: VRb) (text baseline was 52, 4x6 -> top-left y = 47)
+        lcd.draw_str_4x6(86, 47, "VR", false);
+        widgets::draw_split_pot_bar(lcd, 96, 46, 30, state.pots.vr1, state.pots.vr2);
+    }
 
     // Standardized Footer (y = 55..63)
     if is_binding {

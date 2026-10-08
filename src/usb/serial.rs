@@ -174,7 +174,7 @@ impl SerialHandler {
                 .as_bytes(),
             );
             if crate::crsf::is_enabled() {
-                write_all(serial, b"Protocol: CRSF / ExpressLRS (PD5 UART active)\r\n");
+                write_all(serial, b"Protocol: CRSF / ExpressLRS (USART1 PB6/PB7 active)\r\n");
             } else {
                 write_all(serial, b"Protocol: AFHDS 2A (A7105 SPI active)\r\n");
             }

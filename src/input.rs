@@ -46,6 +46,8 @@ pub struct Switches {
     pub sd: SwitchPos,  // 2-pos
     pub swe: SwitchPos, // 2-pos (Rear Left PA9)
     pub swf: SwitchPos, // 2-pos (Rear Right PA10)
+    pub sg: SwitchPos,  // 2-pos (J4 PA13 SWDIO when enabled)
+    pub sh: SwitchPos,  // 2-pos (J4 PA14 SWCLK when enabled)
 }
 
 impl Switches {
@@ -57,10 +59,12 @@ impl Switches {
             sd: SwitchPos::Up,
             swe: SwitchPos::Up,
             swf: SwitchPos::Up,
+            sg: SwitchPos::Up,
+            sh: SwitchPos::Up,
         }
     }
 
-    /// Detect if a switch moved between prev and self, returning the matching condition index 1..14.
+    /// Detect if a switch moved between prev and self, returning the matching condition index 1..18.
     pub fn detect_condition_change(&self, prev: &Switches) -> Option<u8> {
         if self.sa != prev.sa {
             return Some(if self.sa == SwitchPos::Up { 1 } else { 2 });
@@ -87,6 +91,12 @@ impl Switches {
         }
         if self.swf != prev.swf {
             return Some(if self.swf == SwitchPos::Up { 13 } else { 14 });
+        }
+        if self.sg != prev.sg {
+            return Some(if self.sg == SwitchPos::Up { 15 } else { 16 });
+        }
+        if self.sh != prev.sh {
+            return Some(if self.sh == SwitchPos::Up { 17 } else { 18 });
         }
         None
     }
@@ -351,6 +361,8 @@ pub fn poll() -> InputState {
         sd: decode_switch(raw[9]), // PB1
         swe: SwitchPos::Up,
         swf: SwitchPos::Up,
+        sg: SwitchPos::Up,
+        sh: SwitchPos::Up,
     };
 
     let instant_mv = calculate_battery_mv(raw[10]); // PC0

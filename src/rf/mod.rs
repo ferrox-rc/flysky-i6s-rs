@@ -1,10 +1,11 @@
-//! RF subsystem module for the FlySky FS-i6X.
+//! RF subsystem module for the FlySky FS-i6S.
 //!
-//! Orchestrates the A7105 2.4 GHz transceiver, SPI1 driver, and AFHDS 2A stack
-//! via TIM16 (3.85 ms framing) and EXTI2 (A7105 GIO2 WTR signal).
+//! Orchestrates the A7105 2.4 GHz transceiver, SPI1 driver, AFHDS 2A stack
+//! via TIM16 (3.85 ms framing) and EXTI2, as well as PPM output on PF10.
 
 pub mod a7105;
 pub mod afhds2a;
+pub mod ppm_out;
 pub mod spi;
 
 use crate::mixer::SAFE_IDLE_CHANNELS;

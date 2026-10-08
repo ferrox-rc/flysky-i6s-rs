@@ -107,6 +107,16 @@ impl FlightPipeline {
             state.switches.swf = input::SwitchPos::Up;
         }
 
+        // Update SG and SH from J4 (PA13/PA14) if enabled
+        if storage.radio.j4_sg_sh_en != 0 {
+            let (sg_pressed, sh_pressed) = boot::read_j4_buttons();
+            state.switches.sg = if sg_pressed { input::SwitchPos::Down } else { input::SwitchPos::Up };
+            state.switches.sh = if sh_pressed { input::SwitchPos::Down } else { input::SwitchPos::Up };
+        } else {
+            state.switches.sg = input::SwitchPos::Up;
+            state.switches.sh = input::SwitchPos::Up;
+        }
+
         // 2. Resynchronize arm state when active model changes or when exiting settings menu
         if storage.radio.active_model != self.prev_active_model {
             self.prev_active_model = storage.radio.active_model;
@@ -164,14 +174,15 @@ impl FlightPipeline {
 
         if is_crsf {
             let crsf_active = !sim_mode;
-            crsf::set_enabled(crsf_active, active_model.crsf_baud);
+            let half_duplex = storage.radio.crsf_duplex != 0;
+            crsf::set_enabled(crsf_active, active_model.crsf_baud, half_duplex);
             if crsf_active {
                 crsf::update_channels(now, &rf_chs);
                 crsf::poll_telemetry(now);
             }
             rf::set_silenced(true);
         } else {
-            crsf::set_enabled(false, 0);
+            crsf::set_enabled(false, 0, false);
             rf::set_silenced(sim_mode);
             if !sim_mode {
                 rf::set_channels(&rf_chs);
@@ -975,6 +986,7 @@ fn main() -> ! {
     // 8. Initialize input calibration and capture resting stick centers
     input::init();
     input::apply_calibration(&storage.radio);
+    boot::init_j4_keys(storage.radio.j4_sg_sh_en != 0);
     watchdog::feed();
     {
         let now = time::millis();
@@ -1012,8 +1024,11 @@ fn main() -> ! {
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
 
-    // Initialize CRSF / ExpressLRS expansion bay peripheral (USART2 & PC13)
+    // Initialize CRSF / ExpressLRS expansion bay peripheral (USART1 PB6/PB7 & PF6)
     crsf::init(storage.radio.ext_module_pwr == 0);
+
+    // Initialize PPM output peripheral on PF10 (J15 header)
+    rf::ppm_out::init(storage.radio.ppm_out_en != 0);
 
     let mut trims = trim::TrimController::new();
     trims.throttle_enabled = storage.radio.throttle_trim != 0;

@@ -98,6 +98,57 @@ pub fn read_front_buttons() -> (bool, bool) {
     }
 }
 
+#[cfg(test)]
+static TEST_J4_SG: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static TEST_J4_SH: AtomicBool = AtomicBool::new(false);
+
+/// Configure J4 pins PA13 (SWDIO) and PA14 (SWCLK) as GPIO inputs with pull-ups for SG and SH buttons.
+pub fn init_j4_keys(enabled: bool) {
+    #[cfg(not(test))]
+    if enabled {
+        let gpioa = unsafe { &*pac::GPIOA::ptr() };
+        unsafe {
+            // PA13: bits 27:26 = 00 (Input), PA14: bits 29:28 = 00 (Input)
+            gpioa.moder.modify(|r, w| w.bits(r.bits() & !(0x0F << 26)));
+            // PUPDR: PA13 bits 27:26 = 01 (Pull-up), PA14 bits 29:28 = 01 (Pull-up)
+            gpioa.pupdr.modify(|r, w| {
+                let val = r.bits();
+                w.bits((val & !(0x0F << 26)) | (0x05 << 26))
+            });
+        }
+    }
+    #[cfg(test)]
+    let _ = enabled;
+}
+
+/// Read J4 tactile buttons: PA13 (SG), PA14 (SH).
+/// Returns `(sg_pressed, sh_pressed)` (Active LOW: pressed when grounded).
+pub fn read_j4_buttons() -> (bool, bool) {
+    #[cfg(not(test))]
+    {
+        let gpioa = unsafe { &*pac::GPIOA::ptr() };
+        let idr = gpioa.idr.read().bits();
+        let sg = (idr & (1 << 13)) == 0;
+        let sh = (idr & (1 << 14)) == 0;
+        (sg, sh)
+    }
+
+    #[cfg(test)]
+    {
+        (
+            TEST_J4_SG.load(core::sync::atomic::Ordering::SeqCst),
+            TEST_J4_SH.load(core::sync::atomic::Ordering::SeqCst),
+        )
+    }
+}
+
+#[cfg(test)]
+pub fn set_test_j4_buttons(sg: bool, sh: bool) {
+    TEST_J4_SG.store(sg, core::sync::atomic::Ordering::SeqCst);
+    TEST_J4_SH.store(sh, core::sync::atomic::Ordering::SeqCst);
+}
+
 /// Backward-compatible alias for `read_front_buttons()`.
 #[inline(always)]
 pub fn read_rear_buttons() -> (bool, bool) {
