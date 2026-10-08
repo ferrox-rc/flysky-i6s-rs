@@ -1,8 +1,8 @@
 //! Hardware USART2 driver and PC13 power switch control for CRSF / ExpressLRS.
 //!
 //! Pin mapping:
-//! - PD5:  USART2_TX (AF0, Push-Pull, High Speed)
-//! - PA15: USART2_RX (AF1, Pull-Up, High Speed)
+//! - PB6:  USART2_TX (AF0, Push-Pull, High Speed)
+//! - PB7:  USART2_RX (AF0, Pull-Up, High Speed)
 //! - PC13: Module Power Switch (GPIO Output, Push-Pull, High = Power ON)
 
 #![allow(dead_code)]
@@ -13,21 +13,15 @@ use core::ptr;
 const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
 const RCC_APB1ENR: *mut u32 = 0x4002_101C as *mut u32;
 
-// GPIOA registers (Base: 0x4800_0000)
-const GPIOA_MODER: *mut u32 = 0x4800_0000 as *mut u32;
-const GPIOA_OSPEEDR: *mut u32 = 0x4800_0008 as *mut u32;
-const GPIOA_PUPDR: *mut u32 = 0x4800_000C as *mut u32;
-const GPIOA_AFRH: *mut u32 = 0x4800_0024 as *mut u32;
+// GPIOB registers (Base: 0x4800_0400)
+const GPIOB_MODER: *mut u32 = 0x4800_0400 as *mut u32;
+const GPIOB_OSPEEDR: *mut u32 = 0x4800_0408 as *mut u32;
+const GPIOB_PUPDR: *mut u32 = 0x4800_040C as *mut u32;
+const GPIOB_AFRL: *mut u32 = 0x4800_0420 as *mut u32;
 
 // GPIOC registers (Base: 0x4800_0800)
 const GPIOC_MODER: *mut u32 = 0x4800_0800 as *mut u32;
 const GPIOC_BSRR: *mut u32 = 0x4800_0818 as *mut u32;
-
-// GPIOD registers (Base: 0x4800_0C00)
-const GPIOD_MODER: *mut u32 = 0x4800_0C00 as *mut u32;
-const GPIOD_OSPEEDR: *mut u32 = 0x4800_0C08 as *mut u32;
-const GPIOD_PUPDR: *mut u32 = 0x4800_0C0C as *mut u32;
-const GPIOD_AFRL: *mut u32 = 0x4800_0C20 as *mut u32;
 
 // USART2 registers (Base: 0x4000_4400)
 const USART2_CR1: *mut u32 = 0x4000_4400 as *mut u32;
@@ -125,16 +119,16 @@ pub mod mock {
     }
 }
 
-/// Initialize GPIO pins: PC13 as power switch (initially OFF), PD5 and PA15 peripheral clocks.
+/// Initialize GPIO pins: PC13 as power switch (initially OFF), PB6 and PB7 peripheral clocks.
 pub fn init(active_high: bool) {
     #[cfg(not(test))]
     unsafe {
         ACTIVE_HIGH.store(active_high, Ordering::Relaxed);
         POWER_ON.store(false, Ordering::Relaxed);
 
-        // Enable GPIOA (bit 17), GPIOC (bit 19), GPIOD (bit 20) clocks
+        // Enable GPIOB (bit 18), GPIOC (bit 19) clocks
         let ahb = ptr::read_volatile(RCC_AHBENR);
-        ptr::write_volatile(RCC_AHBENR, ahb | (1 << 17) | (1 << 19) | (1 << 20));
+        ptr::write_volatile(RCC_AHBENR, ahb | (1 << 18) | (1 << 19));
 
         // Configure PC13 as output (MODER 01)
         let c_moder = ptr::read_volatile(GPIOC_MODER);
@@ -189,21 +183,25 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             let apb1 = ptr::read_volatile(RCC_APB1ENR);
             ptr::write_volatile(RCC_APB1ENR, apb1 | (1 << 17));
 
-            // 2. Configure PD5 as AF0 (USART2_TX): MODER=10, AFRL bit 20..23 = 0000
-            let d_moder = ptr::read_volatile(GPIOD_MODER);
-            ptr::write_volatile(GPIOD_MODER, (d_moder & !(3 << 10)) | (2 << 10));
-            let d_ospeedr = ptr::read_volatile(GPIOD_OSPEEDR);
-            ptr::write_volatile(GPIOD_OSPEEDR, d_ospeedr | (3 << 10)); // High speed
-            let d_afrl = ptr::read_volatile(GPIOD_AFRL);
-            ptr::write_volatile(GPIOD_AFRL, d_afrl & !(0xF << 20)); // AF0
+            // Ensure GPIOB clock is enabled (bit 18)
+            let ahb = ptr::read_volatile(RCC_AHBENR);
+            ptr::write_volatile(RCC_AHBENR, ahb | (1 << 18));
 
-            // 3. Configure PA15 as AF1 (USART2_RX): MODER=10, AFRH bit 28..31 = 0001
-            let a_moder = ptr::read_volatile(GPIOA_MODER);
-            ptr::write_volatile(GPIOA_MODER, (a_moder & !(3 << 30)) | (2 << 30));
-            let a_pupdr = ptr::read_volatile(GPIOA_PUPDR);
-            ptr::write_volatile(GPIOA_PUPDR, (a_pupdr & !(3 << 30)) | (1 << 30)); // Pull-up
-            let a_afrh = ptr::read_volatile(GPIOA_AFRH);
-            ptr::write_volatile(GPIOA_AFRH, (a_afrh & !(0xF << 28)) | (1 << 28)); // AF1
+            // 2. Configure PB6 as AF0 (USART2_TX): MODER=10 (bits 13:12), OSPEEDR=11 (bits 13:12), AFRL=0000 (bits 27:24)
+            let b_moder = ptr::read_volatile(GPIOB_MODER);
+            ptr::write_volatile(GPIOB_MODER, (b_moder & !(3 << 12)) | (2 << 12));
+            let b_ospeedr = ptr::read_volatile(GPIOB_OSPEEDR);
+            ptr::write_volatile(GPIOB_OSPEEDR, b_ospeedr | (3 << 12)); // High speed
+            let b_afrl = ptr::read_volatile(GPIOB_AFRL);
+            ptr::write_volatile(GPIOB_AFRL, b_afrl & !(0xF << 24)); // AF0
+
+            // 3. Configure PB7 as AF0 (USART2_RX): MODER=10 (bits 15:14), PUPDR=01 (bits 15:14 pull-up), AFRL=0000 (bits 31:28)
+            let b_moder2 = ptr::read_volatile(GPIOB_MODER);
+            ptr::write_volatile(GPIOB_MODER, (b_moder2 & !(3 << 14)) | (2 << 14));
+            let b_pupdr = ptr::read_volatile(GPIOB_PUPDR);
+            ptr::write_volatile(GPIOB_PUPDR, (b_pupdr & !(3 << 14)) | (1 << 14)); // Pull-up
+            let b_afrl2 = ptr::read_volatile(GPIOB_AFRL);
+            ptr::write_volatile(GPIOB_AFRL, b_afrl2 & !(0xF << 28)); // AF0
 
             // 4. Reset USART2 registers
             ptr::write_volatile(USART2_CR1, 0);
@@ -244,11 +242,9 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8) {
             let apb1 = ptr::read_volatile(RCC_APB1ENR);
             ptr::write_volatile(RCC_APB1ENR, apb1 & !(1 << 17));
 
-            // Set PD5 and PA15 back to inputs to float pins
-            let d_moder = ptr::read_volatile(GPIOD_MODER);
-            ptr::write_volatile(GPIOD_MODER, d_moder & !(3 << 10));
-            let a_moder = ptr::read_volatile(GPIOA_MODER);
-            ptr::write_volatile(GPIOA_MODER, a_moder & !(3 << 30));
+            // Set PB6 and PB7 back to inputs (floating/pull-up default)
+            let b_moder = ptr::read_volatile(GPIOB_MODER);
+            ptr::write_volatile(GPIOB_MODER, b_moder & !((3 << 12) | (3 << 14)));
         }
     }
     #[cfg(test)]

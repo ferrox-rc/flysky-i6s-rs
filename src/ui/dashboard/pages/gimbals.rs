@@ -1,11 +1,5 @@
 //! Page 0 (P1/4): Primary Gimbals & Trims, Switches, Pots, and Trim status.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
 
 use crate::display::St7567;
 use crate::input::InputState;
@@ -27,61 +21,59 @@ pub fn render(
     timer_expired: bool,
     blink_on: bool,
 ) {
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let mut pct_buf = [0u8; 5];
     let is_general = storage.active_model().model_type == 4;
 
-    // CH1: Roll / 1 (y = 13)
+    // CH1: Roll / 1 (y = 13, text baseline was 19 -> top-left y = 11)
     let lbl1 = if is_general { "1" } else { "A" };
-    Text::new(lbl1, Point::new(2, 19), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(2, 11, lbl1, false);
     widgets::draw_channel_gauge(lcd, 12, 13, 76, 7, state.sticks.roll, trims.values.roll);
     let p1 = format_percent(state.sticks.roll, &mut pct_buf);
-    Text::new(p1, Point::new(92, 19), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(92, 11, p1, false);
 
-    // CH2: Pitch / 2 (y = 21)
+    // CH2: Pitch / 2 (y = 21, text baseline was 27 -> top-left y = 19)
     let lbl2 = if is_general { "2" } else { "E" };
-    Text::new(lbl2, Point::new(2, 27), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(2, 19, lbl2, false);
     widgets::draw_channel_gauge(lcd, 12, 21, 76, 7, state.sticks.pitch, trims.values.pitch);
     let p2 = format_percent(state.sticks.pitch, &mut pct_buf);
-    Text::new(p2, Point::new(92, 27), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(92, 19, p2, false);
 
-    // CH3: Throttle / 3 (y = 29)
+    // CH3: Throttle / 3 (y = 29, text baseline was 35 -> top-left y = 27)
     let lbl3 = if is_general { "3" } else { "T" };
-    Text::new(lbl3, Point::new(2, 35), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(2, 27, lbl3, false);
     if is_general {
         widgets::draw_channel_gauge(lcd, 12, 29, 76, 7, state.sticks.throttle, trims.values.throttle);
         let p3 = format_percent(state.sticks.throttle, &mut pct_buf);
-        Text::new(p3, Point::new(92, 35), text_style).draw(lcd).ok();
+        lcd.draw_str_6x10(92, 27, p3, false);
     } else {
         let thr_trim = if storage.radio.throttle_trim != 0 { trims.values.throttle } else { 0 };
         widgets::draw_progress_bar(lcd, 12, 29, 76, 7, state.sticks.throttle, thr_trim);
         let p3 = format_throttle_percent(state.sticks.throttle, &mut pct_buf);
-        Text::new(p3, Point::new(92, 35), text_style).draw(lcd).ok();
+        lcd.draw_str_6x10(92, 27, p3, false);
     }
 
-    // CH4: Yaw / 4 (y = 37)
+    // CH4: Yaw / 4 (y = 37, text baseline was 43 -> top-left y = 35)
     let lbl4 = if is_general { "4" } else { "R" };
-    Text::new(lbl4, Point::new(2, 43), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(2, 35, lbl4, false);
     widgets::draw_channel_gauge(lcd, 12, 37, 76, 7, state.sticks.yaw, trims.values.yaw);
     let p4 = format_percent(state.sticks.yaw, &mut pct_buf);
-    Text::new(p4, Point::new(92, 43), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(92, 35, p4, false);
 
-    // Switches Line with graphic arrows (y = 46..53)
-    Text::new("A", Point::new(2, 53), text_style).draw(lcd).ok();
+    // Switches Line with graphic arrows (y = 46..53, text baseline was 53 -> top-left y = 45)
+    lcd.draw_str_6x10(2, 45, "A", false);
     draw_switch_arrow(lcd, 9, 46, state.switches.sa);
 
-    Text::new("B", Point::new(20, 53), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(20, 45, "B", false);
     draw_switch_arrow(lcd, 27, 46, state.switches.sb);
 
-    Text::new("C", Point::new(38, 53), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(38, 45, "C", false);
     draw_switch_arrow(lcd, 45, 46, state.switches.sc);
 
-    Text::new("D", Point::new(56, 53), text_style).draw(lcd).ok();
+    lcd.draw_str_6x10(56, 45, "D", false);
     draw_switch_arrow(lcd, 63, 46, state.switches.sd);
 
-    // Pots: Split bar on right (Top: VRa, Bottom: VRb)
-    Text::new("VR", Point::new(74, 52), text_style_small).draw(lcd).ok();
+    // Pots: Split bar on right (Top: VRa, Bottom: VRb) (text baseline was 52, 4x6 -> top-left y = 47)
+    lcd.draw_str_4x6(74, 47, "VR", false);
     widgets::draw_split_pot_bar(lcd, 84, 46, 42, state.pots.vr1, state.pots.vr2);
 
     // Standardized Footer (y = 55..63)

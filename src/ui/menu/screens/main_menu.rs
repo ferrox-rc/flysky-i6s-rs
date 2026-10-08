@@ -1,6 +1,3 @@
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
-
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::menu::widgets;
@@ -8,10 +5,9 @@ use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::storage::{RadioStorage, NUM_MODELS};
 use crate::ui::glyphs::{draw_glyph_12x12, MENU_GLYPHS};
 
-fn draw_menu_icon(lcd: &mut St7567, idx: usize, pt: Point, color: BinaryColor) {
+fn draw_menu_icon(lcd: &mut St7567, idx: usize, x: i32, y: i32, on: bool) {
     if idx < MENU_GLYPHS.len() {
-        let on = color == BinaryColor::On;
-        draw_glyph_12x12(lcd, pt.x, pt.y, MENU_GLYPHS[idx], on);
+        draw_glyph_12x12(lcd, x, y, MENU_GLYPHS[idx], on);
     }
 }
 
@@ -146,7 +142,7 @@ pub fn update(
             lcd,
             slot,
             is_selected,
-            Some(|lcd: &mut St7567, pt, color| draw_menu_icon(lcd, idx, pt, color)),
+            Some(|lcd: &mut St7567, x, y, on| draw_menu_icon(lcd, idx, x, y, on)),
             items[idx],
             None,
             0,

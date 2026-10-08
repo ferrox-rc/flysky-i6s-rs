@@ -1,13 +1,5 @@
 //! Dual Rate / Expo, Throttle Curve, Wing Templates, and Mixer Line Editor screens.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
-    text::Text,
-};
-
 use crate::buzzer::Buzzer;
 use crate::curve;
 use crate::display::St7567;
@@ -61,18 +53,18 @@ pub fn update_dual_rate(
         // Editing value
         match ctrl.selected_item {
             0 => {
-                // Switch (0..4)
+                // Switch (0..6)
                 if let Some(dr) = keys.dr_change {
                     storage.models[active_idx].dr_switch = dr;
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
                     storage.models[active_idx].dr_switch =
-                        (storage.models[active_idx].dr_switch + 1) % 5;
+                        (storage.models[active_idx].dr_switch + 1) % 7;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
                     storage.models[active_idx].dr_switch =
                         if storage.models[active_idx].dr_switch == 0 {
-                            4
+                            6
                         } else {
                             storage.models[active_idx].dr_switch - 1
                         };
@@ -154,7 +146,7 @@ pub fn update_dual_rate(
         match idx {
             0 => {
                 let sw_name =
-                    DR_SWITCH_NAMES[(storage.models[active_idx].dr_switch as usize).min(4)];
+                    DR_SWITCH_NAMES[(storage.models[active_idx].dr_switch as usize).min(6)];
                 widgets::draw_list_row(lcd, slot, is_sel, "Switch:", Some(sw_name), 60);
             }
             1 => {
@@ -321,10 +313,6 @@ pub fn update_throttle_curve(
 
     widgets::draw_header(lcd, "THROTTLE CURVE");
 
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
-    let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-
     // Left side: Mode & active point info
     let mode_str = if storage.models[active_idx].thr_curve_pts == 9 {
         "9-PT"
@@ -333,25 +321,10 @@ pub fn update_throttle_curve(
     };
     let is_sel_pts = !ctrl.editing && ctrl.selected_item == 0;
     if is_sel_pts {
-        Rectangle::new(Point::new(2, 13), Size::new(70, 9))
-            .into_styled(fill_style)
-            .draw(lcd)
-            .ok();
-        let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        Text::new("Pts:", Point::new(4, 20), inv_style)
-            .draw(lcd)
-            .ok();
-        Text::new(mode_str, Point::new(32, 20), inv_style)
-            .draw(lcd)
-            .ok();
-    } else {
-        Text::new("Pts:", Point::new(4, 20), text_style)
-            .draw(lcd)
-            .ok();
-        Text::new(mode_str, Point::new(32, 20), text_style)
-            .draw(lcd)
-            .ok();
+        lcd.fill_rect(2, 13, 70, 9, true);
     }
+    lcd.draw_str_6x10(4, 13, "Pts:", is_sel_pts);
+    lcd.draw_str_6x10(32, 13, mode_str, is_sel_pts);
 
     let smooth_str = if storage.models[active_idx].thr_curve_smooth != 0 {
         "SMOOTH"
@@ -360,25 +333,10 @@ pub fn update_throttle_curve(
     };
     let is_sel_crv = !ctrl.editing && ctrl.selected_item == 1;
     if is_sel_crv {
-        Rectangle::new(Point::new(2, 23), Size::new(70, 9))
-            .into_styled(fill_style)
-            .draw(lcd)
-            .ok();
-        let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-        Text::new("Crv:", Point::new(4, 30), inv_style)
-            .draw(lcd)
-            .ok();
-        Text::new(smooth_str, Point::new(32, 30), inv_style)
-            .draw(lcd)
-            .ok();
-    } else {
-        Text::new("Crv:", Point::new(4, 30), text_style)
-            .draw(lcd)
-            .ok();
-        Text::new(smooth_str, Point::new(32, 30), text_style)
-            .draw(lcd)
-            .ok();
+        lcd.fill_rect(2, 23, 70, 9, true);
     }
+    lcd.draw_str_6x10(4, 23, "Crv:", is_sel_crv);
+    lcd.draw_str_6x10(32, 23, smooth_str, is_sel_crv);
 
     if ctrl.selected_item >= 2 {
         let pt_idx = ctrl.selected_item - 2;
@@ -397,22 +355,11 @@ pub fn update_throttle_curve(
         let p_str = ascii_as_str(&p_buf);
 
         if ctrl.editing {
-            Rectangle::new(Point::new(2, 35), Size::new(70, 11))
-                .into_styled(fill_style)
-                .draw(lcd)
-                .ok();
-            let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
-            Text::new(p_str, Point::new(4, 44), inv_style)
-                .draw(lcd)
-                .ok();
+            lcd.fill_rect(2, 35, 70, 11, true);
+            lcd.draw_str_6x10(4, 37, p_str, true);
         } else {
-            Rectangle::new(Point::new(2, 35), Size::new(70, 11))
-                .into_styled(border_style)
-                .draw(lcd)
-                .ok();
-            Text::new(p_str, Point::new(4, 44), text_style)
-                .draw(lcd)
-                .ok();
+            lcd.draw_rect(2, 35, 70, 11, true);
+            lcd.draw_str_6x10(4, 37, p_str, false);
         }
     } else {
         let pts_range_str = if pts_count == 9 {
@@ -420,16 +367,11 @@ pub fn update_throttle_curve(
         } else {
             "Pts: 1..5"
         };
-        Text::new(pts_range_str, Point::new(4, 44), text_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_6x10(4, 37, pts_range_str, false);
     }
 
     // Right side: Graph box (x = 76..124, y = 13..49)
-    Rectangle::new(Point::new(76, 13), Size::new(49, 37))
-        .into_styled(border_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_rect(76, 13, 49, 37, true);
 
     // Draw curve graph inside box (width 47, height 35)
     let pts_mode = storage.models[active_idx].thr_curve_pts;
@@ -440,12 +382,10 @@ pub fn update_throttle_curve(
         let input_pct = ((px as u32 * 1000) / 46) as u16;
         let out_pct = curve::evaluate_curve(input_pct, pts_mode, is_smooth, &curve_data);
         let py = 48 - ((out_pct as i32 * 34) / 1000);
-        Pixel(Point::new(77 + px, py), BinaryColor::On)
-            .draw(lcd)
-            .ok();
+        lcd.set_pixel(77 + px, py, true);
     }
 
-    // Draw point indicator dot on graph for selected point
+    // Draw point indicator dot on graph for selected point (3x3 dot)
     if ctrl.selected_item >= 2 {
         let pt_idx = ctrl.selected_item - 2;
         let input_pct = (pt_idx as u32 * 1000) / (pts_count as u32 - 1);
@@ -453,13 +393,7 @@ pub fn update_throttle_curve(
         let dot_x = 77 + ((input_pct * 46) / 1000) as i32;
         let dot_y = 48 - (((val as i32 * 10) * 34) / 1000);
 
-        for dy in -1..=1 {
-            for dx in -1..=1 {
-                Pixel(Point::new(dot_x + dx, dot_y + dy), BinaryColor::On)
-                    .draw(lcd)
-                    .ok();
-            }
-        }
+        lcd.fill_rect(dot_x - 1, dot_y - 1, 3, 3, true);
     }
 
     if ctrl.editing {
@@ -548,8 +482,6 @@ pub fn update_wing_mixer(
 
     widgets::draw_header(lcd, "WING & MIXER");
 
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let mut b6 = [0u8; 6];
 
     for slot in 0..4 {
@@ -559,46 +491,28 @@ pub fn update_wing_mixer(
         }
         let y = 14 + (slot as i32 * 9);
         let is_sel = idx == ctrl.selected_item;
-        let style = if is_sel {
-            Rectangle::new(Point::new(2, y), Size::new(124, 9))
-                .into_styled(fill_style)
-                .draw(lcd)
-                .ok();
-            MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
-        } else {
-            text_style
-        };
+        if is_sel {
+            lcd.fill_rect(2, y, 124, 9, true);
+        }
 
         if idx == 0 {
             let t_idx = (storage.models[active_idx].wing_tail_mix as usize).min(3);
-            Text::new("Wing:", Point::new(4, y + 7), style)
-                .draw(lcd)
-                .ok();
-            Text::new(TEMPLATE_NAMES[t_idx], Point::new(36, y + 7), style)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_6x10(4, y, "Wing:", is_sel);
+            lcd.draw_str_6x10(36, y, TEMPLATE_NAMES[t_idx], is_sel);
         } else if has_diff && idx == 1 {
             let d_str = i8_to_dec(storage.models[active_idx].template_diff, &mut b6);
-            Text::new("Diff:", Point::new(4, y + 7), style)
-                .draw(lcd)
-                .ok();
-            Text::new(d_str, Point::new(36, y + 7), style)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_6x10(4, y, "Diff:", is_sel);
+            lcd.draw_str_6x10(36, y, d_str, is_sel);
         } else {
             let m_idx = if has_diff { idx - 2 } else { idx - 1 };
             let mix = storage.models[active_idx].mixes[m_idx];
             let mut m_buf = *b"M0: ";
             m_buf[1] = b'1' + m_idx as u8;
             let m_label = ascii_as_str(&m_buf);
-            Text::new(m_label, Point::new(4, y + 7), style)
-                .draw(lcd)
-                .ok();
+            lcd.draw_str_6x10(4, y, m_label, is_sel);
 
             if mix.target_ch == 0 {
-                Text::new("[DISABLED]", Point::new(28, y + 7), style)
-                    .draw(lcd)
-                    .ok();
+                lcd.draw_str_6x10(28, y, "[DISABLED]", is_sel);
             } else {
                 let mut ch_buf = *b"CH00";
                 if mix.target_ch >= 10 {
@@ -609,15 +523,11 @@ pub fn update_wing_mixer(
                     ch_buf[3] = b' ';
                 }
                 let ch_str = ascii_as_str(&ch_buf);
-                Text::new(ch_str, Point::new(24, y + 7), style)
-                    .draw(lcd)
-                    .ok();
+                lcd.draw_str_6x10(24, y, ch_str, is_sel);
 
-                Text::new("<-", Point::new(54, y + 7), style).draw(lcd).ok();
-                let s_idx = (mix.source as usize).min(30);
-                Text::new(SOURCE_NAMES[s_idx], Point::new(70, y + 7), style)
-                    .draw(lcd)
-                    .ok();
+                lcd.draw_str_6x10(54, y, "<-", is_sel);
+                let s_idx = (mix.source as usize).min(36);
+                lcd.draw_str_6x10(70, y, SOURCE_NAMES[s_idx], is_sel);
             }
         }
     }
@@ -686,12 +596,14 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                let max_src = SOURCE_NAMES.len() as u8;
-                if keys.up {
-                    mix.source = (mix.source + 1) % max_src;
+                if let Some(pot) = keys.pot_change {
+                    mix.source = pot;
+                    buzzer.play_tone(2400, 40);
+                } else if keys.up {
+                    mix.source = (mix.source + 1) % 37;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.source = if mix.source == 0 { max_src - 1 } else { mix.source - 1 };
+                    mix.source = if mix.source == 0 { 36 } else { mix.source - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -714,15 +626,14 @@ pub fn update_mixer_line_edit(
                 }
             }
             4 => {
-                let max_sw = SWITCH_COND_NAMES.len() as u8;
                 if let Some(sw) = keys.sw_change {
                     mix.switch = sw;
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
-                    mix.switch = (mix.switch + 1) % max_sw;
+                    mix.switch = (mix.switch + 1) % 15;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    mix.switch = if mix.switch == 0 { max_sw - 1 } else { mix.switch - 1 };
+                    mix.switch = if mix.switch == 0 { 14 } else { mix.switch - 1 };
                     buzzer.play_tone(2200, 20);
                 }
             }
@@ -776,7 +687,7 @@ pub fn update_mixer_line_edit(
                 }
             }
             1 => {
-                let s_idx = (mix.source as usize).min(SOURCE_NAMES.len() - 1);
+                let s_idx = (mix.source as usize).min(36);
                 widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
             }
             2 => {
@@ -788,7 +699,7 @@ pub fn update_mixer_line_edit(
                 widgets::draw_list_row(lcd, slot, is_sel, "Offset:", Some(o_str), 56);
             }
             4 => {
-                let sw_idx = (mix.switch as usize).min(SWITCH_COND_NAMES.len() - 1);
+                let sw_idx = (mix.switch as usize).min(14);
                 widgets::draw_list_row(
                     lcd,
                     slot,

@@ -470,6 +470,84 @@ impl St7567 {
         }
     }
 
+    /// Render a single 4x6 character at (x, y).
+    /// If `invert` is true, pixels that are ON become OFF (useful over filled inverted bars).
+    pub fn draw_char_4x6(&mut self, x: i32, y: i32, c: u8, invert: bool) {
+        if !(0x20..=0x7E).contains(&c) {
+            return;
+        }
+        let glyph_idx = (c - 0x20) as usize;
+        let glyph = &crate::display::fonts::FONT_4X6_DATA[glyph_idx];
+
+        for (col, &col_bits) in glyph.iter().enumerate() {
+            let px = x + col as i32;
+            if px < 0 || px >= WIDTH as i32 {
+                continue;
+            }
+            for row in 0..6i32 {
+                let py = y + row;
+                if py < 0 || py >= HEIGHT as i32 {
+                    continue;
+                }
+                let bit_set = (col_bits & (1 << row)) != 0;
+                if invert {
+                    if bit_set {
+                        self.set_pixel(px, py, false);
+                    }
+                } else if bit_set {
+                    self.set_pixel(px, py, true);
+                }
+            }
+        }
+    }
+
+    /// Render a 4x6 ASCII string starting at top-left (x, y).
+    pub fn draw_str_4x6(&mut self, mut x: i32, y: i32, text: &str, invert: bool) {
+        for &byte in text.as_bytes() {
+            self.draw_char_4x6(x, y, byte, invert);
+            x += 4;
+        }
+    }
+
+    /// Render a single 6x10 character at (x, y).
+    /// If `invert` is true, pixels that are ON become OFF (useful over filled inverted bars).
+    pub fn draw_char_6x10(&mut self, x: i32, y: i32, c: u8, invert: bool) {
+        if !(0x20..=0x7E).contains(&c) {
+            return;
+        }
+        let glyph_idx = (c - 0x20) as usize;
+        let glyph = &crate::display::fonts::FONT_6X10_DATA[glyph_idx];
+
+        for (col, &col_bits) in glyph.iter().enumerate() {
+            let px = x + col as i32;
+            if px < 0 || px >= WIDTH as i32 {
+                continue;
+            }
+            for row in 0..10i32 {
+                let py = y + row;
+                if py < 0 || py >= HEIGHT as i32 {
+                    continue;
+                }
+                let bit_set = (col_bits & (1 << row)) != 0;
+                if invert {
+                    if bit_set {
+                        self.set_pixel(px, py, false);
+                    }
+                } else if bit_set {
+                    self.set_pixel(px, py, true);
+                }
+            }
+        }
+    }
+
+    /// Render a 6x10 ASCII string starting at top-left (x, y).
+    pub fn draw_str_6x10(&mut self, mut x: i32, y: i32, text: &str, invert: bool) {
+        for &byte in text.as_bytes() {
+            self.draw_char_6x10(x, y, byte, invert);
+            x += 6;
+        }
+    }
+
     #[cfg(test)]
     pub fn framebuffer(&self) -> &[u8; BUFFER_SIZE] {
         &self.framebuffer
@@ -606,6 +684,58 @@ mod tests {
         d.draw_vline(20, 50, 30, true);
         d.fill_rect(-20, -20, 200, 200, true);
         d.draw_rect(-20, -20, 200, 200, true);
+    }
+
+    #[test]
+    fn test_baremetal_fonts_match_embedded_graphics() {
+        use embedded_graphics::mono_font::ascii::{FONT_4X6, FONT_6X10};
+        use embedded_graphics::text::{Baseline, Text};
+
+        // Verify FONT_4X6 for all printable ASCII characters
+        for c in 0x20u8..=0x7Eu8 {
+            let mut d1 = St7567::new();
+            let mut d2 = St7567::new();
+
+            d1.draw_char_4x6(10, 15, c, false);
+
+            let buf = [c];
+            let s = core::str::from_utf8(&buf).unwrap();
+            let style = embedded_graphics::mono_font::MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+            Text::with_baseline(s, Point::new(10, 15), style, Baseline::Top)
+                .draw(&mut d2)
+                .unwrap();
+
+            assert_eq!(
+                d1.framebuffer(),
+                d2.framebuffer(),
+                "Mismatch for 4x6 char '{}' (0x{:02x})",
+                c as char,
+                c
+            );
+        }
+
+        // Verify FONT_6X10 for all printable ASCII characters
+        for c in 0x20u8..=0x7Eu8 {
+            let mut d1 = St7567::new();
+            let mut d2 = St7567::new();
+
+            d1.draw_char_6x10(10, 15, c, false);
+
+            let buf = [c];
+            let s = core::str::from_utf8(&buf).unwrap();
+            let style = embedded_graphics::mono_font::MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+            Text::with_baseline(s, Point::new(10, 15), style, Baseline::Top)
+                .draw(&mut d2)
+                .unwrap();
+
+            assert_eq!(
+                d1.framebuffer(),
+                d2.framebuffer(),
+                "Mismatch for 6x10 char '{}' (0x{:02x})",
+                c as char,
+                c
+            );
+        }
     }
 }
 

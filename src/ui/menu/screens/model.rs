@@ -1,13 +1,5 @@
 //! Model selection and configuration screens.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
-    text::Text,
-};
-
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::menu::format::{ascii_as_str, next_ascii, prev_ascii, u32_to_hex};
@@ -219,11 +211,11 @@ pub fn update_setup(
                     storage.models[active_idx].arm_switch = sw;
                     buzzer.chime_armed();
                 } else if keys.up {
-                    storage.models[active_idx].arm_switch = (storage.models[active_idx].arm_switch + 1) % 11;
+                    storage.models[active_idx].arm_switch = (storage.models[active_idx].arm_switch + 1) % 15;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
                     storage.models[active_idx].arm_switch = if storage.models[active_idx].arm_switch == 0 {
-                        10
+                        14
                     } else {
                         storage.models[active_idx].arm_switch - 1
                     };
@@ -254,14 +246,14 @@ pub fn update_setup(
             4 => {
                 // Timer trigger editing mode (with switch auto-detection)
                 if let Some(sw) = keys.sw_change {
-                    storage.models[active_idx].timer_source = sw + 3; // 1..10 maps to 4..13
+                    storage.models[active_idx].timer_source = sw + 3; // 1..14 maps to 4..17
                     buzzer.play_tone(2400, 40);
                 } else if keys.up {
-                    storage.models[active_idx].timer_source = (storage.models[active_idx].timer_source + 1) % 14;
+                    storage.models[active_idx].timer_source = (storage.models[active_idx].timer_source + 1) % 18;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
                     storage.models[active_idx].timer_source = if storage.models[active_idx].timer_source == 0 {
-                        13
+                        17
                     } else {
                         storage.models[active_idx].timer_source - 1
                     };
@@ -301,8 +293,6 @@ pub fn update_setup(
 
     widgets::draw_header(lcd, "MODEL SETUP");
 
-    let fill_style = PrimitiveStyle::with_fill(BinaryColor::On);
-    let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
     let mut t_buf = [0u8; 8];
 
     for slot in 0..4 {
@@ -313,26 +303,23 @@ pub fn update_setup(
         let y = 14 + (slot as i32 * 9);
         let is_sel = !ctrl.editing && idx == ctrl.selected_item;
         let is_edit = ctrl.editing && idx == ctrl.selected_item;
-        let style = if is_sel || is_edit {
-            Rectangle::new(Point::new(2, y), Size::new(124, 9)).into_styled(fill_style).draw(lcd).ok();
-            MonoTextStyle::new(&FONT_6X10, BinaryColor::Off)
-        } else {
-            text_style
-        };
+        let inverted = is_sel || is_edit;
+        if inverted {
+            lcd.fill_rect(2, y, 124, 9, true);
+        }
 
         match idx {
             0 => {
-                Text::new("Name:", Point::new(4, y + 7), style).draw(lcd).ok();
+                lcd.draw_str_6x10(4, y, "Name:", inverted);
                 let name_str = ascii_as_str(&storage.models[active_idx].name);
-                Text::new(name_str, Point::new(40, y + 7), style).draw(lcd).ok();
+                lcd.draw_str_6x10(40, y, name_str, inverted);
 
                 if ctrl.editing {
                     let char_x = 40 + (ctrl.sub_idx as i32 * 6);
                     lcd.fill_rect(char_x - 1, y, 8, 9, true);
-                    let inv_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::Off);
                     let single_char = [storage.models[active_idx].name[ctrl.sub_idx]];
                     let c_str = ascii_as_str(&single_char);
-                    Text::new(c_str, Point::new(char_x, y + 7), inv_style).draw(lcd).ok();
+                    lcd.draw_str_6x10(char_x, y, c_str, true);
                 }
             }
             1 => {
@@ -343,20 +330,20 @@ pub fn update_setup(
                     3 => "MULTI / QUAD",
                     _ => "GENERAL",
                 };
-                Text::new("Type:", Point::new(4, y + 7), style).draw(lcd).ok();
-                Text::new(type_str, Point::new(40, y + 7), style).draw(lcd).ok();
+                lcd.draw_str_6x10(4, y, "Type:", inverted);
+                lcd.draw_str_6x10(40, y, type_str, inverted);
             }
             2 => {
-                let arm_idx = (storage.models[active_idx].arm_switch as usize).min(10);
+                let arm_idx = (storage.models[active_idx].arm_switch as usize).min(14);
                 let arm_str = if arm_idx == 0 { "NONE" } else { crate::ui::format::SWITCH_COND_NAMES[arm_idx] };
-                Text::new("Arm Sw:", Point::new(4, y + 7), style).draw(lcd).ok();
-                Text::new(arm_str, Point::new(52, y + 7), style).draw(lcd).ok();
+                lcd.draw_str_6x10(4, y, "Arm Sw:", inverted);
+                lcd.draw_str_6x10(52, y, arm_str, inverted);
             }
             3 => {
                 let t_secs = storage.models[active_idx].timer_secs;
                 let t_str = if t_secs == 0 { "OFF" } else { format_timer(t_secs, false, &mut t_buf) };
-                Text::new("Timer:", Point::new(4, y + 7), style).draw(lcd).ok();
-                Text::new(t_str, Point::new(52, y + 7), style).draw(lcd).ok();
+                lcd.draw_str_6x10(4, y, "Timer:", inverted);
+                lcd.draw_str_6x10(52, y, t_str, inverted);
             }
             4 => {
                 let trig_str = match storage.models[active_idx].timer_source {
@@ -364,11 +351,11 @@ pub fn update_setup(
                     1 => "THs (RUN)",
                     2 => "THt (LTCH)",
                     3 => "ALWAYS ON",
-                    s if (4..=13).contains(&s) => crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize],
+                    s if (4..=17).contains(&s) => crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize],
                     _ => "OFF",
                 };
-                Text::new("T-Trig:", Point::new(4, y + 7), style).draw(lcd).ok();
-                Text::new(trig_str, Point::new(52, y + 7), style).draw(lcd).ok();
+                lcd.draw_str_6x10(4, y, "T-Trig:", inverted);
+                lcd.draw_str_6x10(52, y, trig_str, inverted);
             }
             5 => {
                 if ctrl.editing && ctrl.selected_item == 5 {
@@ -377,21 +364,21 @@ pub fn update_setup(
                     cp_buf[9] = b'0' + (target_num / 10);
                     cp_buf[10] = b'0' + (target_num % 10);
                     let cp_str = ascii_as_str(&cp_buf);
-                    Text::new(cp_str, Point::new(4, y + 7), style).draw(lcd).ok();
+                    lcd.draw_str_6x10(4, y, cp_str, inverted);
                 } else {
-                    Text::new("Copy: [OK Duplicate]", Point::new(4, y + 7), style).draw(lcd).ok();
+                    lcd.draw_str_6x10(4, y, "Copy: [OK Duplicate]", inverted);
                 }
             }
             6 => {
                 let mut rx_buf = [b'0'; 8];
                 u32_to_hex(storage.models[active_idx].rx_id, &mut rx_buf);
                 let rx_hex_str = ascii_as_str(&rx_buf);
-                Text::new("Rx:", Point::new(4, y + 7), style).draw(lcd).ok();
-                Text::new(rx_hex_str, Point::new(24, y + 7), style).draw(lcd).ok();
-                Text::new("[OK Bind]", Point::new(74, y + 7), style).draw(lcd).ok();
+                lcd.draw_str_6x10(4, y, "Rx:", inverted);
+                lcd.draw_str_6x10(24, y, rx_hex_str, inverted);
+                lcd.draw_str_6x10(74, y, "[OK Bind]", inverted);
             }
             7 => {
-                Text::new("Reset: [OK Defaults]", Point::new(4, y + 7), style).draw(lcd).ok();
+                lcd.draw_str_6x10(4, y, "Reset: [OK Defaults]", inverted);
             }
             _ => {}
         }

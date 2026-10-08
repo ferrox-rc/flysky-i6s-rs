@@ -1,11 +1,5 @@
 //! Radio settings and Protocol configuration screens.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::Text,
-};
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -424,7 +418,6 @@ pub fn update_rx_setup(
         widgets::draw_footer(lcd, footer);
     } else {
         // CRSF Display
-        let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
         let mut line_buf = [b' '; 26];
 
         let sel_proto = ctrl.selected_item == 0;
@@ -441,7 +434,7 @@ pub fn update_rx_setup(
         let pv_bytes = proto_val.as_bytes();
         line_buf[8..8 + pv_bytes.len()].copy_from_slice(pv_bytes);
         let p_str = ascii_as_str(&line_buf[..8 + pv_bytes.len()]);
-        Text::new(p_str, Point::new(2, 22), text_style).draw(lcd).ok();
+        lcd.draw_str_6x10(2, 14, p_str, false);
 
         let baud_val = match storage.models[active_idx].crsf_baud {
             0 => "420k (ELRS)",
@@ -463,12 +456,12 @@ pub fn update_rx_setup(
             7 + bv_bytes.len()
         };
         let full_b_str = ascii_as_str(&line_buf[..b_start]);
-        Text::new(full_b_str, Point::new(2, 32), text_style).draw(lcd).ok();
+        lcd.draw_str_6x10(2, 24, full_b_str, false);
 
         line_buf[0] = c_arrow;
         line_buf[1..19].copy_from_slice(b"[Configure Module]");
         let full_c_str = ascii_as_str(&line_buf[..19]);
-        Text::new(full_c_str, Point::new(2, 42), text_style).draw(lcd).ok();
+        lcd.draw_str_6x10(2, 34, full_c_str, false);
 
         let footer = if ctrl.editing {
             "[OK] Save   [UP/DN] Change"
@@ -480,3 +473,4 @@ pub fn update_rx_setup(
         widgets::draw_footer(lcd, footer);
     }
 }
+

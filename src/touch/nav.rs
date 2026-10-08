@@ -114,34 +114,32 @@ pub fn touch_to_nav_keys_with_tracker(
 
                 if menu_active {
                     // Vertical displacement takes priority for vertical list/page navigation
-                    if dy <= -16 {
+                    if dy <= -8 {
                         keys |= KEY_NAV_UP;
                         tracker.start_y = pt.y;
                         tracker.swiped = true;
-                    } else if dy >= 16 {
+                    } else if dy >= 8 {
                         keys |= KEY_NAV_DOWN;
                         tracker.start_y = pt.y;
                         tracker.swiped = true;
-                    } else if dx <= -20 {
+                    } else if dx <= -14 {
                         keys |= KEY_NAV_CANCEL;
                         tracker.start_x = pt.x;
                         tracker.swiped = true;
-                    } else if dx >= 20 {
+                    } else if dx >= 14 {
                         keys |= KEY_NAV_OK;
                         tracker.start_x = pt.x;
                         tracker.swiped = true;
                     }
                 } else {
                     // Dashboard mode: horizontal and vertical swipes cycle dashboard pages
-                    if dx <= -20 || dy >= 16 {
+                    if dx <= -14 || dy >= 8 {
                         keys |= KEY_NAV_DOWN;
                         tracker.start_x = pt.x;
-                        tracker.start_y = pt.y;
                         tracker.swiped = true;
-                    } else if dx >= 20 || dy <= -16 {
+                    } else if dx >= 14 || dy <= -8 {
                         keys |= KEY_NAV_UP;
                         tracker.start_x = pt.x;
-                        tracker.start_y = pt.y;
                         tracker.swiped = true;
                     }
                 }
@@ -183,16 +181,13 @@ pub fn evaluate_tap_zones(x: u8, y: u8, menu_active: bool) -> u16 {
 
     if menu_active {
         // Priority 1: Footer navigation buttons ([ESC] Back / [OK] Select)
-        if y >= 48 {
-            if x >= 70 {
+        if y >= 46 {
+            if x >= 64 {
                 // Right side of footer: "[ESC] Back" -> Cancel
                 keys |= KEY_NAV_CANCEL;
-            } else if x <= 58 {
+            } else {
                 // Left side of footer: "[OK] Select" -> OK
                 keys |= KEY_NAV_OK;
-            } else {
-                // Center footer -> Down
-                keys |= KEY_NAV_DOWN;
             }
         }
         // Priority 2: Header / Up navigation
@@ -410,7 +405,6 @@ mod tests {
     #[test]
     fn test_menu_tap_zones() {
         assert_ne!(evaluate_tap_zones(64, 10, true) & KEY_NAV_UP, 0);
-        assert_ne!(evaluate_tap_zones(64, 50, true) & KEY_NAV_DOWN, 0);
         assert_eq!(evaluate_tap_zones(80, 55, true), KEY_NAV_CANCEL); // [ESC] Back
         assert_eq!(evaluate_tap_zones(40, 55, true), KEY_NAV_OK);     // [OK] Select
     }

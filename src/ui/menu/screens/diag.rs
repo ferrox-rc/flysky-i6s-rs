@@ -1,13 +1,5 @@
 //! Analog diagnostics and System Information screens.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::Rectangle,
-    text::Text,
-};
-
 use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::chip;
@@ -38,8 +30,6 @@ pub fn update_diag_anas(
     let title = if ctrl.page_idx == 0 { "ANALOG (1-6)" } else { "ANALOG (7-11)" };
     widgets::draw_header(lcd, title);
 
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
-
     let start_idx = if ctrl.page_idx == 0 { 0 } else { 6 };
     let names: &[&str] = if ctrl.page_idx == 0 {
         &["RH:AIL", "RV:ELE", "LV:THR", "LH:RUD", "SW:SA ", "SW:SB "]
@@ -50,16 +40,16 @@ pub fn update_diag_anas(
     for (i, &name) in names.iter().enumerate() {
         let adc_idx = start_idx + i;
         let y = 12 + (i as i32 * 7);
-        Text::new(name, Point::new(2, y + 5), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(2, y, name, false);
 
         let raw = raw_adc[adc_idx].min(4095);
         let fill_w = ((raw as u32 * 38) / 4095).min(38);
-        widgets::draw_bar_gauge(lcd, Rectangle::new(Point::new(44, y + 1), Size::new(40, 5)), fill_w);
+        widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
 
         let mut val_buf = [0u8; 4];
         u16_to_dec_4(raw, &mut val_buf);
         let val_str = ascii_as_str(&val_buf);
-        Text::new(val_str, Point::new(90, y + 5), text_style_small).draw(lcd).ok();
+        lcd.draw_str_4x6(90, y, val_str, false);
     }
 
     widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");
@@ -82,24 +72,21 @@ pub fn update_system_info(
 
     widgets::draw_header(lcd, "SYSTEM INFORMATION");
 
-    let text_style = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+    lcd.draw_str_4x6(4, 14, "MCU:      ", false);
+    lcd.draw_str_4x6(48, 14, profile.name, false);
 
-    Text::new("MCU:      ", Point::new(4, 18), text_style).draw(lcd).ok();
-    Text::new(profile.name, Point::new(48, 18), text_style).draw(lcd).ok();
-
-    Text::new("Firmware: ", Point::new(4, 25), text_style).draw(lcd).ok();
-    Text::new(
+    lcd.draw_str_4x6(4, 21, "Firmware: ", false);
+    lcd.draw_str_4x6(
+        48,
+        21,
         concat!(env!("FIRMWARE_VERSION"), " (", env!("GIT_HASH"), ")"),
-        Point::new(48, 25),
-        text_style,
-    )
-    .draw(lcd)
-    .ok();
+        false,
+    );
 
-    Text::new("Flash:    128KB (64 Pages)", Point::new(4, 32), text_style).draw(lcd).ok();
-    Text::new("SRAM:     16KB (Parity)", Point::new(4, 39), text_style).draw(lcd).ok();
-    Text::new("Profiles: 20 Models", Point::new(4, 46), text_style).draw(lcd).ok();
-    Text::new("Bootloader: [OK] Reboot DFU", Point::new(4, 53), text_style).draw(lcd).ok();
+    lcd.draw_str_4x6(4, 28, "Flash:    128KB (64 Pages)", false);
+    lcd.draw_str_4x6(4, 35, "SRAM:     16KB (Parity)", false);
+    lcd.draw_str_4x6(4, 42, "Profiles: 20 Models", false);
+    lcd.draw_str_4x6(4, 49, "Bootloader: [OK] Reboot DFU", false);
 
     if keys.ok {
         buzzer.play_tone(2400, 100);
@@ -108,3 +95,4 @@ pub fn update_system_info(
 
     widgets::draw_footer(lcd, "[OK] DFU Mode  [ESC] Back");
 }
+

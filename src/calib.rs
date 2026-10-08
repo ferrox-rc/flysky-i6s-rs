@@ -6,14 +6,6 @@
 //!
 //! Applies OpenTX-style margins (~2%) and saves to Flash.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::{Line, PrimitiveStyle, Rectangle},
-    text::Text,
-};
-
 use crate::adc;
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -100,8 +92,6 @@ impl CalibWizard {
         let ok_pressed = (newly_pressed & (1 << 10)) != 0;
         let cancel_pressed = (newly_pressed & (1 << 11)) != 0;
 
-        let text_style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-        let border_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
         // Map raw ADC to wizard channels:
         // [0] PA0: Roll
@@ -140,19 +130,19 @@ impl CalibWizard {
                 }
 
                 // Render Step 1
-                lcd.clear(BinaryColor::Off).ok();
-                Text::new("CALIBRATION (1/2)", Point::new(12, 9), text_style).draw(lcd).ok();
-                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+                lcd.clear_buffer();
+                lcd.draw_str_6x10(12, 1, "CALIBRATION (1/2)", false);
+                lcd.draw_hline(0, 11, 128, true);
 
-                Text::new("1. Center all sticks", Point::new(2, 22), text_style).draw(lcd).ok();
-                Text::new("   & rotary pots.", Point::new(2, 32), text_style).draw(lcd).ok();
-                Text::new("2. Move THR to middle!", Point::new(2, 43), text_style).draw(lcd).ok();
+                lcd.draw_str_6x10(2, 14, "1. Center all sticks", false);
+                lcd.draw_str_6x10(2, 24, "   & rotary pots.", false);
+                lcd.draw_str_6x10(2, 35, "2. Move THR to middle!", false);
 
-                Line::new(Point::new(0, 48), Point::new(127, 48)).into_styled(border_style).draw(lcd).ok();
+                lcd.draw_hline(0, 48, 128, true);
                 if self.waiting_release {
-                    Text::new("Release [OK] key...", Point::new(4, 59), text_style).draw(lcd).ok();
+                    lcd.draw_str_6x10(4, 51, "Release [OK] key...", false);
                 } else {
-                    Text::new("[OK] Next  [ESC] Exit", Point::new(2, 59), text_style).draw(lcd).ok();
+                    lcd.draw_str_6x10(2, 51, "[OK] Next  [ESC] Exit", false);
                 }
             }
 
@@ -234,26 +224,20 @@ impl CalibWizard {
                 }
 
                 // Render Step 2
-                lcd.clear(BinaryColor::Off).ok();
-                Text::new("CALIBRATION (2/2)", Point::new(12, 9), text_style).draw(lcd).ok();
-                Line::new(Point::new(0, 11), Point::new(127, 11)).into_styled(border_style).draw(lcd).ok();
+                lcd.clear_buffer();
+                lcd.draw_str_6x10(12, 1, "CALIBRATION (2/2)", false);
+                lcd.draw_hline(0, 11, 128, true);
 
                 let labels = ["A", "E", "T", "R"];
                 for i in 0..4 {
                     let y = 13 + (i as i32 * 8);
-                    Text::new(labels[i], Point::new(2, y + 6), text_style).draw(lcd).ok();
+                    lcd.draw_str_6x10(2, y - 2, labels[i], false);
 
                     // Outline gauge box (width = 63, from 10 to 72; inner x = 11..71)
-                    Rectangle::new(Point::new(10, y), Size::new(63, 7))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
+                    lcd.draw_rect(10, y, 63, 7, true);
 
                     // Center tick mark at 41 (left inner: 11..40 = 30px, right inner: 42..71 = 30px)
-                    Line::new(Point::new(41, y), Point::new(41, y + 6))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
+                    lcd.draw_vline(41, y, 7, true);
 
                     // Display extent covered from center
                     let center = self.centers[i];
@@ -268,19 +252,13 @@ impl CalibWizard {
                     // Left fill: up to 30 pixels left (reaches x = 11)
                     let left_w = ((span_neg as u32 * 30) / stick_target).min(30) as i32;
                     if left_w > 0 {
-                        Line::new(Point::new(41 - left_w, y + 3), Point::new(41, y + 3))
-                            .into_styled(border_style)
-                            .draw(lcd)
-                            .ok();
+                        lcd.draw_hline(41 - left_w, y + 3, (left_w + 1) as u32, true);
                     }
 
                     // Right fill: up to 30 pixels right (reaches x = 71)
                     let right_w = ((span_pos as u32 * 30) / stick_target).min(30) as i32;
                     if right_w > 0 {
-                        Line::new(Point::new(41, y + 3), Point::new(41 + right_w, y + 3))
-                            .into_styled(border_style)
-                            .draw(lcd)
-                            .ok();
+                        lcd.draw_hline(41, y + 3, (right_w + 1) as u32, true);
                     }
 
                     // Current stick position tick mark
@@ -291,16 +269,13 @@ impl CalibWizard {
                     } else {
                         41 + ((delta as u32 * 30) / stick_target).min(30) as i32
                     };
-                    Line::new(Point::new(cur_x, y + 1), Point::new(cur_x, y + 5))
-                        .into_styled(border_style)
-                        .draw(lcd)
-                        .ok();
+                    lcd.draw_vline(cur_x, y + 1, 5, true);
 
                     // Stick status text
                     if stick_ready[i] {
-                        Text::new("OK", Point::new(75, y + 6), text_style).draw(lcd).ok();
+                        lcd.draw_str_6x10(75, y - 2, "OK", false);
                     } else {
-                        Text::new("--", Point::new(75, y + 6), text_style).draw(lcd).ok();
+                        lcd.draw_str_6x10(75, y - 2, "--", false);
                     }
                 }
 
@@ -308,30 +283,30 @@ impl CalibWizard {
                 let pot_target = 900u32;
 
                 draw_pot_gauge(
-                    lcd, "V1 OK", "V1 --", 19, 21,
+                    lcd, "V1 OK", "V1 --", 13, 21,
                     self.centers[4], self.mins[4], self.maxs[4], current_raw[4],
-                    pot_target, text_style, border_style,
+                    pot_target,
                 );
                 draw_pot_gauge(
-                    lcd, "V2 OK", "V2 --", 35, 37,
+                    lcd, "V2 OK", "V2 --", 29, 37,
                     self.centers[5], self.mins[5], self.maxs[5], current_raw[5],
-                    pot_target, text_style, border_style,
+                    pot_target,
                 );
 
-                Line::new(Point::new(0, 48), Point::new(127, 48)).into_styled(border_style).draw(lcd).ok();
+                lcd.draw_hline(0, 48, 128, true);
                 if self.waiting_release {
-                    Text::new("Release [OK] key...", Point::new(4, 59), text_style).draw(lcd).ok();
+                    lcd.draw_str_6x10(4, 51, "Release [OK] key...", false);
                 } else if all_ready {
-                    Text::new("[OK] Save  [ESC] Exit", Point::new(2, 59), text_style).draw(lcd).ok();
+                    lcd.draw_str_6x10(2, 51, "[OK] Save  [ESC] Exit", false);
                 } else {
-                    Text::new("Stir sticks & pots", Point::new(2, 59), text_style).draw(lcd).ok();
+                    lcd.draw_str_6x10(2, 51, "Stir sticks & pots", false);
                 }
             }
 
             CalibStep::Complete => {
-                lcd.clear(BinaryColor::Off).ok();
-                Text::new("CALIBRATION SAVED!", Point::new(10, 24), text_style).draw(lcd).ok();
-                Text::new("Flash updated OK", Point::new(14, 38), text_style).draw(lcd).ok();
+                lcd.clear_buffer();
+                lcd.draw_str_6x10(10, 16, "CALIBRATION SAVED!", false);
+                lcd.draw_str_6x10(14, 30, "Flash updated OK", false);
 
                 if self.timer_ms > dt_ms {
                     self.timer_ms -= dt_ms;
@@ -355,36 +330,22 @@ fn draw_pot_gauge(
     max: u16,
     current: u16,
     pot_target: u32,
-    text_style: MonoTextStyle<'_, BinaryColor>,
-    border_style: PrimitiveStyle<BinaryColor>,
 ) {
     let span_neg = center.saturating_sub(min);
     let span_pos = max.saturating_sub(center);
     let moved = (span_neg + span_pos) >= 400;
     let txt = if moved { label_ok } else { label_wait };
-    Text::new(txt, Point::new(92, text_y), text_style).draw(lcd).ok();
-    Rectangle::new(Point::new(92, box_y), Size::new(35, 7))
-        .into_styled(border_style)
-        .draw(lcd)
-        .ok();
-    Line::new(Point::new(109, box_y), Point::new(109, box_y + 6))
-        .into_styled(border_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_str_6x10(92, text_y, txt, false);
+    lcd.draw_rect(92, box_y, 35, 7, true);
+    lcd.draw_vline(109, box_y, 7, true);
 
     let left_w = ((span_neg as u32 * 16) / pot_target).min(16) as i32;
     if left_w > 0 {
-        Line::new(Point::new(109 - left_w, box_y + 3), Point::new(109, box_y + 3))
-            .into_styled(border_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_hline(109 - left_w, box_y + 3, (left_w + 1) as u32, true);
     }
     let right_w = ((span_pos as u32 * 16) / pot_target).min(16) as i32;
     if right_w > 0 {
-        Line::new(Point::new(109, box_y + 3), Point::new(109 + right_w, box_y + 3))
-            .into_styled(border_style)
-            .draw(lcd)
-            .ok();
+        lcd.draw_hline(109, box_y + 3, (right_w + 1) as u32, true);
     }
 
     let delta = current as i32 - center as i32;
@@ -393,8 +354,5 @@ fn draw_pot_gauge(
     } else {
         109 + ((delta as u32 * 16) / pot_target).min(16) as i32
     };
-    Line::new(Point::new(mark_x, box_y + 1), Point::new(mark_x, box_y + 5))
-        .into_styled(border_style)
-        .draw(lcd)
-        .ok();
+    lcd.draw_vline(mark_x, box_y + 1, 5, true);
 }

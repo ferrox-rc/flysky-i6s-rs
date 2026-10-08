@@ -1,13 +1,5 @@
 //! Auxiliary channels assignment, Channel reversing, and Channel monitor screens.
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::Rectangle,
-    text::Text,
-};
-
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
 use crate::menu::format::{ascii_as_str, u16_to_dec_4, SOURCE_NAMES};
@@ -74,17 +66,22 @@ pub fn update_aux_channels(
             buzzer.click();
         }
     } else {
-        const AUX_SOURCES: [u8; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32];
-        let cur = storage.models[active_idx].aux_channels[ctrl.selected_item];
-        let mut cur_pos = AUX_SOURCES.iter().position(|&s| s == cur).unwrap_or(0);
-        if keys.up {
-            cur_pos = (cur_pos + 1) % AUX_SOURCES.len();
-            storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[cur_pos];
-            buzzer.play_tone(2200, 20);
-        } else if keys.down {
-            cur_pos = if cur_pos == 0 { AUX_SOURCES.len() - 1 } else { cur_pos - 1 };
-            storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[cur_pos];
-            buzzer.play_tone(2200, 20);
+        const AUX_SOURCES: [u8; 17] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 33, 34, 35, 36];
+        if let Some(pot) = keys.pot_change {
+            storage.models[active_idx].aux_channels[ctrl.selected_item] = pot;
+            buzzer.play_tone(2400, 40);
+        } else {
+            let cur_val = storage.models[active_idx].aux_channels[ctrl.selected_item];
+            let cur_pos = AUX_SOURCES.iter().position(|&s| s == cur_val).unwrap_or(0);
+            if keys.up {
+                let next_pos = (cur_pos + 1) % AUX_SOURCES.len();
+                storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[next_pos];
+                buzzer.play_tone(2200, 20);
+            } else if keys.down {
+                let next_pos = if cur_pos == 0 { AUX_SOURCES.len() - 1 } else { cur_pos - 1 };
+                storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[next_pos];
+                buzzer.play_tone(2200, 20);
+            }
         }
         if keys.ok {
             ctrl.editing = false;
@@ -112,13 +109,8 @@ pub fn update_aux_channels(
         }
         let ch_label = ascii_as_str(&ch_buf);
 
-        let src_idx = storage.models[active_idx].aux_channels[idx] as usize;
-        let src_str = if src_idx < SOURCE_NAMES.len() {
-            SOURCE_NAMES[src_idx]
-        } else {
-            "None"
-        };
-        widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(src_str), 48);
+        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(36);
+        widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(SOURCE_NAMES[src_idx]), 48);
     }
 
     let footer = if ctrl.editing {
@@ -276,7 +268,6 @@ pub fn update_channel_monitor(
         _ => 12,
     };
 
-    let text_style_small = MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
     let active_model = storage.active_model();
 
     for i in 0..6 {
@@ -286,24 +277,16 @@ pub fn update_channel_monitor(
         let mut name_buf = [0u8; 10];
         let name = format_channel_label(ch, active_model, &mut name_buf);
 
-        Text::new(name, Point::new(2, y + 5), text_style_small)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_4x6(2, y, name, false);
 
         let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
         let fill_w = (((us - CHANNEL_MIN_US) as u32 * 38) / CHANNEL_SPAN_US).min(38);
-        widgets::draw_bar_gauge(
-            lcd,
-            Rectangle::new(Point::new(44, y + 1), Size::new(40, 5)),
-            fill_w,
-        );
+        widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
 
         let mut val_buf = [0u8; 4];
         u16_to_dec_4(us, &mut val_buf);
         let val_str = ascii_as_str(&val_buf);
-        Text::new(val_str, Point::new(90, y + 5), text_style_small)
-            .draw(lcd)
-            .ok();
+        lcd.draw_str_4x6(90, y, val_str, false);
     }
 
     widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");

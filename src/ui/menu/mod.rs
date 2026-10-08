@@ -47,6 +47,7 @@ pub struct NavKeys {
     pub bind: bool,
     pub sw_change: Option<u8>,
     pub dr_change: Option<u8>,
+    pub pot_change: Option<u8>,
 }
 
 pub struct MenuController {
@@ -68,6 +69,8 @@ pub struct MenuController {
     down_hold_ms: u16,
     repeat_timer_ms: u16,
     prev_switches: crate::input::Switches,
+    prev_vr1: i16,
+    prev_vr2: i16,
 }
 
 impl Default for MenuController {
@@ -97,6 +100,8 @@ impl MenuController {
             down_hold_ms: 0,
             repeat_timer_ms: 0,
             prev_switches: crate::input::Switches::new(),
+            prev_vr1: 0,
+            prev_vr2: 0,
         }
     }
 
@@ -143,12 +148,19 @@ impl MenuController {
         lcd: &mut St7567,
         keys: u16,
         switches: &crate::input::Switches,
+        pots: &crate::input::Pots,
         storage: &mut RadioStorage,
         trims: &mut TrimController,
         raw_adc: &[u16; adc::NUM_CHANNELS],
         rf_chs: &[u16; crate::mixer::NUM_CHANNELS],
         buzzer: &mut Buzzer,
     ) {
+        // Initialize jog wheel tracking positions on first update after menu opened
+        if self.prev_keys == 0xFFFF {
+            self.prev_vr1 = pots.vr1;
+            self.prev_vr2 = pots.vr2;
+        }
+
         // Key release tracking (bit 10: OK, bit 11: Cancel, bit 9: Up, bit 8: Down, bit 12: Bind)
         if self.waiting_release
             && (keys & ((1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12))) == 0
@@ -200,6 +212,46 @@ impl MenuController {
             self.repeat_timer_ms = 0;
         }
 
+        // Jog Wheels (VRA / VRB) menu list navigation and auto-assignment on change
+        let d_vr1 = pots.vr1 - self.prev_vr1;
+        let d_vr2 = pots.vr2 - self.prev_vr2;
+
+        let mut pot_change = None;
+        if d_vr1.abs() >= 120 {
+            pot_change = Some(5); // MixSource::Vra
+            self.prev_vr1 = pots.vr1;
+        } else if d_vr2.abs() >= 120 {
+            pot_change = Some(6); // MixSource::Vrb
+            self.prev_vr2 = pots.vr2;
+        }
+
+        if !self.editing {
+            if d_vr1 >= 60 || d_vr2 >= 60 {
+                down_pressed = true;
+                if d_vr1 >= 60 {
+                    self.prev_vr1 = pots.vr1;
+                }
+                if d_vr2 >= 60 {
+                    self.prev_vr2 = pots.vr2;
+                }
+            } else if d_vr1 <= -60 || d_vr2 <= -60 {
+                up_pressed = true;
+                if d_vr1 <= -60 {
+                    self.prev_vr1 = pots.vr1;
+                }
+                if d_vr2 <= -60 {
+                    self.prev_vr2 = pots.vr2;
+                }
+            }
+        } else {
+            if d_vr1.abs() >= 60 {
+                self.prev_vr1 = pots.vr1;
+            }
+            if d_vr2.abs() >= 60 {
+                self.prev_vr2 = pots.vr2;
+            }
+        }
+
         let sw_change = switches.detect_condition_change(&self.prev_switches);
         let dr_change = switches.detect_dr_switch_change(&self.prev_switches);
         self.prev_switches = *switches;
@@ -212,6 +264,7 @@ impl MenuController {
             bind: (newly_pressed & (1 << 12)) != 0,
             sw_change,
             dr_change,
+            pot_change,
         };
 
         if self.state == MenuState::Closed {
@@ -305,5 +358,139 @@ mod tests {
         assert_eq!(ctrl.scroll_offset, 5);
         assert!(!ctrl.editing);
         assert!(ctrl.waiting_release);
+    }
+
+    #[test]
+    fn test_jog_wheel_menu_navigation() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = TrimController::new();
+        let switches = crate::input::Switches::new();
+        let raw_adc = [2048u16; adc::NUM_CHANNELS];
+        let rf_chs = [1500u16; crate::mixer::NUM_CHANNELS];
+
+        ctrl.open(&mut buzzer);
+        assert_eq!(ctrl.selected_item, 0);
+
+        // First frame initializes prev_vr1 and prev_vr2
+        let mut pots = crate::input::Pots { vr1: 0, vr2: 0 };
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 0);
+
+        // Rotating VR1 clockwise by +80 counts triggers DOWN
+        pots.vr1 = 80;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Rotating VR2 clockwise by +90 counts triggers DOWN again
+        pots.vr2 = 90;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 2);
+
+        // Rotating VR1 counter-clockwise by -80 counts triggers UP
+        pots.vr1 = 0;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+    }
+
+    #[test]
+    fn test_jog_wheel_auto_assignment_in_aux_channels() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = TrimController::new();
+        let switches = crate::input::Switches::new();
+        let raw_adc = [2048u16; adc::NUM_CHANNELS];
+        let rf_chs = [1500u16; crate::mixer::NUM_CHANNELS];
+
+        ctrl.state = MenuState::AuxChannels;
+        ctrl.selected_item = 0; // CH5
+        ctrl.editing = true;
+
+        let mut pots = crate::input::Pots { vr1: 0, vr2: 0 };
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+
+        // Rotate VR1 by +150 counts -> auto-assigns MixSource::Vra (5)
+        pots.vr1 = 150;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(storage.models[0].aux_channels[0], 5);
+
+        // Rotate VR2 by +150 counts -> auto-assigns MixSource::Vrb (6)
+        pots.vr2 = 150;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(storage.models[0].aux_channels[0], 6);
     }
 }
