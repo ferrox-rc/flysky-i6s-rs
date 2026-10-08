@@ -59,7 +59,7 @@ pub struct RadioConfig {
     pub rx_serial_proto: u8,       // 69 (0: i-BUS, 1: S.BUS, default 0)
     pub rear_left_func: u8,        // 70 (0: SW-E, 1: Timer Reset, 2: Trims)
     pub rear_right_func: u8,       // 71 (0: SW-F, 1: Instant Trim, 2: Trims)
-    pub touch_enabled: u8,         // 72 (0: Disabled, 1: Enabled, default 1)
+    pub touch_disabled: u8,        // 72 (0: Enabled [default], 1: Disabled)
     pub _reserved: [u8; 55],       // 73..128
 }
 
@@ -117,7 +117,7 @@ impl RadioConfig {
             rx_serial_proto: 0,
             rear_left_func: 0,
             rear_right_func: 0,
-            touch_enabled: 1,
+            touch_disabled: 0,
             _reserved: [0; 55],
         }
     }
@@ -313,8 +313,8 @@ impl RadioStorage {
         if self.radio.rear_right_func > 2 {
             self.radio.rear_right_func = 0;
         }
-        if self.radio.touch_enabled > 1 {
-            self.radio.touch_enabled = 1;
+        if self.radio.touch_disabled > 1 {
+            self.radio.touch_disabled = 0;
         }
 
         for stick in self.radio.sticks.iter_mut() {
@@ -1069,7 +1069,7 @@ mod tests {
         assert_eq!(storage.radio.rx_serial_proto, 0);
         assert_eq!(storage.radio.rear_left_func, 0);
         assert_eq!(storage.radio.rear_right_func, 0);
-        assert_eq!(storage.radio.touch_enabled, 1);
+        assert_eq!(storage.radio.touch_disabled, 0);
 
         for (idx, m) in storage.models.iter().enumerate() {
             assert!(m.arm_switch <= 10, "arm_switch must be sanitized <= 10");

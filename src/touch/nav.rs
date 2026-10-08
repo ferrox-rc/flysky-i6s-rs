@@ -126,14 +126,18 @@ pub fn touch_to_nav_keys_with_tracker(
                     }
                 } else {
                     // Dashboard mode: horizontal and vertical swipes cycle dashboard pages
-                    if dx <= -14 || dy >= 8 {
-                        keys |= KEY_NAV_DOWN;
-                        tracker.start_x = pt.x;
-                        tracker.swiped = true;
-                    } else if dx >= 14 || dy <= -8 {
-                        keys |= KEY_NAV_UP;
-                        tracker.start_x = pt.x;
-                        tracker.swiped = true;
+                    if !tracker.swiped {
+                        if dx <= -14 || dy >= 8 {
+                            keys |= KEY_NAV_DOWN;
+                            tracker.start_x = pt.x;
+                            tracker.start_y = pt.y;
+                            tracker.swiped = true;
+                        } else if dx >= 14 || dy <= -8 {
+                            keys |= KEY_NAV_UP;
+                            tracker.start_x = pt.x;
+                            tracker.start_y = pt.y;
+                            tracker.swiped = true;
+                        }
                     }
                 }
             }
@@ -155,8 +159,8 @@ pub fn touch_to_nav_keys_with_tracker(
             if pt.x < 16 || pt.x > 112 || pt.y > 52 {
                 keys |= evaluate_tap_zones(pt.x, pt.y, false);
             } else if (32..=96).contains(&pt.x) && (20..=44).contains(&pt.y) {
-                // Continuous center hold emits KEY_NAV_OK to accumulate towards the 1.2s menu open requirement
-                keys |= KEY_NAV_OK;
+                // Continuous center hold emits KEY_MENU_OPEN to accumulate towards the 1.2s menu open requirement
+                keys |= KEY_MENU_OPEN;
             }
         }
     } else {
@@ -222,9 +226,9 @@ pub fn evaluate_tap_zones(x: u8, y: u8, menu_active: bool) -> u16 {
                 keys |= KEY_TRIM_ROLL_R;
             }
         }
-        // Center area emits KEY_NAV_OK to accumulate towards the 1.2s menu open requirement
+        // Center area emits KEY_MENU_OPEN to accumulate towards the 1.2s menu open requirement
         else if (32..=96).contains(&x) && (20..=44).contains(&y) {
-            keys |= KEY_NAV_OK;
+            keys |= KEY_MENU_OPEN;
         }
     }
 
@@ -351,7 +355,7 @@ pub fn update_inputs(
     let touch_keys = if let Some(sample) = touch_sample {
         touch_to_nav_keys(sample, menu_active)
     } else {
-        process_touch_release(menu_active)
+        0
     };
     combined |= touch_keys;
 

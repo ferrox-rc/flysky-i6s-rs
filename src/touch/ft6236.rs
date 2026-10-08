@@ -192,10 +192,6 @@ pub fn init() {
 
             // Enable I2C1 peripheral (PE = 1)
             i2c1.cr1.modify(|_, w| w.pe().set_bit());
-
-            // 8. Configure FT6236 Interrupt Polling Mode (G_MODE register 0xA4 = 0x00)
-            // In polling mode, INT (PC12) stays LOW for the entirety of active touch / gesture
-            write_reg(0xA4, 0x00);
         }
     }
 }

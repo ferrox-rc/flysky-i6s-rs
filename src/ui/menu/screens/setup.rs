@@ -121,7 +121,7 @@ pub fn update_radio_setup(
             }
             11 => {
                 buzzer.click();
-                storage.radio.touch_enabled = if storage.radio.touch_enabled == 0 { 1 } else { 0 };
+                storage.radio.touch_disabled = if storage.radio.touch_disabled == 0 { 1 } else { 0 };
                 storage::save_radio_config(storage);
             }
             _ => {}
@@ -209,7 +209,7 @@ pub fn update_radio_setup(
                 widgets::draw_list_row(lcd, slot, is_sel, "Rear R Key:", Some(right_str), 62);
             }
             11 => {
-                let touch_str = if storage.radio.touch_enabled != 0 { "ENABLED" } else { "DISABLED" };
+                let touch_str = if storage.radio.touch_disabled == 0 { "ENABLED" } else { "DISABLED" };
                 widgets::draw_list_row(lcd, slot, is_sel, "Touch Screen:", Some(touch_str), 62);
             }
             _ => {}

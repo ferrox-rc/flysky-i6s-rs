@@ -240,6 +240,7 @@ struct BackgroundIdleManager {
     prev_left_btn: bool,
     prev_right_btn: bool,
     latched_keys: u16,
+    last_center_touch_ms: u32,
 }
 
 impl BackgroundIdleManager {
@@ -282,6 +283,7 @@ impl BackgroundIdleManager {
             prev_left_btn: false,
             prev_right_btn: false,
             latched_keys: 0,
+            last_center_touch_ms: 0,
         }
     }
 
@@ -469,13 +471,22 @@ impl BackgroundIdleManager {
         }
 
         // 8. Open Settings Menu from flight dashboard:
-        // Strictly require holding OK for >= 1.2s from physical PA10 button or center touch hold (bit 10)
+        // Strictly require holding OK for >= 1.2s from physical PA10 button or center touch hold (KEY_MENU_OPEN)
         if !menu_active {
-            if (keys & (1 << 10)) != 0 {
+            let (_, right_btn) = boot::read_front_buttons();
+            let center_touch = (keys & touch::nav::KEY_MENU_OPEN) != 0;
+            if center_touch {
+                self.last_center_touch_ms = now;
+            }
+            let touch_active = now.wrapping_sub(self.last_center_touch_ms) < 120;
+            let ok_held = touch_active || right_btn;
+
+            if ok_held {
                 self.ok_hold_ms = self.ok_hold_ms.saturating_add(dt_ms);
                 if self.ok_hold_ms >= 1200 {
                     menu_controller.open(buzzer);
                     self.ok_hold_ms = 0;
+                    self.last_center_touch_ms = 0;
                 }
             } else {
                 self.ok_hold_ms = 0;
@@ -1050,8 +1061,6 @@ fn main() -> ! {
     let mut idle_manager = BackgroundIdleManager::new(&init_state, bind_on_boot);
     let mut dashboard = ui::dashboard::DashboardController::new();
     let mut last_tick_ms: u32 = 0;
-    let mut last_touch_poll_ms: u32 = 0;
-    let mut cached_touch: Option<touch::ft6236::TouchSample> = None;
 
     // Main event loop: decoupled into high-rate flight pipeline and 30 Hz background idle tasks
     loop {
@@ -1063,21 +1072,15 @@ fn main() -> ! {
 
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();
 
-        // Poll touchscreen in Polling Mode: when INT asserted (PC12 LOW), rate-govern I2C read to 60 Hz (16 ms)
-        // to protect the sub-microsecond flight loop while guaranteeing zero dropped touches
-        let touch_sample = if storage.radio.touch_enabled != 0 && touch::ft6236::is_touch_int_asserted() {
-            if now.wrapping_sub(last_touch_poll_ms) >= 16 {
-                last_touch_poll_ms = now;
-                cached_touch = touch::ft6236::read_touch();
-            }
-            cached_touch.as_ref()
+        // Poll touchscreen when interrupt asserted
+        let touch_sample = if storage.radio.touch_disabled == 0 && touch::ft6236::is_touch_int_asserted() {
+            touch::ft6236::read_touch()
         } else {
-            cached_touch = None;
             None
         };
         let current_sticks = input::poll().sticks;
         let keys = touch::nav::update_inputs(
-            touch_sample,
+            touch_sample.as_ref(),
             &current_sticks,
             menu_active,
             storage.radio.rear_left_func,
