@@ -134,7 +134,8 @@ pub fn update_setup(
                     buzzer.click();
                 }
                 1 => {
-                    storage.models[active_idx].model_type = (storage.models[active_idx].model_type + 1) % 5;
+                    let next_type = storage.models[active_idx].model_type().next();
+                    storage.models[active_idx].set_model_type(next_type);
                     storage::save_active_model(storage);
                     buzzer.click();
                 }
@@ -314,7 +315,7 @@ pub fn update_setup(
                 let name_str = ascii_as_str(&storage.models[active_idx].name);
                 lcd.draw_str_6x10(40, y, name_str, inverted);
 
-                if ctrl.editing {
+                if ctrl.editing && ctrl.selected_item == 0 {
                     let char_x = 40 + (ctrl.sub_idx as i32 * 6);
                     lcd.fill_rect(char_x - 1, y, 8, 9, true);
                     let single_char = [storage.models[active_idx].name[ctrl.sub_idx]];
@@ -323,13 +324,7 @@ pub fn update_setup(
                 }
             }
             1 => {
-                let type_str = match storage.models[active_idx].model_type {
-                    0 => "AIRPLANE",
-                    1 => "GLIDER",
-                    2 => "HELICOPTER",
-                    3 => "MULTI / QUAD",
-                    _ => "GENERAL",
-                };
+                let type_str = storage.models[active_idx].model_type().as_str();
                 lcd.draw_str_6x10(4, y, "Type:", inverted);
                 lcd.draw_str_6x10(40, y, type_str, inverted);
             }

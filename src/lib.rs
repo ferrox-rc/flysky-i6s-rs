@@ -12,6 +12,7 @@ pub mod input;
 pub mod mixer;
 pub mod power;
 pub mod rf;
+pub mod safety;
 pub mod storage;
 pub mod time;
 pub mod touch;

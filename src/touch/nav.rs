@@ -374,41 +374,41 @@ pub fn process_modifier_trims_cfg(
     let mut suppress_left = false;
     let mut suppress_right = false;
 
-    // Left Front held -> Left Stick controls Throttle (if enabled) & Yaw trims
+    // Left Front held -> Left Gimbal controls Yaw (lh) & Throttle (lv, if enabled) trims
     if left_held {
-        if sticks.yaw < -TRIM_MODIFIER_STICK_THRESHOLD {
+        if sticks.lh < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_YAW_L;
             suppress_left = true;
-        } else if sticks.yaw > TRIM_MODIFIER_STICK_THRESHOLD {
+        } else if sticks.lh > TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_YAW_R;
             suppress_left = true;
         }
 
         if throttle_trim_enabled {
-            if sticks.throttle < -TRIM_MODIFIER_STICK_THRESHOLD {
+            if sticks.lv < -TRIM_MODIFIER_STICK_THRESHOLD {
                 trim_keys |= KEY_TRIM_THR_D;
                 suppress_left = true;
-            } else if sticks.throttle > TRIM_MODIFIER_STICK_THRESHOLD {
+            } else if sticks.lv > TRIM_MODIFIER_STICK_THRESHOLD {
                 trim_keys |= KEY_TRIM_THR_U;
                 suppress_left = true;
             }
         }
     }
 
-    // Right Front held -> Right Stick controls Roll & Pitch trims
+    // Right Front held -> Right Gimbal controls Roll (rh) & Pitch (rv) trims
     if right_held {
-        if sticks.roll < -TRIM_MODIFIER_STICK_THRESHOLD {
+        if sticks.rh < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_ROLL_L;
             suppress_right = true;
-        } else if sticks.roll > TRIM_MODIFIER_STICK_THRESHOLD {
+        } else if sticks.rh > TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_ROLL_R;
             suppress_right = true;
         }
 
-        if sticks.pitch < -TRIM_MODIFIER_STICK_THRESHOLD {
+        if sticks.rv < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_PITCH_D;
             suppress_right = true;
-        } else if sticks.pitch > TRIM_MODIFIER_STICK_THRESHOLD {
+        } else if sticks.rv > TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_PITCH_U;
             suppress_right = true;
         }
@@ -657,10 +657,10 @@ mod tests {
     #[test]
     fn test_modifier_trims() {
         let mut sticks = Sticks {
-            roll: 0,
-            pitch: 0,
-            throttle: -1000, // Real-world idle throttle at rest
-            yaw: 0,
+            rh: 0,
+            rv: 0,
+            lv: -1000, // Real-world idle throttle / stick at rest
+            lh: 0,
         };
 
         // Neither button pressed
@@ -669,20 +669,20 @@ mod tests {
         assert!(!supp_l);
         assert!(!supp_r);
 
-        // Left Front held with throttle at -1000 but throttle trim disabled -> No false trim!
+        // Left Front held with lv at -1000 but throttle trim disabled -> No false trim!
         let (trims, supp_l, _) = process_modifier_trims(true, false, &sticks);
         assert_eq!(trims, 0);
         assert!(!supp_l); // Normal Cancel NOT suppressed!
 
-        // Left Front held + Yaw stick left -> Yaw trim emitted
-        sticks.yaw = -500;
+        // Left Front held + Left horizontal stick left -> Yaw trim emitted
+        sticks.lh = -500;
         let (trims, supp_l, _) = process_modifier_trims(true, false, &sticks);
         assert_eq!(trims, KEY_TRIM_YAW_L);
         assert!(supp_l); // Suppressed normal Cancel
 
-        // Right Front held + Roll stick right
-        sticks.yaw = 0;
-        sticks.roll = 600;
+        // Right Front held + Right horizontal stick right -> Roll trim emitted
+        sticks.lh = 0;
+        sticks.rh = 600;
         let (trims, _, supp_r) = process_modifier_trims(false, true, &sticks);
         assert_eq!(trims, KEY_TRIM_ROLL_R);
         assert!(supp_r); // Suppressed normal OK

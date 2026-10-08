@@ -448,6 +448,20 @@ pub fn compute_channels(
         TrimController::apply_throttle(rf_chs[2], trims.values.throttle, throttle_trim_mode);
     rf_chs[3] = TrimController::apply(rf_chs[3], trims.values.yaw);
 
+    // Safety Interlocks & Throttle Lockout:
+    // 1. Helicopter Throttle Hold: SA Down forces throttle channel to absolute idle (CHANNEL_MIN_US)
+    //    while collective pitch and cyclic controls remain fully responsive.
+    // 2. Configured Arm Switch: if an arm switch is configured (1..14) and disarmed, clamp throttle to idle.
+    let is_heli_hold = model.model_type() == crate::safety::ModelType::Heli
+        && switches.sa == SwitchPos::Down;
+    let is_disarmed = model.arm_switch > 0
+        && model.arm_switch <= 14
+        && !eval_arm_switch(model.arm_switch, switches);
+
+    if is_heli_hold || is_disarmed {
+        rf_chs[2] = CHANNEL_MIN_US;
+    }
+
     // Apply channel reversing bitmask
     let rev_mask = model.channel_reverse;
     for (ch, val) in rf_chs.iter_mut().enumerate() {
@@ -914,6 +928,64 @@ mod tests {
         assert_eq!(
             cancel_hold_ms, 0,
             "cancel_hold_ms must stay 0 during cooldown"
+        );
+    }
+
+    #[test]
+    fn test_helicopter_throttle_hold_lockout() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.set_model_type(crate::safety::ModelType::Heli);
+
+        let trims = TrimController::default();
+        let pots = [0i16; 2];
+
+        // 1. Throttle Hold Active (SA Down): CH3 must be locked to CHANNEL_MIN_US even at 100% throttle
+        let mut sw_hold = Switches::default();
+        sw_hold.sa = SwitchPos::Down;
+
+        let out_hold = compute_channels(0, 0, 1000, 0, &pots, &sw_hold, &model, &trims, 0);
+        assert_eq!(
+            out_hold[2], CHANNEL_MIN_US,
+            "Heli Throttle Hold (SA Down) must lock CH3 to minimum idle pulse"
+        );
+
+        // 2. Throttle Hold Disengaged (SA Up): CH3 follows normal throttle output
+        let mut sw_flight = Switches::default();
+        sw_flight.sa = SwitchPos::Up;
+
+        let out_flight = compute_channels(0, 0, 1000, 0, &pots, &sw_flight, &model, &trims, 0);
+        assert_eq!(
+            out_flight[2], CHANNEL_MAX_US,
+            "Heli with Throttle Hold disengaged (SA Up) must output active throttle"
+        );
+    }
+
+    #[test]
+    fn test_arm_switch_disarmed_throttle_lockout() {
+        let mut model = ModelConfig::default_for_index(0);
+        model.arm_switch = 1; // SA Up = Armed, SA Down = Disarmed
+
+        let trims = TrimController::default();
+        let pots = [0i16; 2];
+
+        // 1. Disarmed (SA Down): CH3 must be clamped to CHANNEL_MIN_US
+        let mut sw_disarmed = Switches::default();
+        sw_disarmed.sa = SwitchPos::Down;
+
+        let out_disarmed = compute_channels(0, 0, 1000, 0, &pots, &sw_disarmed, &model, &trims, 0);
+        assert_eq!(
+            out_disarmed[2], CHANNEL_MIN_US,
+            "Disarmed model must lock CH3 to minimum idle pulse"
+        );
+
+        // 2. Armed (SA Up): CH3 outputs full throttle
+        let mut sw_armed = Switches::default();
+        sw_armed.sa = SwitchPos::Up;
+
+        let out_armed = compute_channels(0, 0, 1000, 0, &pots, &sw_armed, &model, &trims, 0);
+        assert_eq!(
+            out_armed[2], CHANNEL_MAX_US,
+            "Armed model must allow normal throttle output"
         );
     }
 }

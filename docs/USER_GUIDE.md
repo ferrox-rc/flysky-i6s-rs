@@ -306,7 +306,7 @@ Assigns physical controls (switches `SA..SD`, pots `VRA/VRB`, sticks, or `None`)
 - Automatically saved to non-volatile Flash upon exit.
 
 ### Submenu 8: Radio Setup (`RADIO SETUP`)
-The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 9 system-level configuration parameters:
+The Radio Setup menu features a scrollable 4-item viewport with 9px row heights and automatic vertical scrolling across 16 system-level configuration parameters:
 - **`Thr Trim:`**: Toggle between `OFF (Lock)`, `IDLE`, and `LINEAR`.
 - **`Beeper:`**: Toggle audio sound between `ENABLED` and `MUTED`.
 - **`Tones:`**: Select audio notification style between **`RICH`** (melodic multi-tone chime sequences) and **`SIMPLE`** (classic single-tone buzzer beeps). Toggling gives an immediate live audio preview!
@@ -323,6 +323,7 @@ The Radio Setup menu features a scrollable 4-item viewport with 9px row heights 
 - **`J4 Mode:`**: Configures 4-pin SWD header `J4`: `SWD (DBG)` (standard ARM SWD debugger) or `SG/SH BTN` (enables `PA13` and `PA14` as momentary push-buttons / 2-pos switches SG and SH).
 - **`CRSF Bay:`**: Selects CRSF duplex mode on expansion connector `J15`: `FULL (PB6/7)` (full duplex PB6 TX, PB7 RX) or `HALF (PB6)` (single-wire half duplex on PB6).
 - **`PF10 PPM:`**: Configures analog 8-channel PPM frame generation on `PF10` (`J15`): `OFF` or `ENABLED`.
+- **`Stick Mode:`**: Selects gimbal stick mode configuration: **`MODE 1`** (Throttle/Roll right, Pitch/Yaw left), **`MODE 2`** (Throttle/Yaw left, Pitch/Roll right—default), **`MODE 3`** (Pitch/Roll left, Throttle/Yaw right), or **`MODE 4`** (Pitch/Yaw right, Throttle/Roll left). Directly controls channel mapping for preflight throttle safety checks and flight controls.
 - **`Rear L Key:`** / **`Rear R Key:`**: Configures front/rear tactile buttons `PA9`/`PA10` function: `RC SW (SWE/SWF)`, `TIMER RESET`, `INSTANT TRIM`, or `TRIMS MOD`.
 - **`Touch Screen:`**: Enables or disables FT6236 capacitive touch controller scanning.
 
@@ -523,12 +524,21 @@ dfu-util -a 0 -s 0x08000000:leave -D stock_backup.bin
 The firmware includes five levels of proactive safety protection inspired by OpenTX/EdgeTX and aerospace fail-safe design:
 
 ### 1. Pre-Flight Startup Checks (Throttle & Switch Safety Interlock)
-- **Detection**: At power-on, the radio inspects the physical throttle position and all 4 toggle switches (`SA`, `SB`, `SC`, `SD`).
-- **Safety Trigger**: If the throttle stick is > 5% above zero, or any switch is not in the safe **UP** position:
-  - The transmitter intercepts normal boot and presents a dedicated **`SAFETY WARNING!`** screen.
+- **Normalized Safety Architecture**: Startup preflight checks operate strictly on normalized input channels rather than ad-hoc raw ADC limits, supporting all four radio stick modes (**Mode 1**, **Mode 2**, **Mode 3**, and **Mode 4**) configured in `RADIO SETUP` -> `Stick Mode:`.
+- **Model-Specific Rules**:
+  - **Airplane / Glider / Quad**: Unipolar throttle ($0\%\dots 100\%$). Requires throttle stick at or below **$\le 2\%$** ($20‰$). Displays `"THROTTLE NOT AT IDLE!"` if high.
+  - **General (Surface / Car / Boat)**: Bipolar throttle ($-100\%\dots +100\%$) for spring-centered gimbals. Checks that the throttle stick is centered within neutral deadband $\pm 2\%$ ($\pm 20‰$). Displays `"CENTER THROTTLE STICK!"` if displaced.
+  - **Helicopter**: Collective pitch / throttle curves. Requires **Throttle Hold switch (`SA` Down)** engaged on boot. Displays `"THROTTLE HOLD OFF!"` if disengaged.
+- **Switch Interlock**: Verifies all switches are in safe starting positions (`SA` Down for Helicopters; `SA`, `SB`, `SC`, `SD` UP for other models).
+- **In-Flight Throttle Safety Lockout**:
+  - **Helicopter Throttle Hold**: When model type is `Heli` and `SA` is Down, `CH3` output is locked to minimum idle (`988 µs` / `1000 µs`), preventing motor spin-up while collective pitch and cyclic controls remain active.
+  - **Arm Switch Lockout**: Whenever an `Arm Sw:` is configured and disarmed, `CH3` output is clamped to minimum idle pulse.
+- **Safety Screen & Alarms**:
+  - The transmitter intercepts normal boot and presents a dedicated **`SAFETY WARNING!`** screen detailing which throttle state or switch is violated.
+  - Contextual footer prompts instruct the pilot: `"Lower Thr/Safe SW"`, `"Center Thr/Safe SW"`, or `"Hold Thr/Safe SW"`.
   - RF transmission is locked into zero-throttle failsafe pulses (1000 µs) so motors cannot spin up.
   - An urgent alternating alarm tone (`warn_preflight`) sounds every 800 ms.
-- **Clearing**: Moving the throttle stick to minimum and returning all switches to UP automatically clears the warning with a confirmation chirp and opens the flight screen. Alternatively, pressing **`[CANCEL]` (`[ESC]`)** bypasses the check.
+- **Clearing**: Bringing the throttle stick and switches to their safe states automatically clears the warning with a confirmation chirp and opens the flight screen. Alternatively, pressing **`[CANCEL]` (`[ESC]`)** bypasses the check.
 
 ### 2. Transmitter Low Battery Alarm
 - **Threshold**: Configurable in `RADIO SETUP` -> `Bat Warn` (`4.0V` .. `5.0V`, default **`4.4V`**).

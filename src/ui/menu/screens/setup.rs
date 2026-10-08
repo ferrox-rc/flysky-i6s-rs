@@ -25,7 +25,7 @@ pub fn update_radio_setup(
         buzzer.click();
         return;
     }
-    const SETUP_ITEMS: usize = 15;
+    const SETUP_ITEMS: usize = 16;
 
     widgets::navigate_4slot_list(
         &mut ctrl.selected_item,
@@ -141,6 +141,11 @@ pub fn update_radio_setup(
                 storage.radio.touch_disabled = if storage.radio.touch_disabled == 0 { 1 } else { 0 };
                 storage::save_radio_config(storage);
             }
+            15 => {
+                buzzer.click();
+                storage.radio.stick_mode = (storage.radio.stick_mode + 1) % 4;
+                storage::save_radio_config(storage);
+            }
             _ => {}
         }
     }
@@ -241,13 +246,22 @@ pub fn update_radio_setup(
                 let touch_str = if storage.radio.touch_disabled == 0 { "ENABLED" } else { "DISABLED" };
                 widgets::draw_list_row(lcd, slot, is_sel, "Touch Screen:", Some(touch_str), 62);
             }
+            15 => {
+                let mode_str = match storage.radio.stick_mode {
+                    0 => "MODE 1",
+                    1 => "MODE 2",
+                    2 => "MODE 3",
+                    3 => "MODE 4",
+                    _ => "MODE 2",
+                };
+                widgets::draw_list_row(lcd, slot, is_sel, "Stick Mode:", Some(mode_str), 62);
+            }
             _ => {}
         }
     }
 
     widgets::draw_footer(lcd, "[OK] Toggle/Cycle   [ESC] Back");
 }
-
 #[inline(never)]
 pub fn update_rx_setup(
     ctrl: &mut MenuController,

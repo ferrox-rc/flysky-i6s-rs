@@ -63,7 +63,8 @@ pub struct RadioConfig {
     pub j4_sg_sh_en: u8,           // 73 (0: Disabled / SWD PA13/PA14, 1: Enabled SG/SH tactile buttons)
     pub crsf_duplex: u8,           // 74 (0: Full-Duplex PB6 TX / PB7 RX, 1: Half-Duplex single-wire PB6)
     pub ppm_out_en: u8,            // 75 (0: Disabled, 1: Enabled PPM output on PF10)
-    pub _reserved: [u8; 52],       // 76..128
+    pub stick_mode: u8,            // 76 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
+    pub _reserved: [u8; 51],       // 77..128
 }
 
 impl RadioConfig {
@@ -124,7 +125,8 @@ impl RadioConfig {
             j4_sg_sh_en: 0,
             crsf_duplex: 0,
             ppm_out_en: 0,
-            _reserved: [0; 52],
+            stick_mode: 1, // Mode 2 default
+            _reserved: [0; 51],
         }
     }
 }
@@ -233,6 +235,16 @@ impl ModelConfig {
             _reserved: [0; 1],
         }
     }
+
+    #[inline(always)]
+    pub fn model_type(&self) -> crate::safety::ModelType {
+        crate::safety::ModelType::from_u8(self.model_type)
+    }
+
+    #[inline(always)]
+    pub fn set_model_type(&mut self, mtype: crate::safety::ModelType) {
+        self.model_type = mtype.to_u8();
+    }
 }
 
 /// Complete Flash storage layout containing radio settings and 20 models (2,688 bytes).
@@ -331,6 +343,9 @@ impl RadioStorage {
         if self.radio.ppm_out_en > 1 {
             self.radio.ppm_out_en = 0;
         }
+        if self.radio.stick_mode > 3 {
+            self.radio.stick_mode = 1; // Default to Mode 2
+        }
 
         for stick in self.radio.sticks.iter_mut() {
             if stick.min >= stick.center
@@ -351,6 +366,9 @@ impl RadioStorage {
         }
 
         for (idx, m) in self.models.iter_mut().enumerate() {
+            if m.model_type > 4 {
+                m.model_type = 0;
+            }
             if m.rf_protocol > 1 {
                 m.rf_protocol = 0;
             }

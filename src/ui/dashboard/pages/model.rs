@@ -20,13 +20,7 @@ pub fn render(
     let m_name = ascii_as_str(&active.name);
     lcd.draw_str_6x10(2, 14, m_name, false);
 
-    let type_str = match active.model_type {
-        0 => "AIRPLANE",
-        1 => "GLIDER",
-        2 => "HELI",
-        3 => "QUAD",
-        _ => "GENERAL",
-    };
+    let type_str = active.model_type().as_str();
     lcd.draw_str_6x10(74, 14, type_str, false);
 
     // Line 2 (y = 24): Receiver ID

@@ -82,7 +82,7 @@ flowchart TD
         Storage["Load Storage & Tone Preferences"]
         Splash["Ferrox-RC Splash Screen (1200 ms)<br>Concurrent 4-Note Welcome Fanfare (buzzer::chime_welcome)"]
         Periphs["Init ADC+DMA, RF, USB, CRSF, Trims"]
-        SafetyCheck["Pre-Flight Safety Check Loop<br>Throttle < -900 & Switches UP<br>Modal Trap with 1000 µs Failsafe"]
+        SafetyCheck["Pre-Flight Safety Check Loop<br>Throttle <= -960 & Switches UP<br>Modal Trap with 1000 µs Failsafe"]
         
         IsWDT -- "No (POR/PDR/Pin Reset)" --> DFU --> Clocks --> TouchInit --> Storage --> Splash --> Periphs --> SafetyCheck
     end
@@ -131,7 +131,7 @@ During multi-page log-structured compaction cycles within `sequential-storage` (
 A catastrophic hazard in conventional open-source and commercial RC firmware is the **watchdog in-flight trap**:
 1. An electrostatic discharge (ESD) event, RF power amplifier surge, or voltage sag triggers an unexpected MCU watchdog reset mid-flight.
 2. The MCU reboots in under 2 ms.
-3. The firmware enters standard cold-boot safety checks: it tests whether the throttle stick is at idle ($< -900$) and all switches are in the UP position.
+3. The firmware enters standard cold-boot safety checks: it tests whether the throttle stick is at idle ($\le 2\%$ / $20‰$ on unipolar models, centered within $\pm 2\%$ on General surface models, or Throttle Hold engaged on Heli) across the configured stick mode (Mode 1..4), and all switches are in the UP position.
 4. Because the aircraft is actively flying, the pilot's throttle is elevated, and flight switches (e.g., Arm, Flight Mode) are engaged.
 5. The transmitter flags a safety violation, traps the pilot on a warning screen, forces all over-the-air channels to 1000 µs failsafe, and refuses to send flight control packets until the throttle is lowered.
 6. The aircraft crashes before the pilot can diagnose or clear the screen.

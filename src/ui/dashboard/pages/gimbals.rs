@@ -22,42 +22,68 @@ pub fn render(
     blink_on: bool,
 ) {
     let mut pct_buf = [0u8; 5];
-    let is_general = storage.active_model().model_type == 4;
+    let is_general = storage.active_model().model_type().is_general();
 
-    // CH1: Roll / 1 (y = 13, text baseline was 19 -> top-left y = 11)
-    let lbl1 = if is_general { "1" } else { "A" };
-    lcd.draw_str_6x10(2, 11, lbl1, false);
-    widgets::draw_channel_gauge(lcd, 12, 13, 76, 7, state.sticks.roll, trims.values.roll);
-    let p1 = format_percent(state.sticks.roll, &mut pct_buf);
-    lcd.draw_str_6x10(92, 11, p1, false);
+    let stick_mode = crate::safety::StickMode::from_u8(storage.radio.stick_mode);
 
-    // CH2: Pitch / 2 (y = 21, text baseline was 27 -> top-left y = 19)
-    let lbl2 = if is_general { "2" } else { "E" };
-    lcd.draw_str_6x10(2, 19, lbl2, false);
-    widgets::draw_channel_gauge(lcd, 12, 21, 76, 7, state.sticks.pitch, trims.values.pitch);
-    let p2 = format_percent(state.sticks.pitch, &mut pct_buf);
-    lcd.draw_str_6x10(92, 19, p2, false);
-
-    // CH3: Throttle / 3 (y = 29, text baseline was 35 -> top-left y = 27)
-    let lbl3 = if is_general { "3" } else { "T" };
-    lcd.draw_str_6x10(2, 27, lbl3, false);
     if is_general {
-        widgets::draw_channel_gauge(lcd, 12, 29, 76, 7, state.sticks.throttle, trims.values.throttle);
-        let p3 = format_percent(state.sticks.throttle, &mut pct_buf);
-        lcd.draw_str_6x10(92, 27, p3, false);
-    } else {
-        let thr_trim = if storage.radio.throttle_trim != 0 { trims.values.throttle } else { 0 };
-        widgets::draw_progress_bar(lcd, 12, 29, 76, 7, state.sticks.throttle, thr_trim);
-        let p3 = format_throttle_percent(state.sticks.throttle, &mut pct_buf);
-        lcd.draw_str_6x10(92, 27, p3, false);
-    }
+        // Physical Raw Gimbals: RH, RV, LV, LH
+        // 1: RH (PA0, Right Horizontal)
+        lcd.draw_str_6x10(2, 11, "RH", false);
+        widgets::draw_channel_gauge(lcd, 16, 13, 72, 7, state.gimbals.rh, trims.values.roll);
+        let p1 = format_percent(state.gimbals.rh, &mut pct_buf);
+        lcd.draw_str_6x10(92, 11, p1, false);
 
-    // CH4: Yaw / 4 (y = 37, text baseline was 43 -> top-left y = 35)
-    let lbl4 = if is_general { "4" } else { "R" };
-    lcd.draw_str_6x10(2, 35, lbl4, false);
-    widgets::draw_channel_gauge(lcd, 12, 37, 76, 7, state.sticks.yaw, trims.values.yaw);
-    let p4 = format_percent(state.sticks.yaw, &mut pct_buf);
-    lcd.draw_str_6x10(92, 35, p4, false);
+        // 2: RV (PA1, Right Vertical)
+        lcd.draw_str_6x10(2, 19, "RV", false);
+        widgets::draw_channel_gauge(lcd, 16, 21, 72, 7, state.gimbals.rv, trims.values.pitch);
+        let p2 = format_percent(state.gimbals.rv, &mut pct_buf);
+        lcd.draw_str_6x10(92, 19, p2, false);
+
+        // 3: LV (PA2, Left Vertical)
+        lcd.draw_str_6x10(2, 27, "LV", false);
+        widgets::draw_channel_gauge(lcd, 16, 29, 72, 7, state.gimbals.lv, trims.values.throttle);
+        let p3 = format_percent(state.gimbals.lv, &mut pct_buf);
+        lcd.draw_str_6x10(92, 27, p3, false);
+
+        // 4: LH (PA3, Left Horizontal)
+        lcd.draw_str_6x10(2, 35, "LH", false);
+        widgets::draw_channel_gauge(lcd, 16, 37, 72, 7, state.gimbals.lh, trims.values.yaw);
+        let p4 = format_percent(state.gimbals.lh, &mut pct_buf);
+        lcd.draw_str_6x10(92, 35, p4, false);
+    } else {
+        // Logical Flight Controls for Aircraft: A, E, T, R
+        let controls = state.flight_controls(stick_mode);
+
+        // CH1: Roll / Aileron (A)
+        lcd.draw_str_6x10(2, 11, "A", false);
+        widgets::draw_channel_gauge(lcd, 12, 13, 76, 7, controls.aileron, trims.values.roll);
+        let p1 = format_percent(controls.aileron, &mut pct_buf);
+        lcd.draw_str_6x10(92, 11, p1, false);
+
+        // CH2: Pitch / Elevator (E)
+        lcd.draw_str_6x10(2, 19, "E", false);
+        widgets::draw_channel_gauge(lcd, 12, 21, 76, 7, controls.elevator, trims.values.pitch);
+        let p2 = format_percent(controls.elevator, &mut pct_buf);
+        lcd.draw_str_6x10(92, 19, p2, false);
+
+        // CH3: Throttle (T)
+        lcd.draw_str_6x10(2, 27, "T", false);
+        let thr_trim = if storage.radio.throttle_trim != 0 {
+            trims.values.throttle
+        } else {
+            0
+        };
+        widgets::draw_progress_bar(lcd, 12, 29, 76, 7, controls.throttle, thr_trim);
+        let p3 = format_throttle_percent(controls.throttle, &mut pct_buf);
+        lcd.draw_str_6x10(92, 27, p3, false);
+
+        // CH4: Yaw / Rudder (R)
+        lcd.draw_str_6x10(2, 35, "R", false);
+        widgets::draw_channel_gauge(lcd, 12, 37, 76, 7, controls.rudder, trims.values.yaw);
+        let p4 = format_percent(controls.rudder, &mut pct_buf);
+        lcd.draw_str_6x10(92, 35, p4, false);
+    }
 
     // Switches Line with graphic arrows (y = 46..53, text baseline was 53 -> top-left y = 45)
     let sg_sh_active = storage.radio.j4_sg_sh_en != 0;

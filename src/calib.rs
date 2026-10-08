@@ -228,7 +228,12 @@ impl CalibWizard {
                 lcd.draw_str_6x10(12, 1, "CALIBRATION (2/2)", false);
                 lcd.draw_hline(0, 11, 128, true);
 
-                let labels = ["A", "E", "T", "R"];
+                let is_general = storage.active_model().model_type().is_general();
+                let labels = if is_general {
+                    ["1", "2", "3", "4"]
+                } else {
+                    ["A", "E", "T", "R"]
+                };
                 for i in 0..4 {
                     let y = 13 + (i as i32 * 8);
                     lcd.draw_str_6x10(2, y - 2, labels[i], false);
