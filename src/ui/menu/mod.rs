@@ -72,7 +72,7 @@ pub struct MenuController {
     prev_vr1: i16,
     prev_vr2: i16,
     jog_repeat_timer_ms: u16,
-    jog_was_deflected: bool,
+    jog_deflection_dir: i8,
 }
 
 impl Default for MenuController {
@@ -105,7 +105,7 @@ impl MenuController {
             prev_vr1: 0,
             prev_vr2: 0,
             jog_repeat_timer_ms: 0,
-            jog_was_deflected: false,
+            jog_deflection_dir: 0,
         }
     }
 
@@ -217,10 +217,11 @@ impl MenuController {
         }
 
         // Spring-Loaded Jog Wheels (VRA / VRB) Jog-Shuttle Navigation
-        // Neutral deadband: [-200, 200]
-        // Clockwise deflection (> 200): scroll DOWN
-        // Counter-clockwise deflection (< -200): scroll UP
-        // Release (spring centering into [-200, 200]): scroll stops immediately without reversal!
+        // Neutral deadband: [-180, 180]
+        // Clockwise deflection (> 180): scroll DOWN
+        // Counter-clockwise deflection (< -180): scroll UP
+        // Immediate response when switching directions (-1 <-> 1) or entering from center (0)
+        // Repeat pacing: 350 ms initial hold delay to prevent overshoot, then 240 ms repeat
         let mut pot_change = None;
         if self.editing {
             if pots.vr1.abs() >= 300 {
@@ -228,39 +229,44 @@ impl MenuController {
             } else if pots.vr2.abs() >= 300 {
                 pot_change = Some(6); // MixSource::Vrb
             }
-            self.jog_was_deflected = false;
+            self.jog_deflection_dir = 0;
             self.jog_repeat_timer_ms = 0;
         } else {
-            let deflected_down = pots.vr1 > 200 || pots.vr2 > 200;
-            let deflected_up = pots.vr1 < -200 || pots.vr2 < -200;
+            let current_dir: i8 = if pots.vr1 > 180 || pots.vr2 > 180 {
+                1
+            } else if pots.vr1 < -180 || pots.vr2 < -180 {
+                -1
+            } else {
+                0
+            };
 
-            if deflected_down {
-                if !self.jog_was_deflected {
-                    down_pressed = true;
-                    self.jog_was_deflected = true;
-                    self.jog_repeat_timer_ms = 0;
-                } else {
-                    self.jog_repeat_timer_ms = self.jog_repeat_timer_ms.saturating_add(33);
-                    if self.jog_repeat_timer_ms >= 180 {
+            if current_dir != 0 {
+                if self.jog_deflection_dir != current_dir {
+                    // Direction change or fresh deflection from center:
+                    // Trigger immediate single step!
+                    if current_dir == 1 {
                         down_pressed = true;
-                        self.jog_repeat_timer_ms = 0;
+                    } else {
+                        up_pressed = true;
                     }
-                }
-            } else if deflected_up {
-                if !self.jog_was_deflected {
-                    up_pressed = true;
-                    self.jog_was_deflected = true;
+                    self.jog_deflection_dir = current_dir;
                     self.jog_repeat_timer_ms = 0;
                 } else {
+                    // Sustained hold in the same direction:
+                    // Wait 350 ms initial hold delay before repeating, then repeat every 240 ms
                     self.jog_repeat_timer_ms = self.jog_repeat_timer_ms.saturating_add(33);
-                    if self.jog_repeat_timer_ms >= 180 {
-                        up_pressed = true;
-                        self.jog_repeat_timer_ms = 0;
+                    if self.jog_repeat_timer_ms >= 350 {
+                        if current_dir == 1 {
+                            down_pressed = true;
+                        } else {
+                            up_pressed = true;
+                        }
+                        self.jog_repeat_timer_ms = 350 - 240;
                     }
                 }
             } else {
-                // Centered in deadband: reset deflection flag and repeat timer
-                self.jog_was_deflected = false;
+                // Centered in deadband: reset deflection state immediately
+                self.jog_deflection_dir = 0;
                 self.jog_repeat_timer_ms = 0;
             }
         }
@@ -479,6 +485,35 @@ mod tests {
 
         // Spring returns VR1 back to center (0 counts) -> position remains UNCHANGED!
         pots.vr1 = 0;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Immediate direction reversal: deflecting +300 then immediately -300 triggers on first frame
+        pots.vr1 = 300;
+        ctrl.update(
+            &mut lcd,
+            0,
+            &switches,
+            &pots,
+            &mut storage,
+            &mut trims,
+            &raw_adc,
+            &rf_chs,
+            &mut buzzer,
+        );
+        assert_eq!(ctrl.selected_item, 2);
+
+        pots.vr1 = -300;
         ctrl.update(
             &mut lcd,
             0,

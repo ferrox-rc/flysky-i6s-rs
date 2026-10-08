@@ -52,6 +52,7 @@ pub struct SwipeTracker {
     pub active: bool,
     pub swiped: bool,
     pub last_packet_ms: u32,
+    pub last_scroll_ms: u32,
 }
 
 static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
@@ -62,6 +63,7 @@ static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
     active: false,
     swiped: false,
     last_packet_ms: 0,
+    last_scroll_ms: 0,
 };
 
 /// Evaluates a valid touch sample and screen tap zones into UI navigation key flags.
@@ -121,13 +123,23 @@ pub fn touch_to_nav_keys_with_tracker(
                 if menu_active {
                     // Vertical displacement strictly scrolls list UP / DOWN
                     // Horizontal displacement is intentionally ignored so swiping never accidentally selects or cancels!
-                    if dy <= -8 {
+                    #[cfg(not(test))]
+                    let now = crate::time::millis();
+                    #[cfg(test)]
+                    let now: u32 = 0;
+
+                    let rate_ok = tracker.last_scroll_ms == 0
+                        || now.wrapping_sub(tracker.last_scroll_ms) >= 180;
+
+                    if dy <= -14 && rate_ok {
                         keys |= KEY_NAV_UP;
                         tracker.start_y = pt.y;
+                        tracker.last_scroll_ms = now.max(1);
                         tracker.swiped = true;
-                    } else if dy >= 8 {
+                    } else if dy >= 14 && rate_ok {
                         keys |= KEY_NAV_DOWN;
                         tracker.start_y = pt.y;
+                        tracker.last_scroll_ms = now.max(1);
                         tracker.swiped = true;
                     }
                 } else {
@@ -172,6 +184,7 @@ pub fn touch_to_nav_keys_with_tracker(
                 }
                 tracker.active = false;
                 tracker.swiped = false;
+                tracker.last_scroll_ms = 0;
             }
             TouchEventKind::NoEvent => {}
         }
@@ -192,6 +205,7 @@ pub fn touch_to_nav_keys_with_tracker(
         }
         tracker.active = false;
         tracker.swiped = false;
+        tracker.last_scroll_ms = 0;
     }
 
     keys
@@ -394,6 +408,7 @@ pub fn update_inputs(
                 }
                 tracker.active = false;
                 tracker.swiped = false;
+                tracker.last_scroll_ms = 0;
                 keys
             } else {
                 0
