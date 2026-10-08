@@ -51,6 +51,7 @@ pub struct SwipeTracker {
     pub last_y: u8,
     pub active: bool,
     pub swiped: bool,
+    pub last_packet_ms: u32,
 }
 
 static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
@@ -60,6 +61,7 @@ static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
     last_y: 0,
     active: false,
     swiped: false,
+    last_packet_ms: 0,
 };
 
 /// Evaluates a valid touch sample and screen tap zones into UI navigation key flags.
@@ -68,6 +70,10 @@ static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
 /// `TouchSample` was read from the FT6236 controller.
 pub fn touch_to_nav_keys(sample: &TouchSample, menu_active: bool) -> u16 {
     let tracker = unsafe { &mut *core::ptr::addr_of_mut!(GLOBAL_SWIPE_TRACKER) };
+    #[cfg(not(test))]
+    {
+        tracker.last_packet_ms = crate::time::millis();
+    }
     touch_to_nav_keys_with_tracker(sample, menu_active, tracker)
 }
 
@@ -125,18 +131,34 @@ pub fn touch_to_nav_keys_with_tracker(
                         tracker.swiped = true;
                     }
                 } else {
-                    // Dashboard mode: horizontal and vertical swipes cycle dashboard pages
-                    if !tracker.swiped {
-                        if dx <= -14 || dy >= 8 {
-                            keys |= KEY_NAV_DOWN;
-                            tracker.start_x = pt.x;
-                            tracker.start_y = pt.y;
-                            tracker.swiped = true;
-                        } else if dx >= 14 || dy <= -8 {
-                            keys |= KEY_NAV_UP;
-                            tracker.start_x = pt.x;
-                            tracker.start_y = pt.y;
-                            tracker.swiped = true;
+                    // Flight Dashboard mode:
+                    let started_in_center = (32..=96).contains(&tracker.start_x)
+                        && (20..=44).contains(&tracker.start_y);
+
+                    if started_in_center {
+                        // In center hold area: require deliberate swipe (>24px) to break out of center hold
+                        if dx.abs() >= 24 || dy.abs() >= 20 {
+                            if dx <= -24 || dy >= 20 {
+                                keys |= KEY_NAV_DOWN;
+                                tracker.swiped = true;
+                            } else if dx >= 24 || dy <= -20 {
+                                keys |= KEY_NAV_UP;
+                                tracker.swiped = true;
+                            }
+                        } else {
+                            // Still holding in center zone
+                            keys |= KEY_MENU_OPEN;
+                        }
+                    } else {
+                        // Swipes starting outside center area cycle dashboard pages
+                        if !tracker.swiped {
+                            if dx <= -16 || dy >= 12 {
+                                keys |= KEY_NAV_DOWN;
+                                tracker.swiped = true;
+                            } else if dx >= 16 || dy <= -12 {
+                                keys |= KEY_NAV_UP;
+                                tracker.swiped = true;
+                            }
                         }
                     }
                 }
@@ -198,8 +220,12 @@ pub fn evaluate_tap_zones(x: u8, y: u8, menu_active: bool) -> u16 {
         // Pilots select via the dedicated [OK] footer button or tactile OK (PA10).
     } else {
         // Flight Dashboard:
+        // Top status bar (y < 14): Tap to cycle dashboard page forward!
+        if y < 14 {
+            keys |= KEY_NAV_DOWN;
+        }
         // Left border: Throttle trim (Up / Down)
-        if x < 16 {
+        else if x < 16 {
             if y < 32 {
                 keys |= KEY_TRIM_THR_U;
             } else {
@@ -355,7 +381,26 @@ pub fn update_inputs(
     let touch_keys = if let Some(sample) = touch_sample {
         touch_to_nav_keys(sample, menu_active)
     } else {
-        0
+        let tracker = unsafe { &mut *core::ptr::addr_of_mut!(GLOBAL_SWIPE_TRACKER) };
+        if tracker.active {
+            #[cfg(not(test))]
+            let now = crate::time::millis();
+            #[cfg(test)]
+            let now: u32 = 0;
+            if now.wrapping_sub(tracker.last_packet_ms) >= 40 {
+                let mut keys = 0u16;
+                if !tracker.swiped {
+                    keys |= evaluate_tap_zones(tracker.start_x, tracker.start_y, menu_active);
+                }
+                tracker.active = false;
+                tracker.swiped = false;
+                keys
+            } else {
+                0
+            }
+        } else {
+            0
+        }
     };
     combined |= touch_keys;
 

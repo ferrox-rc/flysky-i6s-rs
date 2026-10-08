@@ -478,7 +478,8 @@ impl BackgroundIdleManager {
             if center_touch {
                 self.last_center_touch_ms = now;
             }
-            let touch_active = now.wrapping_sub(self.last_center_touch_ms) < 120;
+            let touch_active = self.last_center_touch_ms != 0
+                && now.wrapping_sub(self.last_center_touch_ms) < 150;
             let ok_held = touch_active || right_btn;
 
             if ok_held {
@@ -490,6 +491,7 @@ impl BackgroundIdleManager {
                 }
             } else {
                 self.ok_hold_ms = 0;
+                self.last_center_touch_ms = 0;
             }
         }
 
