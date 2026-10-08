@@ -192,6 +192,18 @@ pub fn init() {
 
             // Enable I2C1 peripheral (PE = 1)
             i2c1.cr1.modify(|_, w| w.pe().set_bit());
+
+            // 8. Configure FT6236 registers:
+            // Wait 10 ms for sensor internal state machine ready
+            delay_cycles(48_000 * 10);
+
+            // Configure interrupt mode to Polling Mode (0x00):
+            // In polling mode, INT pin PC12 stays active LOW for the entire duration of a touch/gesture.
+            write_reg(0xA4, 0x00);
+            // Valid touch detection threshold (default 22)
+            write_reg(0x80, 22);
+            // Active scan report rate (~70 Hz)
+            write_reg(0x88, 14);
         }
     }
 }

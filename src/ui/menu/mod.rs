@@ -217,9 +217,9 @@ impl MenuController {
         }
 
         // Spring-Loaded Jog Wheels (VRA / VRB) Jog-Shuttle Navigation
-        // Neutral deadband: [-180, 180]
-        // Clockwise deflection (> 180): scroll DOWN
-        // Counter-clockwise deflection (< -180): scroll UP
+        // Neutral deadband: [-300, 300]
+        // Clockwise deflection (> 300): scroll DOWN
+        // Counter-clockwise deflection (< -300): scroll UP
         // Immediate response when switching directions (-1 <-> 1) or entering from center (0)
         // Repeat pacing: 350 ms initial hold delay to prevent overshoot, then 240 ms repeat
         let mut pot_change = None;
@@ -232,9 +232,9 @@ impl MenuController {
             self.jog_deflection_dir = 0;
             self.jog_repeat_timer_ms = 0;
         } else {
-            let current_dir: i8 = if pots.vr1 > 180 || pots.vr2 > 180 {
+            let current_dir: i8 = if pots.vr1 > 300 || pots.vr2 > 300 {
                 1
-            } else if pots.vr1 < -180 || pots.vr2 < -180 {
+            } else if pots.vr1 < -300 || pots.vr2 < -300 {
                 -1
             } else {
                 0
@@ -408,8 +408,8 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 0);
 
-        // Deflecting VR1 clockwise (> 200 counts) triggers DOWN
-        pots.vr1 = 300;
+        // Deflecting VR1 clockwise (> 300 counts) triggers DOWN
+        pots.vr1 = 350;
         ctrl.update(
             &mut lcd,
             0,
@@ -438,8 +438,8 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 1);
 
-        // Deflecting VR2 clockwise (> 200 counts) triggers DOWN again
-        pots.vr2 = 300;
+        // Deflecting VR2 clockwise (> 300 counts) triggers DOWN again
+        pots.vr2 = 350;
         ctrl.update(
             &mut lcd,
             0,
@@ -468,8 +468,8 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 2);
 
-        // Deflecting VR1 counter-clockwise (< -200 counts) triggers UP
-        pots.vr1 = -300;
+        // Deflecting VR1 counter-clockwise (< -300 counts) triggers UP
+        pots.vr1 = -350;
         ctrl.update(
             &mut lcd,
             0,
@@ -498,8 +498,8 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 1);
 
-        // Immediate direction reversal: deflecting +300 then immediately -300 triggers on first frame
-        pots.vr1 = 300;
+        // Immediate direction reversal: deflecting +350 then immediately -350 triggers on first frame
+        pots.vr1 = 350;
         ctrl.update(
             &mut lcd,
             0,
@@ -513,7 +513,7 @@ mod tests {
         );
         assert_eq!(ctrl.selected_item, 2);
 
-        pots.vr1 = -300;
+        pots.vr1 = -350;
         ctrl.update(
             &mut lcd,
             0,

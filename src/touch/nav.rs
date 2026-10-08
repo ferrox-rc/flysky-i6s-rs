@@ -49,10 +49,39 @@ pub struct SwipeTracker {
     pub start_y: u8,
     pub last_x: u8,
     pub last_y: u8,
+    pub anchor_y: u8,
+    pub max_y: u8,
+    pub min_y: u8,
+    pub scroll_dir: i8, // 0 = neutral, 1 = down, -1 = up
     pub active: bool,
     pub swiped: bool,
     pub last_packet_ms: u32,
     pub last_scroll_ms: u32,
+}
+
+impl SwipeTracker {
+    #[inline(always)]
+    pub fn reset_at(&mut self, x: u8, y: u8) {
+        self.start_x = x;
+        self.start_y = y;
+        self.last_x = x;
+        self.last_y = y;
+        self.anchor_y = y;
+        self.max_y = y;
+        self.min_y = y;
+        self.scroll_dir = 0;
+        self.active = true;
+        self.swiped = false;
+        self.last_scroll_ms = 0;
+    }
+
+    #[inline(always)]
+    pub fn clear(&mut self) {
+        self.active = false;
+        self.swiped = false;
+        self.scroll_dir = 0;
+        self.last_scroll_ms = 0;
+    }
 }
 
 static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
@@ -60,6 +89,10 @@ static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
     start_y: 0,
     last_x: 0,
     last_y: 0,
+    anchor_y: 0,
+    max_y: 0,
+    min_y: 0,
+    scroll_dir: 0,
     active: false,
     swiped: false,
     last_packet_ms: 0,
@@ -99,26 +132,12 @@ pub fn touch_to_nav_keys_with_tracker(
     if let Some(pt) = sample.point {
         match pt.event {
             TouchEventKind::PressDown => {
-                tracker.start_x = pt.x;
-                tracker.start_y = pt.y;
-                tracker.last_x = pt.x;
-                tracker.last_y = pt.y;
-                tracker.active = true;
-                tracker.swiped = false;
+                tracker.reset_at(pt.x, pt.y);
             }
             TouchEventKind::Contact => {
                 if !tracker.active {
-                    tracker.start_x = pt.x;
-                    tracker.start_y = pt.y;
-                    tracker.active = true;
-                    tracker.swiped = false;
+                    tracker.reset_at(pt.x, pt.y);
                 }
-                tracker.last_x = pt.x;
-                tracker.last_y = pt.y;
-
-                // Software swipe detection on drag displacement
-                let dx = pt.x as i16 - tracker.start_x as i16;
-                let dy = pt.y as i16 - tracker.start_y as i16;
 
                 if menu_active {
                     // Vertical displacement strictly scrolls list UP / DOWN
@@ -128,52 +147,103 @@ pub fn touch_to_nav_keys_with_tracker(
                     #[cfg(test)]
                     let now: u32 = 0;
 
-                    let rate_ok = tracker.last_scroll_ms == 0
-                        || now.wrapping_sub(tracker.last_scroll_ms) >= 180;
+                    // 1. Peak & Turning point tracking for instant directional reversal
+                    if pt.y > tracker.max_y {
+                        tracker.max_y = pt.y;
+                    }
+                    if pt.y < tracker.min_y {
+                        tracker.min_y = pt.y;
+                    }
 
-                    if dy <= -14 && rate_ok {
-                        keys |= KEY_NAV_UP;
-                        tracker.start_y = pt.y;
-                        tracker.last_scroll_ms = now.max(1);
-                        tracker.swiped = true;
-                    } else if dy >= 14 && rate_ok {
-                        keys |= KEY_NAV_DOWN;
-                        tracker.start_y = pt.y;
-                        tracker.last_scroll_ms = now.max(1);
-                        tracker.swiped = true;
+                    // Deliberate direction reversal detection (>= 3px movement opposite to prior motion):
+                    // If moving/scrolled DOWN and finger moves UP:
+                    if tracker.scroll_dir >= 0 && pt.y <= tracker.max_y.saturating_sub(3) {
+                        tracker.anchor_y = tracker.max_y;
+                        tracker.min_y = pt.y;
+                        tracker.scroll_dir = 0;
+                    }
+                    // If moving/scrolled UP and finger moves DOWN:
+                    else if tracker.scroll_dir <= 0 && pt.y >= tracker.min_y.saturating_add(3) {
+                        tracker.anchor_y = tracker.min_y;
+                        tracker.max_y = pt.y;
+                        tracker.scroll_dir = 0;
+                    }
+
+                    let dy = pt.y as i16 - tracker.anchor_y as i16;
+                    let elapsed = if tracker.last_scroll_ms == 0 {
+                        u32::MAX
+                    } else {
+                        now.wrapping_sub(tracker.last_scroll_ms)
+                    };
+
+                    // Threshold: 12 pixels (~19% of screen height)
+                    // Pacing: repeat in same direction requires >= 200 ms (smooth 5 items/sec).
+                    // Direction reversal or fresh step fires IMMEDIATELY on first frame!
+                    if dy <= -12 {
+                        let can_scroll = tracker.scroll_dir != -1 || elapsed >= 200;
+                        if can_scroll {
+                            keys |= KEY_NAV_UP;
+                            tracker.anchor_y = pt.y;
+                            tracker.max_y = pt.y;
+                            tracker.min_y = pt.y;
+                            tracker.scroll_dir = -1;
+                            tracker.last_scroll_ms = now.max(1);
+                            tracker.swiped = true;
+                        }
+                    } else if dy >= 12 {
+                        let can_scroll = tracker.scroll_dir != 1 || elapsed >= 200;
+                        if can_scroll {
+                            keys |= KEY_NAV_DOWN;
+                            tracker.anchor_y = pt.y;
+                            tracker.max_y = pt.y;
+                            tracker.min_y = pt.y;
+                            tracker.scroll_dir = 1;
+                            tracker.last_scroll_ms = now.max(1);
+                            tracker.swiped = true;
+                        }
                     }
                 } else {
                     // Flight Dashboard mode:
-                    let started_in_center = (32..=96).contains(&tracker.start_x)
-                        && (20..=44).contains(&tracker.start_y);
+                    // Center hold area: (28..=100, 16..=48)
+                    let started_in_center = (28..=100).contains(&tracker.start_x)
+                        && (16..=48).contains(&tracker.start_y);
+
+                    let dx = pt.x as i16 - tracker.start_x as i16;
+                    let dy = pt.y as i16 - tracker.start_y as i16;
 
                     if started_in_center {
-                        // In center hold area: require deliberate swipe (>24px) to break out of center hold
-                        if dx.abs() >= 24 || dy.abs() >= 20 {
-                            if dx <= -24 || dy >= 20 {
+                        // Deliberate swipe to cycle dashboard page:
+                        // Horizontal swipe (left/right >= 16px) or vertical swipe (up/down >= 16px)
+                        if dx <= -16 || dy >= 16 {
+                            if !tracker.swiped {
                                 keys |= KEY_NAV_DOWN;
                                 tracker.swiped = true;
-                            } else if dx >= 24 || dy <= -20 {
+                            }
+                        } else if dx >= 16 || dy <= -16 {
+                            if !tracker.swiped {
                                 keys |= KEY_NAV_UP;
                                 tracker.swiped = true;
                             }
                         } else {
-                            // Still holding in center zone
+                            // Still holding inside center hold area -> accumulate for menu open
                             keys |= KEY_MENU_OPEN;
                         }
                     } else {
                         // Swipes starting outside center area cycle dashboard pages
                         if !tracker.swiped {
-                            if dx <= -16 || dy >= 12 {
+                            if dx <= -14 || dy >= 14 {
                                 keys |= KEY_NAV_DOWN;
                                 tracker.swiped = true;
-                            } else if dx >= 16 || dy <= -12 {
+                            } else if dx >= 14 || dy <= -14 {
                                 keys |= KEY_NAV_UP;
                                 tracker.swiped = true;
                             }
                         }
                     }
                 }
+
+                tracker.last_x = pt.x;
+                tracker.last_y = pt.y;
             }
             TouchEventKind::LiftUp => {
                 // If finger lifted without having triggered a swipe gesture, process as a tap
@@ -182,9 +252,7 @@ pub fn touch_to_nav_keys_with_tracker(
                     let tap_y = tracker.start_y;
                     keys |= evaluate_tap_zones(tap_x, tap_y, menu_active);
                 }
-                tracker.active = false;
-                tracker.swiped = false;
-                tracker.last_scroll_ms = 0;
+                tracker.clear();
             }
             TouchEventKind::NoEvent => {}
         }
@@ -193,7 +261,7 @@ pub fn touch_to_nav_keys_with_tracker(
         if !menu_active && !tracker.swiped && keys == 0 {
             if pt.x < 16 || pt.x > 112 || pt.y > 52 {
                 keys |= evaluate_tap_zones(pt.x, pt.y, false);
-            } else if (32..=96).contains(&pt.x) && (20..=44).contains(&pt.y) {
+            } else if (28..=100).contains(&pt.x) && (16..=48).contains(&pt.y) {
                 // Continuous center hold emits KEY_MENU_OPEN to accumulate towards the 1.2s menu open requirement
                 keys |= KEY_MENU_OPEN;
             }
@@ -203,9 +271,7 @@ pub fn touch_to_nav_keys_with_tracker(
         if tracker.active && !tracker.swiped {
             keys |= evaluate_tap_zones(tracker.start_x, tracker.start_y, menu_active);
         }
-        tracker.active = false;
-        tracker.swiped = false;
-        tracker.last_scroll_ms = 0;
+        tracker.clear();
     }
 
     keys
@@ -406,9 +472,7 @@ pub fn update_inputs(
                 if !tracker.swiped {
                     keys |= evaluate_tap_zones(tracker.start_x, tracker.start_y, menu_active);
                 }
-                tracker.active = false;
-                tracker.swiped = false;
-                tracker.last_scroll_ms = 0;
+                tracker.clear();
                 keys
             } else {
                 0
@@ -622,5 +686,125 @@ mod tests {
         let (trims, _, supp_r) = process_modifier_trims(false, true, &sticks);
         assert_eq!(trims, KEY_TRIM_ROLL_R);
         assert!(supp_r); // Suppressed normal OK
+    }
+
+    #[test]
+    fn test_menu_touch_scrolling_and_instant_reversal() {
+        let mut tracker = SwipeTracker::default();
+
+        // 1. Initial press at y = 30
+        let s_press = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 60,
+                y: 30,
+                raw_x: 60,
+                raw_y: 120,
+                event: TouchEventKind::PressDown,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_press, true, &mut tracker), 0);
+
+        // 2. Drag down by 12 px (to y = 42) -> fires KEY_NAV_DOWN
+        let s_drag_down = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 60,
+                y: 42,
+                raw_x: 84,
+                raw_y: 120,
+                event: TouchEventKind::Contact,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_drag_down, true, &mut tracker), KEY_NAV_DOWN);
+        assert_eq!(tracker.scroll_dir, 1);
+
+        // 3. Move further down to y = 46 (peak at 46)
+        let s_drag_down2 = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 60,
+                y: 46,
+                raw_x: 92,
+                raw_y: 120,
+                event: TouchEventKind::Contact,
+            }),
+        };
+        // Should not trigger (only 4px past 42, and elapsed time < 200 ms in test)
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_drag_down2, true, &mut tracker), 0);
+        assert_eq!(tracker.max_y, 46);
+
+        // 4. Reverse direction! Move up to y = 42 (4px up from peak 46 -> reversal detected!)
+        let s_rev = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 60,
+                y: 42,
+                raw_x: 84,
+                raw_y: 120,
+                event: TouchEventKind::Contact,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_rev, true, &mut tracker), 0);
+        assert_eq!(tracker.anchor_y, 46); // Anchor reset to peak 46!
+
+        // 5. Move up to y = 34 (46 - 34 = 12 px up from peak!) -> fires KEY_NAV_UP immediately!
+        let s_up = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 60,
+                y: 34,
+                raw_x: 68,
+                raw_y: 120,
+                event: TouchEventKind::Contact,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_up, true, &mut tracker), KEY_NAV_UP);
+        assert_eq!(tracker.scroll_dir, -1);
+    }
+
+    #[test]
+    fn test_dashboard_center_hold_and_swipe() {
+        let mut tracker = SwipeTracker::default();
+
+        // 1. Press and hold in center (x=64, y=30) -> emits KEY_MENU_OPEN
+        let s_center = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 64,
+                y: 30,
+                raw_x: 60,
+                raw_y: 128,
+                event: TouchEventKind::Contact,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_center, false, &mut tracker), KEY_MENU_OPEN);
+
+        // 2. Minor tremor in place (x=66, y=32) -> still emits KEY_MENU_OPEN
+        let s_tremor = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 66,
+                y: 32,
+                raw_x: 64,
+                raw_y: 124,
+                event: TouchEventKind::Contact,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_tremor, false, &mut tracker), KEY_MENU_OPEN);
+
+        // 3. Deliberate horizontal swipe left (x=45, dx = -19) -> emits KEY_NAV_DOWN (next dashboard page)
+        let s_swipe_left = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 45,
+                y: 30,
+                raw_x: 60,
+                raw_y: 166,
+                event: TouchEventKind::Contact,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_swipe_left, false, &mut tracker), KEY_NAV_DOWN);
+        assert!(tracker.swiped);
     }
 }
