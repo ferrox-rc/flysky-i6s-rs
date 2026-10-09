@@ -1,24 +1,50 @@
 //! Pulse Position Modulation (PPM) output generator on PF10 (J15 expansion header).
 //!
-//! Standard analog RC PPM frame specification:
-//! - Frame duration: 22.5 ms (22,500 µs)
-//! - Channel pulses: 8 channels, 1000 µs .. 2000 µs (center 1500 µs)
-//! - Channel sync pulse: 300..400 µs low (active low pulse)
-//! - Sync gap / idle: Frame gap fills the remaining time until 22,500 µs.
+//! Uses hardware TIM15 on STM32F072VB to generate exact microsecond-timed PPM pulses:
+//! - PF10 configured as Alternate Function AF1 (TIM15_CH2) or software GPIO pulse modulation via TIM15 IRQ.
+//! - Frame period: 22.5 ms (22,500 µs)
+//! - 8 Channels: 1000..2000 µs (center 1500 µs)
+//! - Sync pulse: 400 µs LOW
+//! - Sync gap: fills remaining frame duration (~9..14 ms) HIGH
 
 #![allow(dead_code)]
+#![allow(static_mut_refs)]
 
 use core::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(not(test))]
+use stm32f0xx_hal::pac::interrupt;
 
 const PPM_CHANNELS: usize = 8;
 const PPM_FRAME_TOTAL_US: u32 = 22_500;
 const PPM_SYNC_PULSE_US: u16 = 400;
 
+// Hardware register addresses for STM32F072
+const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
+const RCC_APB2ENR: *mut u32 = 0x4002_1018 as *mut u32;
+const GPIOF_MODER: *mut u32 = 0x4800_1400 as *mut u32;
+const GPIOF_BSRR: *mut u32 = 0x4800_1418 as *mut u32;
+
+// TIM15 base: 0x4001_4000
+const TIM15_CR1: *mut u32 = 0x4001_4000 as *mut u32;
+const TIM15_DIER: *mut u32 = 0x4001_400C as *mut u32;
+const TIM15_SR: *mut u32 = 0x4001_4010 as *mut u32;
+const TIM15_PSC: *mut u32 = 0x4001_4028 as *mut u32;
+const TIM15_ARR: *mut u32 = 0x4001_402C as *mut u32;
+const TIM15_EGR: *mut u32 = 0x4001_4014 as *mut u32;
+
+// NVIC
+const NVIC_ISER: *mut u32 = 0xE000_E100 as *mut u32;
+const NVIC_ICER: *mut u32 = 0xE000_E180 as *mut u32;
+const NVIC_IPR5: *mut u32 = 0xE000_E414 as *mut u32; // IRQ 20 = byte 0 of IPR5
+
 static PPM_ENABLED: AtomicBool = AtomicBool::new(false);
+
+static mut PPM_GEN: PpmGenerator = PpmGenerator::new();
 
 /// Software/hardware state tracker for PPM pulse train generation
 pub struct PpmGenerator {
-    channels: [u16; PPM_CHANNELS],
+    pub channels: [u16; PPM_CHANNELS],
     current_ch: usize,
     in_sync_pulse: bool,
     frame_elapsed_us: u32,
@@ -79,22 +105,43 @@ impl PpmGenerator {
     }
 }
 
-/// Initialize PF10 pin for PPM output.
+/// Initialize PF10 pin and TIM15 for PPM output.
 pub fn init(enabled: bool) {
     PPM_ENABLED.store(enabled, Ordering::Relaxed);
     #[cfg(not(test))]
-    if enabled {
-        unsafe {
-            // Enable GPIOF clock (bit 22 in RCC_AHBENR)
-            let ahb = core::ptr::read_volatile(0x4002_1014 as *mut u32);
-            core::ptr::write_volatile(0x4002_1014 as *mut u32, ahb | (1 << 22));
+    unsafe {
+        // 1. Enable GPIOF clock (bit 22 in RCC_AHBENR)
+        let ahb = core::ptr::read_volatile(RCC_AHBENR);
+        core::ptr::write_volatile(RCC_AHBENR, ahb | (1 << 22));
 
-            // PF10: bits 21:20 in GPIOF_MODER = 01 (General purpose output)
-            let f_moder = core::ptr::read_volatile(0x4800_1400 as *mut u32);
-            core::ptr::write_volatile(0x4800_1400 as *mut u32, (f_moder & !(3 << 20)) | (1 << 20));
+        // 2. Configure PF10 as General Purpose Output (MODER bits 21:20 = 01)
+        let f_moder = core::ptr::read_volatile(GPIOF_MODER);
+        core::ptr::write_volatile(GPIOF_MODER, (f_moder & !(3 << 20)) | (1 << 20));
 
-            // Set PF10 default High (idle state)
-            core::ptr::write_volatile(0x4800_1418 as *mut u32, 1 << 10);
+        // Set PF10 default High (idle state)
+        core::ptr::write_volatile(GPIOF_BSRR, 1 << 10);
+
+        // 3. Enable TIM15 clock in RCC_APB2ENR (bit 16)
+        let apb2 = core::ptr::read_volatile(RCC_APB2ENR);
+        core::ptr::write_volatile(RCC_APB2ENR, apb2 | (1 << 16));
+
+        // 4. Configure TIM15: 48 MHz / 48 = 1 MHz count rate (1 tick = 1 µs)
+        core::ptr::write_volatile(TIM15_PSC, 47); // 48 - 1 = 47
+        core::ptr::write_volatile(TIM15_ARR, 400); // Initial 400 µs
+        core::ptr::write_volatile(TIM15_EGR, 1);   // Re-initialize counter & prescaler
+        core::ptr::write_volatile(TIM15_SR, 0);    // Clear update flag
+
+        // Configure NVIC for TIM15 (IRQ 20)
+        let ipr5 = core::ptr::read_volatile(NVIC_IPR5);
+        core::ptr::write_volatile(NVIC_IPR5, (ipr5 & !0xFF) | 0x80); // Lower priority (0x80)
+
+        if enabled {
+            // Enable Update Interrupt (UIE bit 0)
+            core::ptr::write_volatile(TIM15_DIER, 1);
+            // Unmask IRQ 20 in NVIC
+            core::ptr::write_volatile(NVIC_ISER, 1 << 20);
+            // Enable counter (CEN bit 0)
+            core::ptr::write_volatile(TIM15_CR1, 1);
         }
     }
 }
@@ -104,15 +151,56 @@ pub fn set_enabled(enabled: bool) {
     PPM_ENABLED.store(enabled, Ordering::Relaxed);
     #[cfg(not(test))]
     unsafe {
-        if !enabled {
-            // Set PF10 low / high idle
-            core::ptr::write_volatile(0x4800_1418 as *mut u32, 1 << (10 + 16));
+        if enabled {
+            core::ptr::write_volatile(TIM15_DIER, 1);
+            core::ptr::write_volatile(NVIC_ISER, 1 << 20);
+            core::ptr::write_volatile(TIM15_CR1, 1);
+        } else {
+            core::ptr::write_volatile(TIM15_CR1, 0);
+            core::ptr::write_volatile(TIM15_DIER, 0);
+            core::ptr::write_volatile(NVIC_ICER, 1 << 20);
+            // Hold PF10 High in idle
+            core::ptr::write_volatile(GPIOF_BSRR, 1 << 10);
         }
     }
 }
 
 pub fn is_enabled() -> bool {
     PPM_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Update output channel values for PPM generation
+pub fn update_channels(chs: &[u16]) {
+    unsafe {
+        PPM_GEN.update_channels(chs);
+    }
+}
+
+#[cfg(not(test))]
+#[interrupt]
+fn TIM15() {
+    unsafe {
+        // Clear update interrupt flag
+        core::ptr::write_volatile(TIM15_SR, 0);
+
+        if !PPM_ENABLED.load(Ordering::Relaxed) {
+            core::ptr::write_volatile(GPIOF_BSRR, 1 << 10);
+            return;
+        }
+
+        // Get next interval and pin state
+        let (duration_us, pin_high) = PPM_GEN.next_interval();
+
+        // Write pin state to PF10 immediately
+        if pin_high {
+            core::ptr::write_volatile(GPIOF_BSRR, 1 << 10); // High
+        } else {
+            core::ptr::write_volatile(GPIOF_BSRR, 1 << (10 + 16)); // Low
+        }
+
+        // Set next reload value in µs
+        core::ptr::write_volatile(TIM15_ARR, duration_us as u32);
+    }
 }
 
 #[cfg(test)]

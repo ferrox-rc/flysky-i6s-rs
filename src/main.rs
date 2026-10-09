@@ -189,6 +189,10 @@ impl FlightPipeline {
             }
         }
 
+        if !sim_mode && storage.radio.ppm_out_en != 0 {
+            rf::ppm_out::update_channels(&rf_chs);
+        }
+
         // 7. Map telemetry data based on active protocol
         let telem = if is_crsf {
             let ct = crsf::get_telemetry();

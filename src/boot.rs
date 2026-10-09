@@ -103,19 +103,35 @@ static TEST_J4_SG: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static TEST_J4_SH: AtomicBool = AtomicBool::new(false);
 
-/// Configure J4 pins PA13 (SWDIO) and PA14 (SWCLK) as GPIO inputs with pull-ups for SG and SH buttons.
+/// Configure J4 pins PA13 (SWDIO) and PA14 (SWCLK) as GPIO inputs with pull-ups for SG and SH buttons,
+/// or restore them to Alternate Function AF0 (SWD debug) when disabled.
 pub fn init_j4_keys(enabled: bool) {
     #[cfg(not(test))]
-    if enabled {
+    {
         let gpioa = unsafe { &*pac::GPIOA::ptr() };
         unsafe {
-            // PA13: bits 27:26 = 00 (Input), PA14: bits 29:28 = 00 (Input)
-            gpioa.moder.modify(|r, w| w.bits(r.bits() & !(0x0F << 26)));
-            // PUPDR: PA13 bits 27:26 = 01 (Pull-up), PA14 bits 29:28 = 01 (Pull-up)
-            gpioa.pupdr.modify(|r, w| {
-                let val = r.bits();
-                w.bits((val & !(0x0F << 26)) | (0x05 << 26))
-            });
+            if enabled {
+                // Ensure AFRH13 and AFRH14 are cleared (AF0)
+                gpioa.afrh.modify(|r, w| w.bits(r.bits() & !(0xFF << 20)));
+                // PA13: bits 27:26 = 00 (Input), PA14: bits 29:28 = 00 (Input)
+                gpioa.moder.modify(|r, w| w.bits(r.bits() & !(0x0F << 26)));
+                // PUPDR: PA13 bits 27:26 = 01 (Pull-up), PA14 bits 29:28 = 01 (Pull-up)
+                gpioa.pupdr.modify(|r, w| {
+                    let val = r.bits();
+                    w.bits((val & !(0x0F << 26)) | (0x05 << 26))
+                });
+            } else {
+                // Restore default SWD: PA13/PA14 Alternate Function (MODER bits 27:26 = 10, 29:28 = 10)
+                gpioa.moder.modify(|r, w| {
+                    let val = r.bits();
+                    w.bits((val & !(0x0F << 26)) | (0x0A << 26))
+                });
+                // Default SWD pull: PA13 pull-up (01), PA14 pull-down (10) -> bits 29:26 = 1001
+                gpioa.pupdr.modify(|r, w| {
+                    let val = r.bits();
+                    w.bits((val & !(0x0F << 26)) | (0x09 << 26))
+                });
+            }
         }
     }
     #[cfg(test)]
