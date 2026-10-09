@@ -50,6 +50,12 @@ pub struct PpmGenerator {
     frame_elapsed_us: u32,
 }
 
+impl Default for PpmGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PpmGenerator {
     pub const fn new() -> Self {
         Self {
@@ -62,9 +68,8 @@ impl PpmGenerator {
 
     /// Update channel pulse widths (clamped to 900..2100 µs)
     pub fn update_channels(&mut self, chs: &[u16]) {
-        let count = chs.len().min(PPM_CHANNELS);
-        for i in 0..count {
-            self.channels[i] = chs[i].clamp(900, 2100);
+        for (dst, &src) in self.channels.iter_mut().zip(chs.iter()) {
+            *dst = src.clamp(900, 2100);
         }
     }
 

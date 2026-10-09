@@ -5,6 +5,20 @@ All notable changes to the `flysky-i6s-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-10-09
+
+### Added
+- **Stick Modes 1–4 & Decoupled Logical Controls ([`src/safety.rs`](src/safety.rs), [`src/input.rs`](src/input.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Decoupled physical gimbals (`rh`, `rv`, `lv`, `lh`) from model-type and control axis assumptions.
+  - Added full support for Stick Modes 1, 2, 3, and 4 in `RadioConfig`, selectable via the Radio Setup menu.
+  - Logical primary flight controls (`aileron`, `elevator`, `throttle`, `rudder`) dynamically map according to active stick mode.
+  - Preflight safety checks evaluate model-type requirements (Airplane, Heli, Multirotor, General) against physical throttle stick position across all 4 modes.
+- **Complete 3-Axis Instant Trim Support ([`src/main.rs`](src/main.rs))**:
+  - Added Yaw (Rudder) to Instant Trim evaluation alongside Roll (Aileron) and Pitch (Elevator) via Right Rear Button.
+  - Implemented symmetric nearest-step rounding (`((val ± 20) / 40)`) so stick deflections snap to their closest trim step.
+  - Activated dashboard trim status overlay (`trims.last_active`, `trims.active_timer_ms = 1500`) upon Instant Trim activation.
+  - Added neutral-stick reset capability: toggling Instant Trim with sticks at neutral center resets all primary flight trims to zero (`0, 0, 0`) with the center audio chime (`buzzer.trim_center()`).
+
 ## [0.1.1] - 2026-10-03
 
 ### Fixed

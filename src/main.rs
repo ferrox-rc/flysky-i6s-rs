@@ -573,13 +573,50 @@ impl BackgroundIdleManager {
         if !menu_active && right_clicked && storage.radio.rear_right_func == 1 {
             let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
             let controls = flight.state.flight_controls(stick_mode);
-            let delta_roll = (controls.aileron / 40) as i8;
-            let delta_pitch = (controls.elevator / 40) as i8;
-            trims.values.roll = (trims.values.roll + delta_roll).clamp(-25, 25);
-            trims.values.pitch = (trims.values.pitch + delta_pitch).clamp(-25, 25);
-            self.trim_dirty = true;
-            self.trim_save_cooldown_ms = 1000;
-            buzzer.play_tone_pattern(2400, 60, 40, 2);
+            // Apply symmetric rounding to nearest trim step (40 counts per trim step: -1000..+1000 -> -25..+25)
+            let round_step = |val: i16| -> i8 {
+                if val >= 0 {
+                    ((val + 20) / 40) as i8
+                } else {
+                    ((val - 20) / 40) as i8
+                }
+            };
+            let delta_roll = round_step(controls.aileron);
+            let delta_pitch = round_step(controls.elevator);
+            let delta_yaw = round_step(controls.rudder);
+
+            if delta_roll != 0 || delta_pitch != 0 || delta_yaw != 0 {
+                // Sticks deflected: adjust trims toward the stick deflection
+                trims.values.roll = (trims.values.roll + delta_roll).clamp(-25, 25);
+                trims.values.pitch = (trims.values.pitch + delta_pitch).clamp(-25, 25);
+                trims.values.yaw = (trims.values.yaw + delta_yaw).clamp(-25, 25);
+
+                // Set active trim indicator so the dashboard footer immediately shows the updated trim value
+                if delta_roll != 0 {
+                    trims.last_active = trim::ActiveTrim::Roll;
+                } else if delta_pitch != 0 {
+                    trims.last_active = trim::ActiveTrim::Pitch;
+                } else {
+                    trims.last_active = trim::ActiveTrim::Yaw;
+                }
+                trims.active_timer_ms = 1500;
+
+                self.trim_dirty = true;
+                self.trim_save_cooldown_ms = 1000;
+                buzzer.play_tone_pattern(2400, 60, 40, 2);
+            } else if trims.values.roll != 0 || trims.values.pitch != 0 || trims.values.yaw != 0 {
+                // Sticks centered and trims were non-zero: reset all primary flight trims back to neutral
+                trims.values.roll = 0;
+                trims.values.pitch = 0;
+                trims.values.yaw = 0;
+
+                trims.last_active = trim::ActiveTrim::Roll;
+                trims.active_timer_ms = 1500;
+
+                self.trim_dirty = true;
+                self.trim_save_cooldown_ms = 1000;
+                buzzer.trim_center();
+            }
         }
 
         // Check for manual reset via [CANCEL] held for >= 1.0s on flight dashboard
