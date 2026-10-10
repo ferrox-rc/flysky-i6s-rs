@@ -229,7 +229,8 @@ impl FlightPipeline {
 /// Background idle and UI context: tracks inactivity, backlight timers, user input, and screen rendering.
 struct BackgroundIdleManager {
     prev_stick_samples: [u16; 6],
-    prev_pots: [i16; 2],
+    prev_pots: [i16; 6],
+    prev_instant_trim_active: bool,
     prev_switches: input::Switches,
     prev_bind_key: bool,
     bind_hold_ms: u32,
@@ -272,7 +273,8 @@ impl BackgroundIdleManager {
                 init_state.raw[6],
                 init_state.raw[7],
             ],
-            prev_pots: [init_state.pots.vr1, init_state.pots.vr2],
+            prev_pots: init_state.aux_pots,
+            prev_instant_trim_active: false,
             prev_switches: init_state.switches,
             prev_bind_key: bind_on_boot,
             bind_hold_ms: 0,
@@ -334,16 +336,20 @@ impl BackgroundIdleManager {
         }
         self.menu_was_active = menu_active;
 
-        // Pot Center Crossing Haptic/Audio Feedback (VR1 & VR2)
+        // Pot Center Crossing Audio Feedback for all configured potentiometers (continuous or detented)
         // Detect transitions across deadband ±25 from outside (|prev| >= 25 && |curr| < 25)
-        for (&curr, prev) in [flight.state.pots.vr1, flight.state.pots.vr2]
-            .iter()
-            .zip(self.prev_pots.iter_mut())
-        {
-            if prev.abs() >= 25 && curr.abs() < 25 {
-                buzzer.pot_center_click();
+        for ch in 0..6 {
+            let mode = storage::AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
+            if mode.is_pot() {
+                let curr = flight.state.aux_pots[ch];
+                let prev = &mut self.prev_pots[ch];
+                if prev.abs() >= 25 && curr.abs() < 25 {
+                    buzzer.pot_center_click();
+                }
+                *prev = curr;
+            } else {
+                self.prev_pots[ch] = flight.state.aux_pots[ch];
             }
-            *prev = curr;
         }
 
         // 2. Physical activity & inactivity tracking
@@ -569,8 +575,27 @@ impl BackgroundIdleManager {
             buzzer.play_tone(2400, 100);
         }
 
-        // Instant Trim via Right Rear Button (func == 1)
-        if !menu_active && right_clicked && storage.radio.rear_right_func == 1 {
+        // Instant Trim Evaluation: Check if any auxiliary channel configured as InstantTrim went active
+        let mut aux_instant_trim_active = false;
+        for ch in 0..6 {
+            let mode = storage::AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
+            if matches!(mode, storage::AdcInputMode::InstantTrim) {
+                let raw_val = flight.state.raw[input::aux_index_to_raw_adc(ch)];
+                if raw_val >= 2048 {
+                    aux_instant_trim_active = true;
+                    break;
+                }
+            }
+        }
+
+        let aux_instant_trim_triggered = aux_instant_trim_active && !self.prev_instant_trim_active;
+        self.prev_instant_trim_active = aux_instant_trim_active;
+
+        // Instant Trim via Right Rear Button (func == 1) or configured Aux InstantTrim switch
+        let instant_trim_requested = (!menu_active && right_clicked && storage.radio.rear_right_func == 1)
+            || (!menu_active && aux_instant_trim_triggered);
+
+        if instant_trim_requested {
             let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
             let controls = flight.state.flight_controls(stick_mode);
             // Apply symmetric rounding to nearest trim step (40 counts per trim step: -1000..+1000 -> -25..+25)

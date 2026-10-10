@@ -168,12 +168,15 @@ impl Switches {
     }
 }
 
+pub const DETENT_DEADBAND: u16 = 16;
+
 /// Full processed input snapshot.
 pub struct InputState {
     pub gimbals: Gimbals,
     pub pots: Pots,
     pub switches: Switches,
     pub battery_mv: u16,
+    pub aux_pots: [i16; 6],
     #[allow(dead_code)]
     pub raw: [u16; adc::NUM_CHANNELS],
 }
@@ -213,10 +216,9 @@ impl AxisCalib {
         }
     }
 
-    /// Normalize raw ADC count (0..4095) around center point to -1000..+1000.
-    /// Fast responsive jitter filter: suppresses resting potentiometer noise
-    /// while passing all intentional stick movements (> 6 counts) with 0 latency.
-    pub fn normalize(&mut self, raw: u16) -> i16 {
+    /// Responsive low-latency jitter filter:
+    /// Passes changes >= 6 counts with 0 latency; applies 4-sample MMA filter for resting micro-noise.
+    pub fn filter_raw(&mut self, raw: u16) -> u16 {
         if self.filtered_raw == 0 {
             self.filtered_raw = raw as u32 * 4;
         }
@@ -224,15 +226,17 @@ impl AxisCalib {
         let previous = (self.filtered_raw / 4) as u16;
         let diff = (raw as i32 - previous as i32).abs();
 
-        // Responsive low-latency jitter filter:
-        // Pass through any change >= 6 counts directly (0 latency)
-        // For micro-noise (< 6 counts), use 4-sample fast MMA filter
         if diff < 6 {
             self.filtered_raw = (self.filtered_raw - previous as u32) + raw as u32;
         } else {
             self.filtered_raw = raw as u32 * 4;
         }
-        let smoothed_raw = (self.filtered_raw / 4) as u16;
+        (self.filtered_raw / 4) as u16
+    }
+
+    /// Normalize raw ADC count (0..4095) around center point to -1000..+1000.
+    pub fn normalize(&mut self, raw: u16) -> i16 {
+        let smoothed_raw = self.filter_raw(raw);
 
         let val = if smoothed_raw <= self.center {
             let span = (self.center - self.min).max(100) as i32;
@@ -250,9 +254,37 @@ impl AxisCalib {
             val as i16
         }
     }
+
+    /// Normalize a center-detented potentiometer with a deadband around the mechanical detent.
+    /// Guarantees a solid 0 output when resting in the physical notch, while maintaining full
+    /// independent linear travel (-1000 to +1000) even when negative and positive spans are asymmetric.
+    pub fn normalize_detent(&mut self, raw: u16, deadband: u16) -> i16 {
+        let smoothed_raw = self.filter_raw(raw);
+
+        let val = if smoothed_raw.abs_diff(self.center) <= deadband {
+            0
+        } else if smoothed_raw < self.center {
+            let active_center = self.center.saturating_sub(deadband);
+            let span = active_center.saturating_sub(self.min).max(100) as i32;
+            let delta = smoothed_raw as i32 - active_center as i32;
+            ((delta * 1000) / span).clamp(-1000, 0)
+        } else {
+            let active_center = self.center.saturating_add(deadband);
+            let span = self.max.saturating_sub(active_center).max(100) as i32;
+            let delta = smoothed_raw as i32 - active_center as i32;
+            ((delta * 1000) / span).clamp(0, 1000)
+        };
+
+        if self.invert {
+            -val as i16
+        } else {
+            val as i16
+        }
+    }
 }
 
 use crate::adc::{ADC_CENTER, ADC_MAX, ADC_MIN};
+use crate::storage::{AdcInputMode, RadioConfig};
 
 #[derive(Copy, Clone, Debug)]
 pub struct InputCalibration {
@@ -260,8 +292,8 @@ pub struct InputCalibration {
     pub rv: AxisCalib, // PA1: Right Vertical
     pub lv: AxisCalib, // PA2: Left Vertical
     pub lh: AxisCalib, // PA3: Left Horizontal
-    pub vra: AxisCalib,
-    pub vrb: AxisCalib,
+    pub aux: [AxisCalib; 6], // 0..3: SA..SD, 4..5: VRA..VRB
+    pub adc_modes: [u8; 6],
     pub filtered_battery_mv: u32,
 }
 
@@ -272,8 +304,15 @@ impl InputCalibration {
             rv: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, true),
             lv: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
             lh: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            vra: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
-            vrb: AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false),
+            aux: [
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SA (PA4)
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SB (PA5)
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SC (PB0)
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // SD (PB1)
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // VRA (PA6)
+                AxisCalib::new(ADC_MIN, ADC_CENTER, ADC_MAX, false), // VRB (PA7)
+            ],
+            adc_modes: [0; 6],
             filtered_battery_mv: 0,
         }
     }
@@ -287,8 +326,10 @@ unsafe impl Sync for InputManagerCell {}
 static INPUT_MANAGER: InputManagerCell = InputManagerCell(UnsafeCell::new(InputCalibration::default_factory()));
 
 /// Apply a full set of stick and pot calibration endpoints.
-pub fn apply_calibration(config: &crate::storage::RadioConfig) {
+pub fn apply_calibration(config: &RadioConfig) {
     let calib = unsafe { &mut *INPUT_MANAGER.0.get() };
+
+    calib.adc_modes = config.adc_modes;
 
     // Physical Gimbals: PA0 (RH), PA1 (RV), PA2 (LV), PA3 (LH)
     // RH: PA0
@@ -315,16 +356,73 @@ pub fn apply_calibration(config: &crate::storage::RadioConfig) {
     calib.lh.center = config.sticks[3].center;
     calib.lh.max = config.sticks[3].max;
 
-    // Pots: VRA (PA6), VRB (PA7)
-    calib.vra.invert = false;
-    calib.vra.min = config.pots[0].min;
-    calib.vra.center = config.pots[0].center;
-    calib.vra.max = config.pots[0].max;
+    // 6 Auxiliary Analog Channels (SA, SB, SC, SD, VRA, VRB)
+    for i in 0..6 {
+        let mode = AdcInputMode::resolve(i, config.adc_modes[i]);
+        calib.aux[i].invert = false;
+        calib.aux[i].min = config.aux_pots[i].min;
+        calib.aux[i].max = config.aux_pots[i].max;
 
-    calib.vrb.invert = false;
-    calib.vrb.min = config.pots[1].min;
-    calib.vrb.center = config.pots[1].center;
-    calib.vrb.max = config.pots[1].max;
+        if mode == AdcInputMode::PotDetent {
+            // Fixed at the captured physical detent center
+            calib.aux[i].center = config.aux_pots[i].center;
+        } else {
+            // Standard continuous pot (or switch): clean calculated arithmetic midpoint
+            calib.aux[i].center =
+                ((config.aux_pots[i].min as u32 + config.aux_pots[i].max as u32) / 2) as u16;
+        }
+    }
+}
+
+/// Map raw analog reading to a 6-position flight mode index (1..6).
+pub fn decode_switch_6pos_num(raw: u16) -> u8 {
+    if raw < 682 {
+        1
+    } else if raw < 1365 {
+        2
+    } else if raw < 2048 {
+        3
+    } else if raw < 2730 {
+        4
+    } else if raw < 3413 {
+        5
+    } else {
+        6
+    }
+}
+
+/// Decode a 3-position switch from raw ADC counts.
+pub fn decode_switch_3pos(raw: u16) -> SwitchPos {
+    if raw < 1365 {
+        SwitchPos::Up
+    } else if raw < 2730 {
+        SwitchPos::Mid
+    } else {
+        SwitchPos::Down
+    }
+}
+
+/// Decode a 2-position switch from raw ADC counts.
+pub fn decode_switch_2pos(raw: u16) -> SwitchPos {
+    if raw < 2048 {
+        SwitchPos::Up
+    } else {
+        SwitchPos::Down
+    }
+}
+
+/// Map an aux channel index (0..5) to raw ADC channel index on FS-i6S.
+#[inline(always)]
+pub fn aux_index_to_raw_adc(ch: usize) -> usize {
+    match ch {
+        0 => 4, // SA: PA4
+        1 => 5, // SB: PA5
+        2 => 8, // SC: PB0 (swapped on i6S)
+        3 => 9, // SD: PB1
+        4 => 6, // VRA: PA6
+        5 => 7, // VRB: PA7 (swapped on i6S)
+        _ => 4,
+    }
 }
 
 /// Initialize input subsystem, load Flash calibration, and measure resting center for spring-loaded gimbals.
@@ -369,20 +467,6 @@ pub fn init() {
     }
 }
 
-/// Decode resistor ladder analog switch voltage:
-/// - UP:   0 .. 1365 (0 .. 1/3 Vcc)
-/// - MID:  1366 .. 2730 (1/3 .. 2/3 Vcc)
-/// - DOWN: 2731 .. 4095 (2/3 .. 1 Vcc)
-fn decode_switch(raw: u16) -> SwitchPos {
-    if raw < 1365 {
-        SwitchPos::Up
-    } else if raw < 2730 {
-        SwitchPos::Mid
-    } else {
-        SwitchPos::Down
-    }
-}
-
 /// Calculate battery voltage in millivolts using the FlySky FS-i6S 10k/5.1k resistor divider:
 /// Vbat = Vadc * ((10000 + 5100) / 5100) = Vadc * 2.9608
 /// Vadc = (raw * 3300) / 4095
@@ -405,22 +489,67 @@ pub fn poll() -> InputState {
         lh: calib.lh.normalize(raw[3]),
     };
 
-    // Pots: VRA on PA6, VRB on PA7
+    // Process auxiliary analog channels (0..5)
+    let mut aux_pots = [0i16; 6];
+    for i in 0..6 {
+        let raw_val = raw[aux_index_to_raw_adc(i)];
+        let mode = AdcInputMode::resolve(i, calib.adc_modes[i]);
+
+        aux_pots[i] = match mode {
+            AdcInputMode::PotDetent => calib.aux[i].normalize_detent(raw_val, DETENT_DEADBAND),
+            AdcInputMode::Pot => calib.aux[i].normalize(raw_val),
+            AdcInputMode::TwoPos | AdcInputMode::InstantTrim => {
+                if raw_val < 2048 {
+                    -1000
+                } else {
+                    1000
+                }
+            }
+            AdcInputMode::ThreePos => {
+                if raw_val < 1365 {
+                    -1000
+                } else if raw_val < 2730 {
+                    0
+                } else {
+                    1000
+                }
+            }
+            AdcInputMode::SixPos => {
+                let step = decode_switch_6pos_num(raw_val);
+                -1000 + ((step as i16 - 1) * 400)
+            }
+            AdcInputMode::Default => calib.aux[i].normalize(raw_val),
+        };
+    }
+
     let pots = Pots {
-        vr1: calib.vra.normalize(raw[6]), // PA6 (VRA)
-        vr2: calib.vrb.normalize(raw[7]), // PA7 (VRB)
+        vr1: aux_pots[4], // PA6 (VRA)
+        vr2: aux_pots[5], // PA7 (VRB)
     };
 
-    // Switches:
-    // SA on PA4 (2-pos)
-    // SB on PA5 (3-pos)
-    // SC on PB0 (3-pos) - Swapped with VRB!
-    // SD on PB1 (2-pos)
+    // Switches dynamic decoding according to configured AdcInputMode:
+    let sa = match AdcInputMode::resolve(0, calib.adc_modes[0]) {
+        AdcInputMode::ThreePos => decode_switch_3pos(raw[4]),
+        _ => decode_switch_2pos(raw[4]),
+    };
+    let sb = match AdcInputMode::resolve(1, calib.adc_modes[1]) {
+        AdcInputMode::TwoPos => decode_switch_2pos(raw[5]),
+        _ => decode_switch_3pos(raw[5]),
+    };
+    let sc = match AdcInputMode::resolve(2, calib.adc_modes[2]) {
+        AdcInputMode::TwoPos => decode_switch_2pos(raw[8]),
+        _ => decode_switch_3pos(raw[8]),
+    };
+    let sd = match AdcInputMode::resolve(3, calib.adc_modes[3]) {
+        AdcInputMode::ThreePos => decode_switch_3pos(raw[9]),
+        _ => decode_switch_2pos(raw[9]),
+    };
+
     let switches = Switches {
-        sa: decode_switch(raw[4]), // PA4
-        sb: decode_switch(raw[5]), // PA5
-        sc: decode_switch(raw[8]), // PB0
-        sd: decode_switch(raw[9]), // PB1
+        sa,
+        sb,
+        sc,
+        sd,
         swe: SwitchPos::Up,
         swf: SwitchPos::Up,
         sg: SwitchPos::Up,
@@ -442,6 +571,7 @@ pub fn poll() -> InputState {
         pots,
         switches,
         battery_mv,
+        aux_pots,
         raw,
     }
 }
@@ -465,5 +595,32 @@ mod tests {
         // Typical 4x AA nominal (5.0V): Vadc = 5.0 / 2.9608 = 1.6888V -> ADC = 1.6888 / 3.3 * 4095 = 2096
         let v5 = calculate_battery_mv(2096);
         assert!(v5 >= 4990 && v5 <= 5010, "Actual 5V scale: {}", v5);
+    }
+
+    #[test]
+    fn test_detent_normalization_and_deadband() {
+        let mut axis = AxisCalib::new(1000, 2048, 3000, false);
+
+        // Within deadband around center (2048 +/- 16) must be exactly 0
+        assert_eq!(axis.normalize_detent(2048, DETENT_DEADBAND), 0);
+        assert_eq!(axis.normalize_detent(2048 - 15, DETENT_DEADBAND), 0);
+        assert_eq!(axis.normalize_detent(2048 + 15, DETENT_DEADBAND), 0);
+
+        // Outside deadband moves smoothly toward -1000 and +1000
+        let neg = axis.normalize_detent(1000, DETENT_DEADBAND);
+        assert_eq!(neg, -1000);
+
+        let pos = axis.normalize_detent(3000, DETENT_DEADBAND);
+        assert_eq!(pos, 1000);
+    }
+
+    #[test]
+    fn test_decode_switch_6pos_steps() {
+        assert_eq!(decode_switch_6pos_num(100), 1);
+        assert_eq!(decode_switch_6pos_num(1000), 2);
+        assert_eq!(decode_switch_6pos_num(1700), 3);
+        assert_eq!(decode_switch_6pos_num(2400), 4);
+        assert_eq!(decode_switch_6pos_num(3100), 5);
+        assert_eq!(decode_switch_6pos_num(3800), 6);
     }
 }

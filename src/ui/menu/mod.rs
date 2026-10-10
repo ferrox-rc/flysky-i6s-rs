@@ -31,6 +31,7 @@ pub enum MenuState {
     AuxChannels,
     ChannelReverse,
     RadioSetup,
+    InputSetup,
     RxSetup,
     ElrsSetup,
     ChannelMonitor,
@@ -323,6 +324,9 @@ impl MenuController {
             }
             MenuState::RadioSetup => {
                 screens::setup::update_radio_setup(self, lcd, &nav_keys, storage, trims, buzzer);
+            }
+            MenuState::InputSetup => {
+                screens::setup::update_input_setup(self, lcd, &nav_keys, storage, buzzer);
             }
             MenuState::RxSetup => {
                 screens::setup::update_rx_setup(self, lcd, &nav_keys, storage, buzzer);

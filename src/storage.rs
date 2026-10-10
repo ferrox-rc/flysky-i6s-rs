@@ -36,6 +36,75 @@ impl ChannelCalib {
     }
 }
 
+/// Supports both standard pots (with calculated midpoint) and detented pots (with fixed detent center).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PotCalib {
+    pub min: u16,
+    pub center: u16,
+    pub max: u16,
+}
+
+impl PotCalib {
+    pub const fn new(min: u16, center: u16, max: u16) -> Self {
+        Self { min, center, max }
+    }
+}
+
+/// Universal input mode for auxiliary analog channels (SA..SD, VRA..VRB).
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum AdcInputMode {
+    #[default]
+    Default = 0,
+    TwoPos = 1,
+    ThreePos = 2,
+    SixPos = 3,
+    Pot = 4,
+    PotDetent = 5,
+    InstantTrim = 6,
+}
+
+impl AdcInputMode {
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            1 => Self::TwoPos,
+            2 => Self::ThreePos,
+            3 => Self::SixPos,
+            4 => Self::Pot,
+            5 => Self::PotDetent,
+            6 => Self::InstantTrim,
+            _ => Self::Default,
+        }
+    }
+
+    /// Check if this mode represents any analog potentiometer (continuous or center-detent).
+    pub fn is_pot(&self) -> bool {
+        matches!(self, Self::Pot | Self::PotDetent)
+    }
+
+    /// Check if this mode utilizes a physical center detent.
+    pub fn has_detent(&self) -> bool {
+        matches!(self, Self::PotDetent)
+    }
+
+    /// Resolve effective mode for a given channel index (0..3: SA..SD, 4..5: VRA..VRB)
+    pub fn resolve(channel_idx: usize, mode_val: u8) -> Self {
+        let mode = Self::from_u8(mode_val);
+        if mode != Self::Default {
+            return mode;
+        }
+        // Default hardware mapping:
+        match channel_idx {
+            0 => Self::TwoPos,   // SA (2-pos stock)
+            1 => Self::ThreePos, // SB (3-pos stock)
+            2 => Self::ThreePos, // SC (3-pos stock)
+            3 => Self::TwoPos,   // SD (2-pos stock)
+            _ => Self::Pot,      // VRA, VRB (Pots stock)
+        }
+    }
+}
+
 /// Persistent system/radio-level configuration (exactly 128 bytes).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -52,19 +121,21 @@ pub struct RadioConfig {
     pub usb_mode: u8,              // 15 (0: Off, 1: Joystick, 2: Serial, 3: Composite)
     pub sticks: [ChannelCalib; 4], // 16..48 (32 bytes: Roll, Pitch, Throttle, Yaw)
     pub pots: [ChannelCalib; 2],   // 48..64 (16 bytes: VRA, VRB)
-    pub ext_module_pwr: u8,        // 64 (0: Active HIGH / N-type, 1: Active LOW / P-type)
-    pub tone_style: u8,            // 65 (0: Simple / Standard, 1: Rich / Melodic)
-    pub servo_rate_hz: u16,        // 66..68 (50..400 Hz, default 50 Hz for analog servo safety)
-    pub rx_out_mode: u8,           // 68 (0: PWM, 1: PPM, default 0)
-    pub rx_serial_proto: u8,       // 69 (0: i-BUS, 1: S.BUS, default 0)
-    pub rear_left_func: u8,        // 70 (0: SW-E, 1: Timer Reset, 2: Trims)
-    pub rear_right_func: u8,       // 71 (0: SW-F, 1: Instant Trim, 2: Trims)
-    pub touch_disabled: u8,        // 72 (0: Enabled [default], 1: Disabled)
-    pub j4_sg_sh_en: u8,           // 73 (0: Disabled / SWD PA13/PA14, 1: Enabled SG/SH tactile buttons)
-    pub crsf_duplex: u8,           // 74 (0: Full-Duplex PB6 TX / PB7 RX, 1: Half-Duplex single-wire PB6)
-    pub ppm_out_en: u8,            // 75 (0: Disabled, 1: Enabled PPM output on PF10)
-    pub stick_mode: u8,            // 76 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
-    pub _reserved: [u8; 51],       // 77..128
+    pub aux_pots: [PotCalib; 6],   // 64..100 (36 bytes: SA..SD, VRA..VRB)
+    pub ext_module_pwr: u8,        // 100 (0: Active HIGH / N-type, 1: Active LOW / P-type)
+    pub tone_style: u8,            // 101 (0: Simple / Standard, 1: Rich / Melodic)
+    pub servo_rate_hz: u16,        // 102..104 (50..400 Hz, default 50 Hz for analog servo safety)
+    pub rx_out_mode: u8,           // 104 (0: PWM, 1: PPM, default 0)
+    pub rx_serial_proto: u8,       // 105 (0: i-BUS, 1: S.BUS, default 0)
+    pub rear_left_func: u8,        // 106 (0: SW-E, 1: Timer Reset, 2: Trims)
+    pub rear_right_func: u8,       // 107 (0: SW-F, 1: Instant Trim, 2: Trims)
+    pub touch_disabled: u8,        // 108 (0: Enabled [default], 1: Disabled)
+    pub j4_sg_sh_en: u8,           // 109 (0: Disabled / SWD PA13/PA14, 1: Enabled SG/SH tactile buttons)
+    pub crsf_duplex: u8,           // 110 (0: Full-Duplex PB6 TX / PB7 RX, 1: Half-Duplex single-wire PB6)
+    pub ppm_out_en: u8,            // 111 (0: Disabled, 1: Enabled PPM output on PF10)
+    pub adc_modes: [u8; 6],        // 112..118: Input modes for the 6 auxiliary analog channels
+    pub stick_mode: u8,            // 118 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
+    pub _reserved: [u8; 9],        // 119..128 (9 bytes reserved, exact 128-byte guarantee)
 }
 
 impl RadioConfig {
@@ -114,6 +185,14 @@ impl RadioConfig {
                     crate::adc::ADC_MAX,
                 ), // VRB
             ],
+            aux_pots: [
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // SA
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // SB
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // SC
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // SD
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // VRA
+                PotCalib::new(crate::adc::ADC_MIN, crate::adc::ADC_CENTER, crate::adc::ADC_MAX), // VRB
+            ],
             ext_module_pwr: 0,
             tone_style: 1,
             servo_rate_hz: 50,
@@ -125,8 +204,9 @@ impl RadioConfig {
             j4_sg_sh_en: 0,
             crsf_duplex: 0,
             ppm_out_en: 0,
+            adc_modes: [0; 6],
             stick_mode: 1, // Mode 2 default
-            _reserved: [0; 51],
+            _reserved: [0; 9],
         }
     }
 }
@@ -362,6 +442,18 @@ impl RadioStorage {
                 pot.min = crate::adc::ADC_MIN;
                 pot.center = crate::adc::ADC_CENTER;
                 pot.max = crate::adc::ADC_MAX;
+            }
+        }
+        for aux in self.radio.aux_pots.iter_mut() {
+            if aux.min >= aux.center || aux.center >= aux.max || aux.max > crate::adc::ADC_MAX {
+                aux.min = crate::adc::ADC_MIN;
+                aux.center = crate::adc::ADC_CENTER;
+                aux.max = crate::adc::ADC_MAX;
+            }
+        }
+        for mode in self.radio.adc_modes.iter_mut() {
+            if *mode > 6 {
+                *mode = 0;
             }
         }
 
@@ -1240,5 +1332,33 @@ mod tests {
         assert_eq!(m.aux_channels[10..14], [0, 0, 0, 0]);
         assert_eq!(m.rf_protocol, 1);
         assert_eq!(m.crsf_baud, 2);
+    }
+
+    #[test]
+    fn test_adc_input_mode_detent() {
+        assert_eq!(AdcInputMode::from_u8(4), AdcInputMode::Pot);
+        assert_eq!(AdcInputMode::from_u8(5), AdcInputMode::PotDetent);
+        assert!(AdcInputMode::Pot.is_pot());
+        assert!(AdcInputMode::PotDetent.is_pot());
+        assert!(!AdcInputMode::Pot.has_detent());
+        assert!(AdcInputMode::PotDetent.has_detent());
+    }
+
+    #[test]
+    fn test_radio_config_aux_pots_and_modes() {
+        let radio = RadioConfig::default_factory();
+        assert_eq!(radio.aux_pots.len(), 6);
+        assert_eq!(radio.adc_modes.len(), 6);
+        for i in 0..6 {
+            assert_eq!(radio.aux_pots[i].min, crate::adc::ADC_MIN);
+            assert_eq!(radio.aux_pots[i].center, crate::adc::ADC_CENTER);
+            assert_eq!(radio.aux_pots[i].max, crate::adc::ADC_MAX);
+            assert_eq!(radio.adc_modes[i], 0);
+        }
+
+        let pot = PotCalib::new(100, 2000, 3900);
+        assert_eq!(pot.min, 100);
+        assert_eq!(pot.center, 2000);
+        assert_eq!(pot.max, 3900);
     }
 }
