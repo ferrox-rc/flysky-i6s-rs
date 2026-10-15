@@ -13,30 +13,11 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(not(test))]
-use stm32f0xx_hal::pac::interrupt;
+use stm32f0xx_hal::pac::{self, interrupt};
 
 const PPM_CHANNELS: usize = 8;
 const PPM_FRAME_TOTAL_US: u32 = 22_500;
 const PPM_SYNC_PULSE_US: u16 = 400;
-
-// Hardware register addresses for STM32F072
-const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
-const RCC_APB2ENR: *mut u32 = 0x4002_1018 as *mut u32;
-const GPIOF_MODER: *mut u32 = 0x4800_1400 as *mut u32;
-const GPIOF_BSRR: *mut u32 = 0x4800_1418 as *mut u32;
-
-// TIM15 base: 0x4001_4000
-const TIM15_CR1: *mut u32 = 0x4001_4000 as *mut u32;
-const TIM15_DIER: *mut u32 = 0x4001_400C as *mut u32;
-const TIM15_SR: *mut u32 = 0x4001_4010 as *mut u32;
-const TIM15_PSC: *mut u32 = 0x4001_4028 as *mut u32;
-const TIM15_ARR: *mut u32 = 0x4001_402C as *mut u32;
-const TIM15_EGR: *mut u32 = 0x4001_4014 as *mut u32;
-
-// NVIC
-const NVIC_ISER: *mut u32 = 0xE000_E100 as *mut u32;
-const NVIC_ICER: *mut u32 = 0xE000_E180 as *mut u32;
-const NVIC_IPR5: *mut u32 = 0xE000_E414 as *mut u32; // IRQ 20 = byte 0 of IPR5
 
 static PPM_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -110,38 +91,39 @@ pub fn init(enabled: bool) {
     PPM_ENABLED.store(enabled, Ordering::Relaxed);
     #[cfg(not(test))]
     unsafe {
-        // 1. Enable GPIOF clock (bit 22 in RCC_AHBENR)
-        let ahb = core::ptr::read_volatile(RCC_AHBENR);
-        core::ptr::write_volatile(RCC_AHBENR, ahb | (1 << 22));
+        let rcc = &*pac::RCC::ptr();
+        let gpiof = &*pac::GPIOF::ptr();
+        let tim15 = &*pac::TIM15::ptr();
+
+        // 1. Enable GPIOF clock (iopfen)
+        rcc.ahbenr.modify(|_, w| w.iopfen().set_bit());
 
         // 2. Configure PF10 as General Purpose Output (MODER bits 21:20 = 01)
-        let f_moder = core::ptr::read_volatile(GPIOF_MODER);
-        core::ptr::write_volatile(GPIOF_MODER, (f_moder & !(3 << 20)) | (1 << 20));
+        gpiof.moder.modify(|r, w| w.bits((r.bits() & !(3 << 20)) | (1 << 20)));
 
         // Set PF10 default High (idle state)
-        core::ptr::write_volatile(GPIOF_BSRR, 1 << 10);
+        gpiof.bsrr.write(|w| w.bits(1 << 10));
 
-        // 3. Enable TIM15 clock in RCC_APB2ENR (bit 16)
-        let apb2 = core::ptr::read_volatile(RCC_APB2ENR);
-        core::ptr::write_volatile(RCC_APB2ENR, apb2 | (1 << 16));
+        // 3. Enable TIM15 clock in RCC_APB2ENR (bit 16 / tim15en)
+        rcc.apb2enr.modify(|_, w| w.tim15en().set_bit());
 
         // 4. Configure TIM15: 48 MHz / 48 = 1 MHz count rate (1 tick = 1 µs)
-        core::ptr::write_volatile(TIM15_PSC, 47); // 48 - 1 = 47
-        core::ptr::write_volatile(TIM15_ARR, 400); // Initial 400 µs
-        core::ptr::write_volatile(TIM15_EGR, 1);   // Re-initialize counter & prescaler
-        core::ptr::write_volatile(TIM15_SR, 0);    // Clear update flag
+        tim15.psc.write(|w| w.psc().bits(47)); // 48 - 1 = 47
+        tim15.arr.write(|w| w.arr().bits(400)); // Initial 400 µs
+        tim15.egr.write(|w| w.ug().set_bit());  // Re-initialize counter & prescaler
+        tim15.sr.write(|w| w.bits(0));          // Clear update flag
 
         // Configure NVIC for TIM15 (IRQ 20)
-        let ipr5 = core::ptr::read_volatile(NVIC_IPR5);
-        core::ptr::write_volatile(NVIC_IPR5, (ipr5 & !0xFF) | 0x80); // Lower priority (0x80)
+        let mut cp = cortex_m::peripheral::Peripherals::steal();
+        cp.NVIC.set_priority(pac::Interrupt::TIM15, 0x80); // Lower priority (0x80)
 
         if enabled {
             // Enable Update Interrupt (UIE bit 0)
-            core::ptr::write_volatile(TIM15_DIER, 1);
+            tim15.dier.write(|w| w.uie().set_bit());
             // Unmask IRQ 20 in NVIC
-            core::ptr::write_volatile(NVIC_ISER, 1 << 20);
+            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::TIM15);
             // Enable counter (CEN bit 0)
-            core::ptr::write_volatile(TIM15_CR1, 1);
+            tim15.cr1.write(|w| w.cen().set_bit());
         }
     }
 }
@@ -151,16 +133,18 @@ pub fn set_enabled(enabled: bool) {
     PPM_ENABLED.store(enabled, Ordering::Relaxed);
     #[cfg(not(test))]
     unsafe {
+        let tim15 = &*pac::TIM15::ptr();
+        let gpiof = &*pac::GPIOF::ptr();
         if enabled {
-            core::ptr::write_volatile(TIM15_DIER, 1);
-            core::ptr::write_volatile(NVIC_ISER, 1 << 20);
-            core::ptr::write_volatile(TIM15_CR1, 1);
+            tim15.dier.write(|w| w.uie().set_bit());
+            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::TIM15);
+            tim15.cr1.write(|w| w.cen().set_bit());
         } else {
-            core::ptr::write_volatile(TIM15_CR1, 0);
-            core::ptr::write_volatile(TIM15_DIER, 0);
-            core::ptr::write_volatile(NVIC_ICER, 1 << 20);
+            tim15.cr1.write(|w| w.cen().clear_bit());
+            tim15.dier.write(|w| w.uie().clear_bit());
+            cortex_m::peripheral::NVIC::mask(pac::Interrupt::TIM15);
             // Hold PF10 High in idle
-            core::ptr::write_volatile(GPIOF_BSRR, 1 << 10);
+            gpiof.bsrr.write(|w| w.bits(1 << 10));
         }
     }
 }
@@ -180,11 +164,14 @@ pub fn update_channels(chs: &[u16]) {
 #[interrupt]
 fn TIM15() {
     unsafe {
+        let tim15 = &*pac::TIM15::ptr();
+        let gpiof = &*pac::GPIOF::ptr();
+
         // Clear update interrupt flag
-        core::ptr::write_volatile(TIM15_SR, 0);
+        tim15.sr.write(|w| w.bits(0));
 
         if !PPM_ENABLED.load(Ordering::Relaxed) {
-            core::ptr::write_volatile(GPIOF_BSRR, 1 << 10);
+            gpiof.bsrr.write(|w| w.bits(1 << 10));
             return;
         }
 
@@ -193,13 +180,13 @@ fn TIM15() {
 
         // Write pin state to PF10 immediately
         if pin_high {
-            core::ptr::write_volatile(GPIOF_BSRR, 1 << 10); // High
+            gpiof.bsrr.write(|w| w.bits(1 << 10)); // High
         } else {
-            core::ptr::write_volatile(GPIOF_BSRR, 1 << (10 + 16)); // Low
+            gpiof.bsrr.write(|w| w.bits(1 << (10 + 16))); // Low
         }
 
         // Set next reload value in µs
-        core::ptr::write_volatile(TIM15_ARR, duration_us as u32);
+        tim15.arr.write(|w| w.arr().bits(duration_us));
     }
 }
 

@@ -7,51 +7,12 @@
 
 #![allow(dead_code)]
 
-use core::ptr;
-
-// RCC registers
-const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
-const RCC_APB2ENR: *mut u32 = 0x4002_1018 as *mut u32;
-
-// GPIOB registers (Base: 0x4800_0400)
-const GPIOB_MODER: *mut u32 = 0x4800_0400 as *mut u32;
-const GPIOB_OTYPER: *mut u32 = 0x4800_0404 as *mut u32;
-const GPIOB_OSPEEDR: *mut u32 = 0x4800_0408 as *mut u32;
-const GPIOB_PUPDR: *mut u32 = 0x4800_040C as *mut u32;
-const GPIOB_AFRL: *mut u32 = 0x4800_0420 as *mut u32;
-
-// GPIOF registers (Base: 0x4800_1400)
-const GPIOF_MODER: *mut u32 = 0x4800_1400 as *mut u32;
-const GPIOF_BSRR: *mut u32 = 0x4800_1418 as *mut u32;
-
-// USART1 registers (Base: 0x4001_3800)
-const USART1_CR1: *mut u32 = 0x4001_3800 as *mut u32;
-const USART1_CR2: *mut u32 = 0x4001_3804 as *mut u32;
-const USART1_CR3: *mut u32 = 0x4001_3808 as *mut u32;
-const USART1_BRR: *mut u32 = 0x4001_380C as *mut u32;
-const USART1_ISR: *mut u32 = 0x4001_381C as *mut u32;
-const USART1_ICR: *mut u32 = 0x4001_3820 as *mut u32;
-const USART1_RDR: *mut u32 = 0x4001_3824 as *mut u32;
-const USART1_TDR: *mut u32 = 0x4001_3828 as *mut u32;
-
-// Status register flags
-const USART_ISR_TXE: u32 = 1 << 7;
-const USART_ISR_TC: u32 = 1 << 6;
-const USART_ISR_RXNE: u32 = 1 << 5;
-const USART_ISR_ORE: u32 = 1 << 3;
-
-// NVIC registers
 #[cfg(not(test))]
-const NVIC_ICPR: *mut u32 = 0xE000_E280 as *mut u32;
-#[cfg(not(test))]
-const NVIC_IPR6: *mut u32 = 0xE000_E418 as *mut u32; // IRQ 27 is byte 3 of IPR6
+use stm32f0xx_hal::pac::{self, interrupt};
 
+use core::sync::atomic::AtomicBool;
 #[cfg(not(test))]
-use stm32f0xx_hal::pac::interrupt;
-
-use core::sync::atomic::{AtomicBool, Ordering};
-#[cfg(not(test))]
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(not(test))]
 static mut RX_RING: [u8; 128] = [0; 128];
@@ -65,15 +26,19 @@ static POWER_ON: AtomicBool = AtomicBool::new(false);
 
 /// Apply current PF6 pin state based on power state and active polarity.
 unsafe fn apply_power_pin() {
-    let pin_high = if ACTIVE_HIGH.load(Ordering::Relaxed) {
-        POWER_ON.load(Ordering::Relaxed)
-    } else {
-        !POWER_ON.load(Ordering::Relaxed)
-    };
-    if pin_high {
-        ptr::write_volatile(GPIOF_BSRR, 1 << 6); // High
-    } else {
-        ptr::write_volatile(GPIOF_BSRR, 1 << (6 + 16)); // Low
+    #[cfg(not(test))]
+    {
+        let gpiof = &*pac::GPIOF::ptr();
+        let pin_high = if ACTIVE_HIGH.load(Ordering::Relaxed) {
+            POWER_ON.load(Ordering::Relaxed)
+        } else {
+            !POWER_ON.load(Ordering::Relaxed)
+        };
+        if pin_high {
+            gpiof.bsrr.write(|w| w.bs6().set_bit());
+        } else {
+            gpiof.bsrr.write(|w| w.br6().set_bit());
+        }
     }
 }
 
@@ -127,13 +92,14 @@ pub fn init(active_high: bool) {
         ACTIVE_HIGH.store(active_high, Ordering::Relaxed);
         POWER_ON.store(false, Ordering::Relaxed);
 
+        let rcc = &*pac::RCC::ptr();
+        let gpiof = &*pac::GPIOF::ptr();
+
         // Enable GPIOB (bit 18), GPIOF (bit 22) clocks in RCC_AHBENR
-        let ahb = ptr::read_volatile(RCC_AHBENR);
-        ptr::write_volatile(RCC_AHBENR, ahb | (1 << 18) | (1 << 22));
+        rcc.ahbenr.modify(|_, w| w.iopben().set_bit().iopfen().set_bit());
 
         // Configure PF6 as output (MODER bits 13:12 = 01)
-        let f_moder = ptr::read_volatile(GPIOF_MODER);
-        ptr::write_volatile(GPIOF_MODER, (f_moder & !(3 << 12)) | (1 << 12));
+        gpiof.moder.modify(|r, w| w.bits((r.bits() & !(3 << 12)) | (1 << 12)));
 
         // Apply initial OFF state according to polarity
         apply_power_pin();
@@ -179,93 +145,91 @@ pub fn get_brr_for_baud(baud_idx: u8) -> u32 {
 pub fn set_uart_enabled(enabled: bool, baud_idx: u8, half_duplex: bool) {
     #[cfg(not(test))]
     unsafe {
-        if enabled {
-            // 1. Enable USART1 clock in RCC_APB2ENR (bit 14)
-            let apb2 = ptr::read_volatile(RCC_APB2ENR);
-            ptr::write_volatile(RCC_APB2ENR, apb2 | (1 << 14));
+        let rcc = &*pac::RCC::ptr();
+        let gpiob = &*pac::GPIOB::ptr();
+        let usart1 = &*pac::USART1::ptr();
 
-            // Ensure GPIOB clock is enabled (bit 18)
-            let ahb = ptr::read_volatile(RCC_AHBENR);
-            ptr::write_volatile(RCC_AHBENR, ahb | (1 << 18));
+        if enabled {
+            // 1. Enable USART1 clock in RCC_APB2ENR (bit 14 / usart1en)
+            rcc.apb2enr.modify(|_, w| w.usart1en().set_bit());
+
+            // Ensure GPIOB clock is enabled (iopben)
+            rcc.ahbenr.modify(|_, w| w.iopben().set_bit());
 
             // 2. Configure PB6 as AF0 (USART1_TX): MODER=10 (bits 13:12), OSPEEDR=11 (bits 13:12), AFRL=0000 (bits 27:24)
-            let b_moder = ptr::read_volatile(GPIOB_MODER);
-            ptr::write_volatile(GPIOB_MODER, (b_moder & !(3 << 12)) | (2 << 12));
-            let b_ospeedr = ptr::read_volatile(GPIOB_OSPEEDR);
-            ptr::write_volatile(GPIOB_OSPEEDR, b_ospeedr | (3 << 12)); // High speed
-            let b_afrl = ptr::read_volatile(GPIOB_AFRL);
-            ptr::write_volatile(GPIOB_AFRL, b_afrl & !(0xF << 24)); // AF0
+            gpiob.moder.modify(|r, w| w.bits((r.bits() & !(3 << 12)) | (2 << 12)));
+            gpiob.ospeedr.modify(|r, w| w.bits(r.bits() | (3 << 12))); // High speed
+            gpiob.afrl.modify(|r, w| w.bits(r.bits() & !(0xF << 24))); // AF0
 
             if half_duplex {
                 // In half-duplex (single-wire on PB6):
                 // Configure PB6 as Open-Drain with internal Pull-Up (OTYPER bit 6 = 1, PUPDR bits 13:12 = 01)
-                let b_otyper = ptr::read_volatile(GPIOB_OTYPER);
-                ptr::write_volatile(GPIOB_OTYPER, b_otyper | (1 << 6));
-                let b_pupdr = ptr::read_volatile(GPIOB_PUPDR);
-                ptr::write_volatile(GPIOB_PUPDR, (b_pupdr & !(3 << 12)) | (1 << 12));
+                gpiob.otyper.modify(|r, w| w.bits(r.bits() | (1 << 6)));
+                gpiob.pupdr.modify(|r, w| w.bits((r.bits() & !(3 << 12)) | (1 << 12)));
 
                 // Leave PB7 as general floating input
-                let b_moder2 = ptr::read_volatile(GPIOB_MODER);
-                ptr::write_volatile(GPIOB_MODER, b_moder2 & !(3 << 14));
+                gpiob.moder.modify(|r, w| w.bits(r.bits() & !(3 << 14)));
             } else {
                 // In full-duplex:
                 // PB6 is Push-Pull (OTYPER bit 6 = 0)
-                let b_otyper = ptr::read_volatile(GPIOB_OTYPER);
-                ptr::write_volatile(GPIOB_OTYPER, b_otyper & !(1 << 6));
+                gpiob.otyper.modify(|r, w| w.bits(r.bits() & !(1 << 6)));
 
                 // 3. Configure PB7 as AF0 (USART1_RX): MODER=10 (bits 15:14), PUPDR=01 (bits 15:14 pull-up), AFRL=0000 (bits 31:28)
-                let b_moder2 = ptr::read_volatile(GPIOB_MODER);
-                ptr::write_volatile(GPIOB_MODER, (b_moder2 & !(3 << 14)) | (2 << 14));
-                let b_pupdr = ptr::read_volatile(GPIOB_PUPDR);
-                ptr::write_volatile(GPIOB_PUPDR, (b_pupdr & !(3 << 14)) | (1 << 14)); // Pull-up
-                let b_afrl2 = ptr::read_volatile(GPIOB_AFRL);
-                ptr::write_volatile(GPIOB_AFRL, b_afrl2 & !(0xF << 28)); // AF0
+                gpiob.moder.modify(|r, w| w.bits((r.bits() & !(3 << 14)) | (2 << 14)));
+                gpiob.pupdr.modify(|r, w| w.bits((r.bits() & !(3 << 14)) | (1 << 14))); // Pull-up
+                gpiob.afrl.modify(|r, w| w.bits(r.bits() & !(0xF << 28))); // AF0
             }
 
             // 4. Reset USART1 registers
-            ptr::write_volatile(USART1_CR1, 0);
-            ptr::write_volatile(USART1_CR2, 0);
+            usart1.cr1.reset();
+            usart1.cr2.reset();
             // CR3: bit 3 is HDSEL (Half-Duplex Selection)
-            let cr3_val = if half_duplex { 1 << 3 } else { 0 };
-            ptr::write_volatile(USART1_CR3, cr3_val);
+            if half_duplex {
+                usart1.cr3.write(|w| w.hdsel().set_bit());
+            } else {
+                usart1.cr3.reset();
+            }
 
             // 5. Set Baud rate divisor
             let brr = get_brr_for_baud(baud_idx);
-            ptr::write_volatile(USART1_BRR, brr);
+            usart1.brr.write(|w| w.brr().bits(brr as u16));
 
             // Clear any pending error flags
-            ptr::write_volatile(USART1_ICR, 0xFFFF_FFFF);
+            usart1.icr.write(|w| w.bits(0xFFFF_FFFF));
 
             // Reset RX ring buffer indices
             RX_HEAD.store(0, Ordering::Relaxed);
             RX_TAIL.store(0, Ordering::Relaxed);
 
             // Configure NVIC for USART1 (IRQ 27)
-            ptr::write_volatile(NVIC_ICPR, 1 << 27);
-            let ipr6 = ptr::read_volatile(NVIC_IPR6);
-            ptr::write_volatile(NVIC_IPR6, (ipr6 & !(0xFF << 24)) | (0x40 << 24));
-            cortex_m::peripheral::NVIC::unmask(stm32f0xx_hal::pac::Interrupt::USART1);
+            cortex_m::peripheral::NVIC::unpend(pac::Interrupt::USART1);
+            let mut cp = cortex_m::peripheral::Peripherals::steal();
+            cp.NVIC.set_priority(pac::Interrupt::USART1, 0x40);
+            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::USART1);
 
-            // 6. Enable UE (bit 0), TE (bit 3), RE (bit 2), and RXNEIE (bit 5)
-            ptr::write_volatile(USART1_CR1, (1 << 0) | (1 << 3) | (1 << 2) | (1 << 5));
+            // 6. Enable UE, TE, RE, and RXNEIE
+            usart1.cr1.write(|w| {
+                w.ue().enabled()
+                 .te().enabled()
+                 .re().enabled()
+                 .rxneie().enabled()
+            });
         } else {
             // Mask USART1 in NVIC
-            cortex_m::peripheral::NVIC::mask(stm32f0xx_hal::pac::Interrupt::USART1);
+            cortex_m::peripheral::NVIC::mask(pac::Interrupt::USART1);
 
             // Disable UE & RXNEIE
-            ptr::write_volatile(USART1_CR1, 0);
+            usart1.cr1.reset();
 
             // Reset RX ring buffer indices
             RX_HEAD.store(0, Ordering::Relaxed);
             RX_TAIL.store(0, Ordering::Relaxed);
 
-            // Disable USART1 clock in RCC_APB2ENR (bit 14)
-            let apb2 = ptr::read_volatile(RCC_APB2ENR);
-            ptr::write_volatile(RCC_APB2ENR, apb2 & !(1 << 14));
+            // Disable USART1 clock in RCC_APB2ENR
+            rcc.apb2enr.modify(|_, w| w.usart1en().clear_bit());
 
             // Set PB6 and PB7 back to inputs (floating/pull-up default)
-            let b_moder = ptr::read_volatile(GPIOB_MODER);
-            ptr::write_volatile(GPIOB_MODER, b_moder & !((3 << 12) | (3 << 14)));
+            gpiob.moder.modify(|r, w| w.bits(r.bits() & !((3 << 12) | (3 << 14))));
         }
     }
     #[cfg(test)]
@@ -281,16 +245,17 @@ pub fn write_bytes(bytes: &[u8]) -> usize {
     }
     #[cfg(not(test))]
     unsafe {
+        let usart1 = &*pac::USART1::ptr();
         let mut sent = 0;
         for &b in bytes {
             let mut timeout = 2500u32;
-            while (ptr::read_volatile(USART1_ISR) & USART_ISR_TXE) == 0 {
+            while usart1.isr.read().txe().bit_is_clear() {
                 timeout -= 1;
                 if timeout == 0 {
                     return sent;
                 }
             }
-            ptr::write_volatile(USART1_TDR, b as u32);
+            usart1.tdr.write(|w| w.tdr().bits(b as u16));
             sent += 1;
         }
         sent
@@ -321,14 +286,15 @@ pub fn read_byte() -> Option<u8> {
 #[interrupt]
 fn USART1() {
     unsafe {
-        let isr = ptr::read_volatile(USART1_ISR);
+        let usart1 = &*pac::USART1::ptr();
+        let isr = usart1.isr.read();
         // Clear overrun error if present
-        if (isr & USART_ISR_ORE) != 0 {
-            ptr::write_volatile(USART1_ICR, USART_ISR_ORE);
+        if isr.ore().bit_is_set() {
+            usart1.icr.write(|w| w.orecf().clear());
         }
 
-        if (isr & USART_ISR_RXNE) != 0 {
-            let b = (ptr::read_volatile(USART1_RDR) & 0xFF) as u8;
+        if isr.rxne().bit_is_set() {
+            let b = (usart1.rdr.read().rdr().bits() & 0xFF) as u8;
             let head = RX_HEAD.load(Ordering::Relaxed);
             let tail = RX_TAIL.load(Ordering::Acquire);
             let next_head = (head + 1) & (RX_RING.len() - 1);

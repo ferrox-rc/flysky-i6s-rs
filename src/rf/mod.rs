@@ -316,10 +316,10 @@ fn TIM16() {
 #[interrupt]
 fn EXTI2_3() {
     unsafe {
-        let exti_pr = core::ptr::read_volatile(0x4001_0414 as *const u32);
-        if (exti_pr & (1 << 2)) != 0 {
+        let exti = &*stm32f0xx_hal::pac::EXTI::ptr();
+        if (exti.pr.read().bits() & (1 << 2)) != 0 {
             // Clear pending flag for EXTI2
-            core::ptr::write_volatile(0x4001_0414 as *mut u32, 1 << 2);
+            exti.pr.write(|w| w.bits(1 << 2));
 
             let driver = &mut *RF_DRIVER.0.get();
             if let Some(ref mut d) = driver {

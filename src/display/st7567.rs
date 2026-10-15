@@ -275,8 +275,8 @@ impl St7567 {
             let gpiod = unsafe { &*pac::GPIOD::ptr() };
 
             unsafe {
-                // Low byte of GPIOE ODR register (offset 0x14 from GPIOE base)
-                let data_odr_u8 = (pac::GPIOE::ptr() as *mut u8).add(0x14);
+                // Low byte of GPIOE ODR register derived directly from PAC
+                let data_odr_u8 = core::ptr::addr_of!((*pac::GPIOE::ptr()).odr) as *mut u8;
 
                 for page in 0..8 {
                     // Command mode: PB3 Low
