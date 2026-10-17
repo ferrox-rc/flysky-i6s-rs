@@ -137,13 +137,10 @@ impl Buzzer {
 
     /// Turn on the hardware PWM generator at the specified frequency (50% duty cycle).
     fn hardware_on(&self, freq_hz: u16) {
-        if !self.enabled || freq_hz < 100 {
-            return;
-        }
-
-        #[cfg(not(test))]
-        {
-            let tim1 = unsafe { &*pac::TIM1::ptr() };
+        if self.enabled && freq_hz >= 100 {
+            #[cfg(not(test))]
+            {
+                let tim1 = unsafe { &*pac::TIM1::ptr() };
 
             unsafe {
                 // Period in 1 µs ticks = 1_000_000 / freq_hz
@@ -162,6 +159,7 @@ impl Buzzer {
             }
         }
     }
+}
 
     /// Turn off the hardware PWM generator.
     fn hardware_off(&self) {

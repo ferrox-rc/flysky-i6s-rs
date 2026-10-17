@@ -8,7 +8,7 @@ This guide provides the exact byte-level framing, timing intervals, CRC calculat
 
 ## 1. Framing & Wire Rules
 
-All serial communication over USART2 (`PD5` TX / `PA15` RX) adheres strictly to the CRSF wire protocol:
+All serial communication over `USART1` (`PB6` TX / `PB7` RX on connector `J15`, implemented in [`src/hw/uart.rs`](../src/hw/uart.rs)) adheres strictly to the CRSF wire protocol:
 
 ```text
 +----------------+----------------+----------------+--------------------------+----------+
@@ -40,7 +40,7 @@ All serial communication over USART2 (`PD5` TX / `PA15` RX) adheres strictly to 
 > [!NOTE]
 > **Distinguishing `CRSF_SYNC_BYTE` vs `CRSF_ADDRESS_FLIGHT_CONTROLLER` (`0xC8`)**:
 > Although both share the value `0xC8`, they are indexed and interpreted differently within a packet:
-> - **Wire Byte 0 (`frame[0]`)**: Operates as the physical frame delimiter / sync header (`CRSF_SYNC_BYTE`) for all telemetry and extended response frames arriving from the external module over USART2 RX.
+> - **Wire Byte 0 (`frame[0]`)**: Operates as the physical frame delimiter / sync header (`CRSF_SYNC_BYTE`) for all telemetry and extended response frames arriving from the external module over `USART1` RX.
 > - **Extended Frame Headers (`frame[3]` / `payload[0]` and `frame[4]` / `payload[1]`)**: In extended frames (`0x28`, `0x29`, `0x2B`, `0x2C`, `0x2D`), `frame[3]` is the Destination Address and `frame[4]` is the Origin Address. A packet from or to a flight controller contains `0xC8` (`CRSF_ADDRESS_FLIGHT_CONTROLLER`) at `frame[4]` or `frame[3]`, whereas local module frames arrive with `frame[4] = 0xEE` and receiver frames with `frame[4] = 0xEC`, all starting with `frame[0] = 0xC8`.
 > - **Standard Telemetry Frames (`0x14`, `0x08`, `0x02`, `0x0B`)**: Start with `frame[0] = 0xC8` (`CRSF_SYNC_BYTE`), followed by length (`frame[1]`), type (`frame[2]`), and sensor payload directly at `frame[3..]` without destination or origin addresses.
 
@@ -61,15 +61,15 @@ CRSF encodes 16 RC channels into 11-bit integers ($0..2047$) packed into 22 payl
 Formula implemented in [`src/crsf/protocol.rs`](../src/crsf/protocol.rs#L122-L128):
 $$\text{CRSF\_Value} = \left\lfloor\frac{(\text{clamped\_µs} - 988) \times 1639 + 512}{1024}\right\rfloor + 172$$
 
-### Hardware UART & Real-Time Ingestion Architecture
+### Hardware UART & Real-Time Ingestion Architecture (`src/hw/uart.rs`)
 
-At 420,000 baud, 1 byte arrives every **$23.8\,\mu\text{s}$**. The STM32F072 USART2 peripheral features only a 1-byte Receive Data Register (`RDR`) and **no hardware FIFO**. If CPU execution is occupied for $>47.6\,\mu\text{s}$ (such as drawing/flushing the ST7567 LCD at ~330 µs or ADC DMA handling), the hardware triggers an Overrun Error (`USART_ISR_ORE`), which silently drops subsequent bytes and truncates packets.
+At 420,000–1,875,000 baud, 1 byte arrives every **$5.3\text{--}23.8\,\mu\text{s}$**. The STM32F072 `USART1` peripheral features only a 1-byte Receive Data Register (`RDR`) and **no hardware FIFO**. If CPU execution is occupied for $>47.6\,\mu\text{s}$ (such as drawing/flushing the ST7567 LCD at ~330 µs or ADC DMA handling), the hardware triggers an Overrun Error (`USART_ISR_ORE`), which silently drops subsequent bytes and truncates packets.
 
 To eliminate data loss and guarantee high-speed stability:
-1. **Interrupt-Driven Ring Buffer (`RXNEIE`)**: `USART2` is configured with receive interrupt enable (`RXNEIE` in `CR1`).
-2. **128-Byte Atomic Ring Buffer**: Bytes are pushed into `RX_RING` inside the `USART2` interrupt handler in $< 1\,\mu\text{s}$.
-3. **High NVIC Priority (`0x40`)**: IRQ 28 is unmasked with priority `0x40` (higher than TIM16/EXTI at `0x80` and USB at `0xC0`), guaranteeing preemption of any blocking loop tasks.
-4. **Hardware ORE Auto-Recovery**: The ISR inspects and clears `USART_ISR_ORE` on every entry.
+1. **Interrupt-Driven Ring Buffer (`RXNEIE`)**: `USART1` is configured with receive interrupt enable (`RXNEIE` in `CR1`).
+2. **128-Byte Atomic Ring Buffer**: Bytes are pushed into `RX_RING` inside the `USART1` interrupt handler in $< 1\,\mu\text{s}$.
+3. **High NVIC Priority (`0x40`)**: IRQ 27 is unmasked with priority `0x40` (higher than TIM16/EXTI at `0x80` and USB at `0xC0`), guaranteeing preemption of any blocking loop tasks.
+4. **Hardware ORE Auto-Recovery**: The ISR inspects and clears `USART_ISR_ORE` on every entry, and suppresses self-echo bytes (`TX_ECHO_IGNORE`) when operating in 1-wire half-duplex mode (`HDSEL`).
 5. **Inter-Byte Silence Resynchronization**: If an electrical glitch or wire disconnect interrupts a packet mid-frame, `poll_telemetry()` tracks `LAST_RX_BYTE_MS`. If $\ge 3\text{ ms}$ elapses with an incomplete frame, `RX_LEN` automatically resets to 0 to resynchronize for the next frame.
 6. **TBS-Compliant Wire Framing**: All serial frames emitted by the handset start with `CRSF_SYNC_BYTE` (`0xC8`) on the wire per the TBS CRSF specification. In extended frames (`0x28`, `0x2C`, `0x2D`), byte 3 contains the target device address (`0xEE` transmitter, `0xEC` receiver, or `0xC8` flight controller), and byte 4 contains the handset origin address (`0xEA`).
 
@@ -303,8 +303,8 @@ Handset (FS-i6S)                                   ELRS Module
 
 - **Wire Serialization & CRC**: [`src/crsf/protocol.rs`](../src/crsf/protocol.rs)
 - **Engine State Machine & Handshake**: [`src/crsf/mod.rs`](../src/crsf/mod.rs)
-- **Hardware UART2 Driver & Power**: [`src/crsf/uart.rs`](../src/crsf/uart.rs)
-- **LCD Menu & Modal Interface**: [`src/ui/menu/screens/elrs.rs`](../src/ui/menu/screens/elrs.rs)
+- **Hardware UART1 Driver & Power (`J15` / `H1`)**: [`src/hw/uart.rs`](../src/hw/uart.rs)
+- **LCD Menu & Modal Interface**: [`src/ui/menu/screens/crsf.rs`](../src/ui/menu/screens/crsf.rs)
 
 ---
 

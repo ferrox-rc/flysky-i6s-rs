@@ -504,5 +504,21 @@ mod tests {
         draw_list_row_right(&mut lcd, 0, false, "Thr Trim:", Some("IDLE"));
         draw_list_row_right(&mut lcd, 1, true, "Beeper:", Some("ENABLED"));
         draw_list_row_right(&mut lcd, 2, false, "[Configure Module]", None);
+
+        // Verify Power: labels and power level options have positive pixel clearance
+        let label = "Power:";
+        let label_end_x = 4 + (label.len() * 6);
+        for &val in &["100mW (HI)", "10mW (MID)", "1mW (LOW)", "100uW (TST)"] {
+            let val_start_x = 124 - (val.len() * 6);
+            assert!(
+                val_start_x > label_end_x,
+                "Value {} starts at {} which overlaps label {} ending at {}",
+                val,
+                val_start_x,
+                label,
+                label_end_x
+            );
+            draw_list_row_right(&mut lcd, 3, false, label, Some(val));
+        }
     }
 }

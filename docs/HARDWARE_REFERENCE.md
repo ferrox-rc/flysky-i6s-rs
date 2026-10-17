@@ -169,7 +169,9 @@ The audible beeper is a passive piezoelectric transducer driven by hardware PWM:
 | **Trim Center** | 2800 Hz | 60 ms | High-pitch confirmation when reaching 0 neutral |
 | **Trim Limit** | 1100 Hz | 45 ms | Low warning buzz when hitting ±25 limits |
 | **Bind Success** | 2200 / 2800 Hz | 80 ms each | Two-tone rising fanfare upon binding receiver |
-| **Calib Success** | 2000 / 2800 Hz | 100 ms each | Confirmation chime when savi---
+| **Calib Success** | 2000 / 2800 Hz | 100 ms each | Confirmation chime when saving gimbals |
+
+---
 
 ## 6. Safe DFU Bootloader Jump & Power Latch Retention
 
@@ -182,7 +184,7 @@ The STM32F072 contains a factory-programmed DFU bootloader in System ROM (`0x1FF
    // Reset AHB peripheral clocks but KEEP GPIOB enabled (bit 18) for PB15 power latch
    rcc.ahbenr.write(|w| unsafe { w.bits(0x0004_0014) });
    ```
-   Furthermore, `power::latch_on()` is called immediately before and after RCC de-initialization.
+   Furthermore, `hw::power::latch_on()` is called immediately before and after RCC de-initialization.
 2. **Clear SysTick & NVIC:** Disable SysTick timer and clear all pending interrupt requests in NVIC.
 3. **SYSCFG Remap:** Remap System Memory to `0x00000000` via `SYSCFG->CFGR1` (`MEM_MODE = 0b01`).
 4. **Re-Enable Global Interrupts:** **CRITICAL.** The ST factory DFU bootloader requires USB interrupts to enumerate on the host PC. Global interrupts must be enabled (`cortex_m::interrupt::enable()`) before executing the jump.
@@ -190,17 +192,17 @@ The STM32F072 contains a factory-programmed DFU bootloader in System ROM (`0x1FF
 
 ### Entry Methods (Zero-Disassembly)
 
-1. **Cold-Boot Combo:** Holding both **Front Buttons (`PA9` + `PA10`)** simultaneously during power-on triggers `boot::check_dfu_entry()`, immediately transferring control to the factory ROM DFU bootloader.
-2. **Software Touch Menu:** Navigating to **`Settings -> Diag -> [OK] Reboot DFU`** sets a magic flag (`0xDEADBEEF`) at SRAM address `0x2000_3FF0` and performs a system reset. On reboot, `boot::check_dfu_entry()` detects the flag, clears it, and jumps directly into DFU.
-3. **USB CDC Serial CLI:** Sending `dfu` or `reboot bootloader` over the virtual serial console calls `boot::reboot_to_dfu()`.
+1. **Cold-Boot Combo:** Holding both **Front/Rear Buttons (`PA9` + `PA10`)** simultaneously during power-on triggers `hw::keys::check_dfu_entry()`, immediately transferring control to the factory ROM DFU bootloader.
+2. **Software Menu:** Navigating to **`Settings -> 13. System Info -> [OK] Reboot DFU`** sets a magic flag (`0xDEADBEEF`) at SRAM address `0x2000_3FF0` and performs a system reset. On reboot, `hw::keys::check_dfu_entry()` detects the flag, clears it, and jumps directly into DFU.
+3. **USB CDC Serial CLI:** Sending `dfu` or `reboot bootloader` over the virtual serial console calls `hw::keys::reboot_to_dfu()`.
 
 ---
 
-## 7. Analog Inputs & ADC1 Channel Map
+## 7. Analog Inputs & ADC1 Channel Map (`src/hw/adc.rs`)
 
-The FlySky FS-i6S uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 analog channels into SRAM without CPU intervention.
+The FlySky FS-i6S uses a single 12-bit ADC peripheral (**ADC1**) paired with **DMA1 Channel 1** operating in circular mode to continuously scan 11 standard analog channels (`0x07FF`, or 15 channels `0x7FFF` when `Ext ADC (PC)` is enabled) into SRAM without CPU intervention.
 
-### Verified 11-Channel Mapping
+### Verified 11-Channel Standard Mapping + 4 Extended Channels (`PC1..PC4`)
 
 | ADC Ch | MCU Pin | Function / Axis | Physical Input | Normal Expected Range | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -208,13 +210,17 @@ The FlySky FS-i6S uses a single 12-bit ADC peripheral (**ADC1**) paired with **D
 | **CH1** | `PA1` | **Pitch / Elevator** | Right Stick Vertical | ~1100 .. 2048 .. ~2900 | Spring return |
 | **CH2** | `PA2` | **Throttle** | Left Stick Vertical | ~1100 .. ~2900 | Centered or ratchet |
 | **CH3** | `PA3` | **Yaw / Rudder** | Left Stick Horizontal | ~1100 .. 2048 .. ~2900 | Spring return |
-| **CH4** | `PA4` | **Switch SA** | 2-Position Toggle | Down < 2000, Up > 2000 | Resistor divider |
-| **CH5** | `PA5` | **Switch SB** | 3-Position Toggle | Up > 2500, Mid 1000..2500, Dwn < 1000 | Resistor divider |
-| **CH6** | `PA6` | **Potentiometer VRA** | Left Rotary Dial (VR1) | 0 .. 4095 (scaled 0..9) | Linear pot |
-| **CH7** | `PA7` | **Potentiometer VRB** | Right Rotary Dial (VR2) | 0 .. 4095 (scaled 0..9) | Linear pot |
-| **CH8** | `PB0` | **Switch SC** | 3-Position Toggle | Up > 2500, Mid 1000..2500, Dwn < 1000 | Resistor divider |
-| **CH9** | `PB1` | **Switch SD** | 2-Position Toggle | Down < 2000, Up > 2000 | Resistor divider |
+| **CH4** | `PA4` | **Switch SA** | 2-Position Toggle (Stock) | Down < 2000, Up > 2000 | Configurable via `AdcInputMode` |
+| **CH5** | `PA5` | **Switch SB** | 3-Position Toggle (Stock) | Up > 2500, Mid 1000..2500, Dwn < 1000 | Configurable via `AdcInputMode` |
+| **CH6** | `PA6` | **Potentiometer VRA** | Left Jog Wheel (VR1) | 0 .. 4095 | Configurable via `AdcInputMode` |
+| **CH7** | `PA7` | **Potentiometer VRB** | Right Jog Wheel (VR2) | 0 .. 4095 | Configurable via `AdcInputMode` |
+| **CH8** | `PB0` | **Switch SC** | 3-Position Toggle (Stock) | Up > 2500, Mid 1000..2500, Dwn < 1000 | Configurable via `AdcInputMode` |
+| **CH9** | `PB1` | **Switch SD** | 2-Position Toggle (Stock) | Down < 2000, Up > 2000 | Configurable via `AdcInputMode` |
 | **CH10**| `PC0` | **Battery Sense** | 4×AA Battery Pack | ~1400 .. 2100 (4.0V .. 6.0V) | $10\text{ k}\Omega / 5.1\text{ k}\Omega$ divider |
+| **CH11**| `PC1` | **Ext Analog VRC / SWI**| `ADC_IN11` Expansion | 0 .. 4095 | Enabled via `Ext ADC (PC)` |
+| **CH12**| `PC2` | **Ext Analog VRD / SWJ**| `ADC_IN12` Expansion | 0 .. 4095 | Enabled via `Ext ADC (PC)` |
+| **CH13**| `PC3` | **Ext Analog VRE / SWK**| `ADC_IN13` Expansion | 0 .. 4095 | Enabled via `Ext ADC (PC)` |
+| **CH14**| `PC4` | **Ext Analog VRF / SWL**| `ADC_IN14` Expansion | 0 .. 4095 | Enabled via `Ext ADC (PC)` |
 
 ### Battery Voltage Sensing (FS-i6S Scaling)
 
@@ -222,7 +228,7 @@ The FlySky FS-i6S uses a precision $10\text{ k}\Omega$ (upper) and $5.1\text{ k}
 - **Divider Ratio:** $\frac{R_1 + R_2}{R_2} = \frac{10 + 5.1}{5.1} = 2.960784...$
 - **Voltage Formula (in mV):**
   $$ V_{bat} = \left( \text{raw} \times 3300 \times 2.960784 \right) / 4095 = \frac{\text{raw} \times 977064}{409500} $$
-- Implemented with 64-bit integer arithmetic in [`src/input.rs`](../src/input.rs):
+- Implemented with integer arithmetic in [`src/hw/mod.rs`](../src/hw/mod.rs):
   ```rust
   ((raw as u32 * 977064) / 409500) as u16
   ```
@@ -253,20 +259,21 @@ The FlySky FS-i6S mainboard routes the Micro-USB port directly to the STM32F072 
 
 ### Rear Expansion Bay & Internal Headers (CRSF / ELRS / PPM / Switches Ready)
 
-The FS-i6S mainboard provides dedicated extension headers for external modules, trainer output, and additional switches:
+The FS-i6S mainboard provides dedicated extension headers for external modules, trainer I/O, and additional switches:
 
-#### Expansion Header `J15` & Hardware `USART1`
+#### Expansion Header `J15`, Hardware `USART1`, & `TIM15` Trainer Port
 
-Internal header `J15` routes MCU pins directly for CRSF/ELRS serial communication and analog PPM-out:
+Internal header `J15` and trainer pins route MCU peripherals directly for CRSF/ELRS serial communication and hardware CPPM I/O:
 
 | Signal | MCU Pin | Peripheral | Description |
 | :--- | :--- | :--- | :--- |
 | **CRSF TX / Single-Wire** | `PB6` | `USART1_TX` (AF0) | Full-duplex serial TX or single-wire half-duplex bidirectional pin (`HDSEL`) |
 | **CRSF RX** | `PB7` | `USART1_RX` (AF0) | Full-duplex serial RX (telemetry downlink) |
-| **PPM Out** | `PF10` | GPIO Out | Standard 8-channel PPM pulse train (22.5 ms frame period, 400 µs sync) |
+| **PPM Out** | `PF10` | `TIM15_CH2` (AF0) | Deterministic 22.5 ms 8-channel CPPM pulse train (300 µs negative sync) |
+| **Trainer In** | `PF9` | `TIM15_CH1` (AF0) | 0.5 µs input capture for wired buddy-box student connection (`SD` Down handover) |
 
-- **Baud Rates**: 420,000 bps (ELRS default), 416,666 bps (TBS), 115,200 bps (Low), 921,600 bps (Fast).
-- **Duplex Mode**: Configurable via `Radio Setup` -> `CRSF Bay`: `FULL (PB6/7)` or `HALF (PB6)`. In half-duplex mode, `PB6` functions as open-drain bidirectional line with internal pull-up.
+- **Baud Rates (Ascending)**: `115,200 bps` (Low), `416,666 bps` (TBS), `420,000 bps` (ELRS default), `921,600 bps` (Fast), and `1,875,000 bps` (Max).
+- **Duplex Mode**: Configurable per-model via `Protocol Setup` -> `Duplex:`: `Full (2W)` (`PB6`/`PB7`) or `Half (1W)` (`PB6`). In half-duplex mode, `PB6` functions as an open-drain bidirectional line with internal pull-up and hardware self-echo suppression.
 
 #### External Power Switch Header `H1`
 

@@ -66,20 +66,24 @@ pub fn update_aux_channels(
             buzzer.click();
         }
     } else {
-        const AUX_SOURCES: [u8; 17] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 33, 34, 35, 36];
+        let aux_sources = crate::hw::AUX_SOURCES;
         if let Some(pot) = keys.pot_change {
             storage.models[active_idx].aux_channels[ctrl.selected_item] = pot;
             buzzer.play_tone(2400, 40);
         } else {
             let cur_val = storage.models[active_idx].aux_channels[ctrl.selected_item];
-            let cur_pos = AUX_SOURCES.iter().position(|&s| s == cur_val).unwrap_or(0);
+            let cur_pos = aux_sources.iter().position(|&s| s == cur_val).unwrap_or(0);
             if keys.up {
-                let next_pos = (cur_pos + 1) % AUX_SOURCES.len();
-                storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[next_pos];
+                let next_pos = (cur_pos + 1) % aux_sources.len();
+                storage.models[active_idx].aux_channels[ctrl.selected_item] = aux_sources[next_pos];
                 buzzer.play_tone(2200, 20);
             } else if keys.down {
-                let next_pos = if cur_pos == 0 { AUX_SOURCES.len() - 1 } else { cur_pos - 1 };
-                storage.models[active_idx].aux_channels[ctrl.selected_item] = AUX_SOURCES[next_pos];
+                let next_pos = if cur_pos == 0 {
+                    aux_sources.len() - 1
+                } else {
+                    cur_pos - 1
+                };
+                storage.models[active_idx].aux_channels[ctrl.selected_item] = aux_sources[next_pos];
                 buzzer.play_tone(2200, 20);
             }
         }
@@ -109,7 +113,7 @@ pub fn update_aux_channels(
         }
         let ch_label = ascii_as_str(&ch_buf);
 
-        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(36);
+        let src_idx = (storage.models[active_idx].aux_channels[idx] as usize).min(SOURCE_NAMES.len() - 1);
         widgets::draw_list_row(lcd, slot, is_sel, ch_label, Some(SOURCE_NAMES[src_idx]), 48);
     }
 

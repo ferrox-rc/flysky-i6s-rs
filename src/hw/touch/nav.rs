@@ -18,9 +18,9 @@
 
 use crate::boot;
 use crate::input::Sticks;
-use crate::touch::ft6236::{Gesture, TouchEventKind, TouchSample};
+use super::ft6236::{Gesture, TouchEventKind, TouchSample};
 #[cfg(test)]
-use crate::touch::ft6236::TouchPoint;
+use super::ft6236::TouchPoint;
 
 /// Stick deflection threshold required to engage modifier trim mode.
 pub const TRIM_MODIFIER_STICK_THRESHOLD: i16 = 350;
@@ -57,6 +57,7 @@ pub struct SwipeTracker {
     pub swiped: bool,
     pub last_packet_ms: u32,
     pub last_scroll_ms: u32,
+    pub last_move_ms: u32,
 }
 
 impl SwipeTracker {
@@ -73,6 +74,7 @@ impl SwipeTracker {
         self.active = true;
         self.swiped = false;
         self.last_scroll_ms = 0;
+        self.last_move_ms = 0;
     }
 
     #[inline(always)]
@@ -81,6 +83,7 @@ impl SwipeTracker {
         self.swiped = false;
         self.scroll_dir = 0;
         self.last_scroll_ms = 0;
+        self.last_move_ms = 0;
     }
 }
 
@@ -97,6 +100,7 @@ static mut GLOBAL_SWIPE_TRACKER: SwipeTracker = SwipeTracker {
     swiped: false,
     last_packet_ms: 0,
     last_scroll_ms: 0,
+    last_move_ms: 0,
 };
 
 /// Evaluates a valid touch sample and screen tap zones into UI navigation key flags.
@@ -121,12 +125,17 @@ pub fn touch_to_nav_keys_with_tracker(
     let mut keys = 0u16;
 
     // 1. Hardware Gesture Register Decoding (if provided by controller)
-    match sample.gesture {
-        Gesture::SwipeUp => keys |= KEY_NAV_UP,
-        Gesture::SwipeDown => keys |= KEY_NAV_DOWN,
-        Gesture::SwipeRight => keys |= KEY_NAV_OK,
-        Gesture::SwipeLeft => keys |= KEY_NAV_CANCEL,
-        Gesture::None => {}
+    // In menu_active, software drag displacement handles scrolling with precise pacing.
+    // Suppress hardware swipe gestures when menu_active is true or tracker has already swiped
+    // to prevent the FT6236 controller from firing a duplicate/spurious scroll step on finger release!
+    if !menu_active && !tracker.swiped {
+        match sample.gesture {
+            Gesture::SwipeUp => keys |= KEY_NAV_UP,
+            Gesture::SwipeDown => keys |= KEY_NAV_DOWN,
+            Gesture::SwipeRight => keys |= KEY_NAV_OK,
+            Gesture::SwipeLeft => keys |= KEY_NAV_CANCEL,
+            Gesture::None => {}
+        }
     }
 
     if let Some(pt) = sample.point {
@@ -147,6 +156,18 @@ pub fn touch_to_nav_keys_with_tracker(
                     #[cfg(test)]
                     let now: u32 = 0;
 
+                    // Motion vs stationary detection:
+                    // If finger movement is within ±1 pixel, accumulate stationary hold time.
+                    // If stationary for >= 100 ms, settle anchor to current position so lifting
+                    // finger off the screen cannot cause accidental scroll overshoot!
+                    if (pt.y as i16 - tracker.last_y as i16).abs() >= 2 {
+                        tracker.last_move_ms = now.max(1);
+                    } else if tracker.last_move_ms != 0 && now.wrapping_sub(tracker.last_move_ms) >= 100 {
+                        tracker.anchor_y = pt.y;
+                        tracker.max_y = pt.y;
+                        tracker.min_y = pt.y;
+                    }
+
                     // 1. Peak & Turning point tracking for instant directional reversal
                     if pt.y > tracker.max_y {
                         tracker.max_y = pt.y;
@@ -155,15 +176,15 @@ pub fn touch_to_nav_keys_with_tracker(
                         tracker.min_y = pt.y;
                     }
 
-                    // Deliberate direction reversal detection (>= 3px movement opposite to prior motion):
+                    // Deliberate direction reversal detection (>= 4px movement opposite to prior motion):
                     // If moving/scrolled DOWN and finger moves UP:
-                    if tracker.scroll_dir >= 0 && pt.y <= tracker.max_y.saturating_sub(3) {
+                    if tracker.scroll_dir > 0 && pt.y <= tracker.max_y.saturating_sub(4) {
                         tracker.anchor_y = tracker.max_y;
                         tracker.min_y = pt.y;
                         tracker.scroll_dir = 0;
                     }
                     // If moving/scrolled UP and finger moves DOWN:
-                    else if tracker.scroll_dir <= 0 && pt.y >= tracker.min_y.saturating_add(3) {
+                    else if tracker.scroll_dir < 0 && pt.y >= tracker.min_y.saturating_add(4) {
                         tracker.anchor_y = tracker.min_y;
                         tracker.max_y = pt.y;
                         tracker.scroll_dir = 0;
@@ -188,6 +209,7 @@ pub fn touch_to_nav_keys_with_tracker(
                             tracker.min_y = pt.y;
                             tracker.scroll_dir = -1;
                             tracker.last_scroll_ms = now.max(1);
+                            tracker.last_move_ms = now.max(1);
                             tracker.swiped = true;
                         }
                     } else if dy >= 12 {
@@ -199,6 +221,7 @@ pub fn touch_to_nav_keys_with_tracker(
                             tracker.min_y = pt.y;
                             tracker.scroll_dir = 1;
                             tracker.last_scroll_ms = now.max(1);
+                            tracker.last_move_ms = now.max(1);
                             tracker.swiped = true;
                         }
                     }
@@ -374,41 +397,41 @@ pub fn process_modifier_trims_cfg(
     let mut suppress_left = false;
     let mut suppress_right = false;
 
-    // Left Front held -> Left Stick controls Throttle (if enabled) & Yaw trims
+    // Left Front held -> Left Gimbal controls Yaw (lh) & Throttle (lv, if enabled) trims
     if left_held {
-        if sticks.yaw < -TRIM_MODIFIER_STICK_THRESHOLD {
+        if sticks.lh < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_YAW_L;
             suppress_left = true;
-        } else if sticks.yaw > TRIM_MODIFIER_STICK_THRESHOLD {
+        } else if sticks.lh > TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_YAW_R;
             suppress_left = true;
         }
 
         if throttle_trim_enabled {
-            if sticks.throttle < -TRIM_MODIFIER_STICK_THRESHOLD {
+            if sticks.lv < -TRIM_MODIFIER_STICK_THRESHOLD {
                 trim_keys |= KEY_TRIM_THR_D;
                 suppress_left = true;
-            } else if sticks.throttle > TRIM_MODIFIER_STICK_THRESHOLD {
+            } else if sticks.lv > TRIM_MODIFIER_STICK_THRESHOLD {
                 trim_keys |= KEY_TRIM_THR_U;
                 suppress_left = true;
             }
         }
     }
 
-    // Right Front held -> Right Stick controls Roll & Pitch trims
+    // Right Front held -> Right Gimbal controls Roll (rh) & Pitch (rv) trims
     if right_held {
-        if sticks.roll < -TRIM_MODIFIER_STICK_THRESHOLD {
+        if sticks.rh < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_ROLL_L;
             suppress_right = true;
-        } else if sticks.roll > TRIM_MODIFIER_STICK_THRESHOLD {
+        } else if sticks.rh > TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_ROLL_R;
             suppress_right = true;
         }
 
-        if sticks.pitch < -TRIM_MODIFIER_STICK_THRESHOLD {
+        if sticks.rv < -TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_PITCH_D;
             suppress_right = true;
-        } else if sticks.pitch > TRIM_MODIFIER_STICK_THRESHOLD {
+        } else if sticks.rv > TRIM_MODIFIER_STICK_THRESHOLD {
             trim_keys |= KEY_TRIM_PITCH_U;
             suppress_right = true;
         }
@@ -497,25 +520,25 @@ mod tests {
             gesture: Gesture::SwipeUp,
             point: None,
         };
-        assert_eq!(touch_to_nav_keys(&sample_up, true), KEY_NAV_UP);
+        assert_eq!(touch_to_nav_keys(&sample_up, false), KEY_NAV_UP);
 
         let sample_down = TouchSample {
             gesture: Gesture::SwipeDown,
             point: None,
         };
-        assert_eq!(touch_to_nav_keys(&sample_down, true), KEY_NAV_DOWN);
+        assert_eq!(touch_to_nav_keys(&sample_down, false), KEY_NAV_DOWN);
 
         let sample_right = TouchSample {
             gesture: Gesture::SwipeRight,
             point: None,
         };
-        assert_eq!(touch_to_nav_keys(&sample_right, true), KEY_NAV_OK);
+        assert_eq!(touch_to_nav_keys(&sample_right, false), KEY_NAV_OK);
 
         let sample_left = TouchSample {
             gesture: Gesture::SwipeLeft,
             point: None,
         };
-        assert_eq!(touch_to_nav_keys(&sample_left, true), KEY_NAV_CANCEL);
+        assert_eq!(touch_to_nav_keys(&sample_left, false), KEY_NAV_CANCEL);
     }
 
     #[test]
@@ -657,10 +680,10 @@ mod tests {
     #[test]
     fn test_modifier_trims() {
         let mut sticks = Sticks {
-            roll: 0,
-            pitch: 0,
-            throttle: -1000, // Real-world idle throttle at rest
-            yaw: 0,
+            rh: 0,
+            rv: 0,
+            lv: -1000, // Real-world idle throttle / stick at rest
+            lh: 0,
         };
 
         // Neither button pressed
@@ -669,20 +692,20 @@ mod tests {
         assert!(!supp_l);
         assert!(!supp_r);
 
-        // Left Front held with throttle at -1000 but throttle trim disabled -> No false trim!
+        // Left Front held with lv at -1000 but throttle trim disabled -> No false trim!
         let (trims, supp_l, _) = process_modifier_trims(true, false, &sticks);
         assert_eq!(trims, 0);
         assert!(!supp_l); // Normal Cancel NOT suppressed!
 
-        // Left Front held + Yaw stick left -> Yaw trim emitted
-        sticks.yaw = -500;
+        // Left Front held + Left horizontal stick left -> Yaw trim emitted
+        sticks.lh = -500;
         let (trims, supp_l, _) = process_modifier_trims(true, false, &sticks);
         assert_eq!(trims, KEY_TRIM_YAW_L);
         assert!(supp_l); // Suppressed normal Cancel
 
-        // Right Front held + Roll stick right
-        sticks.yaw = 0;
-        sticks.roll = 600;
+        // Right Front held + Right horizontal stick right -> Roll trim emitted
+        sticks.lh = 0;
+        sticks.rh = 600;
         let (trims, _, supp_r) = process_modifier_trims(false, true, &sticks);
         assert_eq!(trims, KEY_TRIM_ROLL_R);
         assert!(supp_r); // Suppressed normal OK
@@ -806,5 +829,52 @@ mod tests {
         };
         assert_eq!(touch_to_nav_keys_with_tracker(&s_swipe_left, false, &mut tracker), KEY_NAV_DOWN);
         assert!(tracker.swiped);
+    }
+
+    #[test]
+    fn test_menu_touch_stationary_hold_and_liftup_stability() {
+        let mut tracker = SwipeTracker::default();
+
+        // 1. Press at y = 30
+        let s_press = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 60,
+                y: 30,
+                raw_x: 60,
+                raw_y: 120,
+                event: TouchEventKind::PressDown,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_press, true, &mut tracker), 0);
+
+        // 2. Drag down by 12 px (to y = 42) -> fires KEY_NAV_DOWN
+        let s_drag = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 60,
+                y: 42,
+                raw_x: 84,
+                raw_y: 120,
+                event: TouchEventKind::Contact,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_drag, true, &mut tracker), KEY_NAV_DOWN);
+        assert_eq!(tracker.anchor_y, 42);
+
+        // 3. User settles on line at y = 44 (2px drift) and lifts finger
+        // On LiftUp, no further scroll keys must be emitted!
+        let s_lift = TouchSample {
+            gesture: Gesture::None,
+            point: Some(TouchPoint {
+                x: 60,
+                y: 45, // slight 3px tremor on lift
+                raw_x: 90,
+                raw_y: 120,
+                event: TouchEventKind::LiftUp,
+            }),
+        };
+        assert_eq!(touch_to_nav_keys_with_tracker(&s_lift, true, &mut tracker), 0);
+        assert!(!tracker.active);
     }
 }

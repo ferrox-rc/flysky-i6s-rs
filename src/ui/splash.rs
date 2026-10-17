@@ -17,8 +17,8 @@ pub fn draw_splash(lcd: &mut St7567) {
     // 2. Draw "FERROX-RC" in 6x10 (54px wide, centered at x = 37, y = 34)
     lcd.draw_str_6x10(37, 34, "FERROX-RC", false);
 
-    // 3. Draw "flysky-i6x-rs" in 4x6 (52px wide, centered at x = 38, y = 45)
-    lcd.draw_str_4x6(38, 45, "flysky-i6x-rs", false);
+    // 3. Draw firmware ID in 4x6 (52px wide, centered at x = 38, y = 45)
+    lcd.draw_str_4x6(38, 45, crate::hw::FIRMWARE_ID, false);
 
     // 4. Draw Version Tag dynamically centered horizontally (4x6 is 4px wide)
     const VERSION_TAG: &str = concat!(env!("FIRMWARE_VERSION"), " (", env!("GIT_HASH"), ")");

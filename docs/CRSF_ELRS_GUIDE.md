@@ -17,53 +17,58 @@ The FlySky FS-i6S motherboard provides dedicated connectors and headers routed t
 | `PB6` | **USART1_TX** | AF0 | Bidirectional CRSF serial TX (or single-wire half-duplex) on expansion connector `J15` |
 | `PB7` | **USART1_RX** | AF0 | Interrupt-driven telemetry RX with 128-byte lock-free ring buffer on connector `J15` |
 | `PF6` | **MOD_PWR** | GPIO Out | External module power switch on header `H1` (Configurable polarity: N-channel or P-channel) |
-| `PF10` | **PPM_OUT** | GPIO Out | Analog PPM frame output on connector `J15` |
+| `PF10` | **PPM_OUT** | `TIM15_CH2` (AF0) | 22.5 ms 8-channel CPPM output on connector `J15` (`src/trainer/ppm_out.rs`) |
+| `PF9` | **PPM_IN** | `TIM15_CH1` (AF0) | 0.5 µs input capture for buddy-box student connection (`src/trainer/ppm_in.rs`) |
 | `PA13` / `PA14` | **SG / SH** | GPIO In | Momentary tactile push-buttons on header `J4` (when `j4_sg_sh_en` is enabled) |
 
-Implemented in [`src/crsf/uart.rs`](../src/crsf/uart.rs). Dedicated `USART1` interrupt handler clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout ($\ge 3\text{ ms}$) guarantees deterministic frame resynchronization.
+Implemented in [`src/hw/uart.rs`](../src/hw/uart.rs) and [`src/crsf/`](../src/crsf/mod.rs). The dedicated `USART1` interrupt handler (IRQ 27, priority `0x40`) clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout ($\ge 3\text{ ms}$) guarantees deterministic frame resynchronization.
 
 ### FS-i6S PCB Connection Points (Connector J15 & Header H1)
 - **`J15` Connector:** Exposes `PB6` (`USART1_TX`), `PB7` (`USART1_RX`), and `PF10` (`PPM_OUT`).
-  - Wire `PB6` to external module **RX** (or to single-wire signal pin in half-duplex mode).
+  - Wire `PB6` to external module **RX** (or to the single-wire S.Port/CRSF signal pin in half-duplex mode).
   - Wire `PB7` to external module **TX** (telemetry) in full-duplex mode.
-  - Wire `PF10` for external analog PPM trainer/module signal if enabled.
+  - Wire `PF10` for external analog PPM trainer/module signal if enabled in `Radio Setup -> PPM Out`.
 - **`H1` Header:** Right pin is `PF6` (module power control switch), left pin is GND.
 - **`J4` Header:** 4-pin SWD header (GND, `PA14`/SH, `PA13`/SG, 3.3V) for extra tactile buttons or programming.
 
 ### Duplex Modes on PB6 / PB7
-- **Full-Duplex (Default):** `PB6` is TX (Push-Pull AF0), `PB7` is RX (Pull-Up AF0).
-- **Single-Wire Half-Duplex:** `PB6` operates with `HDSEL = 1` in Open-Drain mode with internal pull-up. Allows bidirectional communication over a single data wire, leaving `PB7` unused.
+Configured per-model in `9. Protocol Setup` -> `Duplex:`:
+- **`Full (2W)` (Default):** `PB6` is TX (Push-Pull AF0), `PB7` is RX (Pull-Up AF0).
+- **`Half (1W)` (Single-Wire Half-Duplex):** `PB6` operates with `HDSEL = 1` in Open-Drain mode with internal pull-up and hardware self-echo suppression (`TX_ECHO_IGNORE`). Allows bidirectional communication over a single data wire, leaving `PB7` unused.
 
-### Power Switch Polarity (PF6 on H1)
+### Power Switch Polarity (PF6 on H1) & A7105 Deep Sleep
 Hardware power circuits vary depending on how external modules are wired to the transmitter:
-- **Active HIGH** (`HIGH (N)`): Drives PF6 high to enable an N-channel MOSFET or active-high switch.
-- **Active LOW** (`LOW (P)`): Drives PF6 low to enable a P-channel MOSFET or PNP power stage.
+- **Active HIGH** (`HIGH (N)`): Drives `PF6` high to enable an N-channel MOSFET or active-high switch.
+- **Active LOW** (`LOW (P)`): Drives `PF6` low to enable a P-channel MOSFET or PNP power stage.
+- **A7105 Deep Sleep (`0x0F`)**: Whenever `Proto: CRSF` is active, the internal 2.4 GHz A7105 transceiver is automatically strobed into deep sleep (`0x0F`) and its PA/LNA front-end is powered down, eliminating internal RF radiation and saving battery current.
 
 The polarity can be toggled in `Radio Setup` -> `H1 PF6 Pwr` and is persisted in non-volatile Flash.
 
-### Supported Baud Rates
-Baud rates can be selected per-model in `9. Protocol Setup`:
-- **420,000 baud** (Default for ExpressLRS high-speed communication)
-- **416,666 baud** (Standard Team BlackSheep Crossfire)
-- **115,200 baud** (Low-speed debug / legacy transmitters)
-- **921,600 baud** (Ultra-low latency for compatible external microcontrollers)
+### Supported Baud Rates (Ascending Order)
+Baud rates are configured per-model in `9. Protocol Setup` -> `Baud:`:
+- **`0` — `115.2k (Low)`**: `115,200 baud` (`BRR = 417`, legacy / low-speed debug)
+- **`1` — `416.6k (TBS)`**: `416,666 baud` (`BRR = 115`, standard Team BlackSheep Crossfire)
+- **`2` — `420k (ELRS)`**: `420,000 baud` (`BRR = 114`, **Default** for ExpressLRS)
+- **`3` — `921.6k (Fast)`**: `921,600 baud` (`BRR = 52`, high-speed ExpressLRS)
+- **`4` — `1.875M (Max)`**: `1,875,000 baud` (`BRR = 26`, ultra-low latency mode for high-rate ELRS modules)
 
 ---
 
-## 2. Flight Dashboard: Native CRSF Link Diagnostics
+## 2. Flight Dashboard: Native CRSF Link Diagnostics & Custom Telemetry
 
-When `rf_protocol` is set to `1` (`CRSF / ELRS`), Page 4/4 of the flight dashboard transitions from the AFHDS 2A packet counter into a real-time link diagnostics screen:
+When `rf_protocol` is set to `1` (`CRSF`), Page 5/5 of the flight dashboard displays live CRSF telemetry metrics in either the **Configurable 4-Tile Telemetry Dashboard (`CUSTOM TELEM`)** or the 8-item sensor list:
 
 ```
 +---------------------------------------------------------------+
-| [M01:DRONE   ]   CRSF: 250Hz               [ 4.8V]            |
+| [M] DRONE              CRSF:250Hz             4.98V     [===] |
 +---------------------------------------------------------------+
-| LQ:   100%            | PWR:  100mW                           |
-| RSSI: -72dBm          | RATE: 250Hz (Mode 7)                  |
-| SNR:  +12dB           | BAT:  16.4V                           |
-| ANT:  1 (Active)      | CAP:  450mAh                          |
+| RX BAT                 | LQ/RSSI                              |
+|        16.4V           |      100% -72dB                      |
+|------------------------+--------------------------------------|
+| TX PWR                 | TIMER                                |
+|        100mW           |       04:32                          |
 +---------------------------------------------------------------+
-| P4/4           CRSF LINK DIAGNOSTICS                          |
+| P5/5                     CUSTOM TELEM                         |
 +---------------------------------------------------------------+
 ```
 
@@ -74,11 +79,11 @@ When `rf_protocol` is set to `1` (`CRSF / ELRS`), Page 4/4 of the flight dashboa
 - **Active Antenna (`ANT`)**: Decoded from byte 7 (`active_antenna`). Shows `1` or `2`.
 - **TX Power (`PWR`)**: ExpressLRS Status frame / link statistics transmit power in milliwatts (`mW`).
 - **RF Packet Rate (`RATE`)**: Automatically resolved from `rf_mode` index to human-readable rates (`50Hz`, `100Hz`, `150Hz`, `250Hz`, `333Hz`, `500Hz`, `D250`, `D500`, `F500`, `F1000`).
-- **Flight Pack Battery (`BAT` / `CAP`)**: Decoded from CRSF Frame `0x08` (`CRSF_FRAMETYPE_BATTERY_SENSOR`). Displays battery voltage in `0.1V` precision and consumed capacity in `mAh`.
+- **Flight Pack Battery (`BAT` / `CURR` / `CAP`)**: Decoded from CRSF Frame `0x08` (`CRSF_FRAMETYPE_BATTERY_SENSOR`). Displays battery voltage (`0.1V`), current (`0.1A`), and consumed capacity (`mAh`).
 
 ---
 
-## 3. Native Module Configurator
+## 3. Native Module Configurator (`src/ui/menu/screens/crsf.rs`)
 
 On standard EdgeTX and OpenTX radios, ExpressLRS module configuration is typically handled via a Lua script. Because the FS-i6S's STM32F072 microcontroller has 16 KB of SRAM, running a full Lua virtual machine is impractical on this platform.
 
@@ -91,7 +96,10 @@ Radio (FS-i6S)                               External ELRS TX Module
       | -------- 0x28 (DEVICE_PING) ------------------> |
       | <------- 0x29 (DEVICE_INFO: Name, Count) ------ |
       |                                                 |
-      | loop for each parameter:                        |
+      | -------- 0x2C (PARAM_READ: ID=0 Root Folder) -> |
+      | <------- 0x2B (FOLDER: Child IDs) ------------- |
+      |                                                 |
+      | loop for each child parameter:                  |
       | -------- 0x2C (PARAM_READ: ID, Chunk) --------> |
       | <------- 0x2B (PARAM_ENTRY: Name, Options) ---- |
       |                                                 |
@@ -102,7 +110,7 @@ Radio (FS-i6S)                               External ELRS TX Module
 ### Navigating the Configurator (TBS-Agent Style):
 
 #### Step 1: Open the Configurator & Device Picker
-1. Long-press **`[OK]`** on the flight screen to open the Main Menu.
+1. Open the Settings Menu (tap center of flight screen or hold `OK` / `PA10`).
 2. Scroll to `9. Protocol Setup` and press **`[OK]`**.
 3. Highlight `[Configure Module]` and press **`[OK]`**.
 4. The radio broadcasts discovery pings (`0x28 Ping`) and opens the **`CRSF DEVICES`** selection screen:
@@ -116,34 +124,34 @@ Radio (FS-i6S)                               External ELRS TX Module
    | [OK] Select            [ESC] Back |
    +-----------------------------------+
    ```
-5. Use **`[UP]`** / **`[DOWN]`** to scroll through discovered devices. Up to **16 devices** can be discovered simultaneously across the CRSF bus (e.g. transmitter module, receivers, flight controller, VTX, ESCs, telemetry sensors, lighting controllers, or sound modules). When more than 4 devices are present, a right-edge vertical scrollbar is automatically displayed and the row selection highlight dynamically adapts so text and role tags never overlap the scrollbar track. Devices are discovered dynamically via 1 Hz broadcast pings; if a device disconnects or is powered off, it is automatically pruned after 3 seconds.
-6. Press **`[OK]`** to select that device and load its parameters immediately at full wire speed.
+5. Use **`[UP]`** / **`[DOWN]`** (or swipe gestures) to scroll through discovered devices. Up to **16 devices** can be discovered simultaneously across the CRSF bus (`[TX]`, `[RX]`, `[FC]`, `[VTX]`, `[WIFI]`, `[ESC1..4]`, `[OSD]`, `[GIMB]`, `[BLU]`). Devices that disconnect are automatically pruned after 3 seconds.
+6. Press **`[OK]`** to select that device and load its root parameters immediately at full wire speed via Parameter 0 selective child discovery.
 
 #### Step 2: Hierarchical Folder Navigation
-- Parameters are grouped logically in folders per the module's firmware (e.g. `VTX Admin >`, `Wi-Fi Options >`).
+- Parameters are grouped logically in folders per the module's firmware (e.g. `VTX Admin >`, `Wi-Fi Connectivity >`).
 - Folders display with a trailing chevron indicator (`>`).
-- Press **`[OK]`** on a folder to drill down into its sub-parameters. The header updates to show the active folder name.
-- When navigating deeply nested subfolders (up to 6 levels), the full folder stack preserves each folder's display name. Pressing **`[ESC]`** ascends back to the parent folder and restores the parent's actual title in the header (never generic `"Folder"`).
+- Press **`[OK]`** on a folder to drill down into its sub-parameters.
+- When navigating deeply nested subfolders (up to 6 levels), the full folder stack (`FolderStackItem`) preserves each parent folder's display name. Pressing **`[ESC]`** ascends back to the parent folder and restores the parent's actual title in the header.
 - Press **`[ESC]`** at the root parameter level to return to the **`CRSF DEVICES`** picker to switch devices.
 
 #### Step 3: In-Place Modal Parameter Editing (Select & Integer)
-- **Selection Parameters** (e.g., `Packet Rate`, `Power`):
+- **Selection Parameters** (e.g., `Packet Rate`, `TX Power`, `Switch Mode`):
   - Highlight the setting and press **`[OK]`** (footer displays `[OK] Edit`).
   - The field enters **Edit Mode**, displayed with selection brackets: `< 250Hz >`.
   - Press **`[UP]`** or **`[DOWN]`** to preview and cycle through options locally on screen without emitting premature serial commands.
-  - Press **`[OK]`** to commit your choice: the radio transmits the `0x2D Param Write` frame over USART2 to the module and exits Edit Mode.
+  - Press **`[OK]`** to commit your choice: the radio transmits the `0x2D Param Write` frame over `USART1` to the module and exits Edit Mode.
   - Press **`[ESC]`** to cancel editing without saving.
-- **Integer Parameters** (e.g., receiver PWM channel output mapping `Output 1`, `Output 2`, offsets, trims):
+- **Integer Parameters** (`UINT8`, `INT8`, `UINT16`, `INT16`, e.g., receiver PWM channel output mapping `Output 1`, offsets):
   - Values and their unit strings (e.g., `4 ch`, `100 %`, `250 mW`, `0 us`) are rendered clearly on the right.
   - Press **`[OK]`** to enter modal editing: displays `< 4 ch >`.
   - Press **`[UP]`** / **`[DOWN]`** to increment or decrement the numeric value, automatically clamped within the device's allowable `[min, max]` limits.
-  - Press **`[OK]`** to transmit the write frame (1-byte for `UINT8`/`INT8`, 2-byte big-endian for `UINT16`/`INT16`) to the receiver or transmitter module.
+  - Press **`[OK]`** to transmit the write frame (1-byte for `UINT8`/`INT8`, 2-byte big-endian for `UINT16`/`INT16`).
   - Press **`[ESC]`** to cancel without altering the setting.
 
 #### Step 4: Triggering Command Actions
 - Highlight an action command (such as `[Bind]` or `[Wi-Fi Mode]`) and press **`[OK]`**.
-- If confirmation is required, an overlay prompt appears (`Run: [Bind]? [OK] Yes [ESC] No`).
-- Press **`[OK]`** to execute or **`[ESC]`** to cancel. The status updates in real-time (`[Executing...]` -> `[Cmd]`).
+- If confirmation is required, an overlay prompt appears with the module's prompt text (e.g., `Run: [Bind]? [OK] Yes [ESC] No`).
+- Live status strings from the device (`[Binding]`, `[Erasing]`, `[OK]`) are rendered dynamically while polling at the device-specified timeout interval.
 
 > [!TIP]
 > For the complete byte-level framing breakdown, wire timing diagrams, CRC-8 formulas, and state machine transitions, refer to the [CRSF Protocol Specification & Verification Guide](CRSF_PROTOCOL_SPEC.md).
@@ -173,14 +181,14 @@ In `Serial` or `Composite` USB mode, the transmitter streams JSON telemetry over
     "rx_vbat_mv": 16400,
     "rx_cap_mah": 450
   },
-  "ch": [1500, 1500, 1000, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]
+  "ch": [1500, 1500, 1000, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]
 }
 ```
 
 The CLI `status` command reports the active protocol:
 ```text
 i6s> status
-FlySky FS-i6S Rust Firmware v0.1.0
-Protocol: CRSF / ExpressLRS (PD5 UART active)
+FlySky FS-i6S Rust Firmware v0.2.0 (<git_hash>)
+Protocol: CRSF / ExpressLRS (USART1 PB6/PB7 active)
 {"vbat":5.18,...}
 ```

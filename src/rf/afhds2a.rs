@@ -98,6 +98,7 @@ pub struct Afhds2a {
     pub servo_rate_hz: u16,
     pub rx_out_mode: u8,
     pub rx_serial_proto: u8,
+    pub rf_power_idx: u8,
 }
 
 impl Afhds2a {
@@ -123,6 +124,17 @@ impl Afhds2a {
             servo_rate_hz: 50,
             rx_out_mode: 0,
             rx_serial_proto: 0,
+            rf_power_idx: 0,
+        }
+    }
+
+    /// Set RF output power level (0: HIGH [100mW], 1: MID [10mW], 2: LOW [1mW], 3: TEST [100uW]).
+    pub fn set_rf_power(&mut self, power_idx: u8) {
+        let valid_idx = if power_idx <= 3 { power_idx } else { 0 };
+        self.rf_power_idx = valid_idx;
+        #[cfg(not(test))]
+        if self.mode != RadioMode::Binding {
+            a7105::set_power(a7105::power_from_index(valid_idx));
         }
     }
 
@@ -145,7 +157,7 @@ impl Afhds2a {
             self.bind_confirm_count = 0;
             self.bind_done = true;
             self.next_packet_type = PacketType::Sticks;
-            a7105::set_power(a7105::HIGH_POWER);
+            a7105::set_power(a7105::power_from_index(self.rf_power_idx));
 
             // If an RX ID was not captured (one-way receiver like FS-A8S, Fli14, etc.),
             // assign a deterministic non-zero ID derived from TX ID and mark for save!
@@ -213,7 +225,7 @@ impl Afhds2a {
                         self.rx_id_needs_save = true;
                         self.hopping_idx = 1;
                         self.next_packet_type = PacketType::Sticks;
-                        a7105::set_power(a7105::HIGH_POWER);
+                        a7105::set_power(a7105::power_from_index(self.rf_power_idx));
                     }
                 }
             }
@@ -594,9 +606,9 @@ mod tests {
         let mut decoded = [0u16; 18];
 
         // 1. Standard channels 0..13 (slots 0..13)
-        for i in 0..14 {
+        for (i, ch_val) in decoded[..14].iter_mut().enumerate() {
             let offset = i * 2;
-            decoded[i] =
+            *ch_val =
                 (slot_bytes[offset] as u16) | (((slot_bytes[offset + 1] & 0x0F) as u16) << 8);
         }
 
@@ -637,13 +649,13 @@ mod tests {
 
         // A legacy 14-channel decoder reads 16-bit little-endian and masks 12 bits (& 0x0FFF)
         let slot_bytes = &packet[9..37];
-        for ch in 0..14 {
+        for (ch, &expected) in test_channels[..14].iter().enumerate() {
             let offset = ch * 2;
             let raw_16 = (slot_bytes[offset] as u16) | ((slot_bytes[offset + 1] as u16) << 8);
             let legacy_12 = raw_16 & 0x0FFF;
             assert_eq!(
                 legacy_12,
-                test_channels[ch],
+                expected,
                 "Legacy 14-ch decoder on CH{} failed: got {}, expected {}",
                 ch + 1,
                 legacy_12,
@@ -728,5 +740,32 @@ mod tests {
         assert_eq!(radio.servo_rate_hz, 400);
         radio.build_settings_packet(&mut packet);
         assert_eq!(&packet[11..13], &[0x90, 0x01]);
+    }
+
+    #[test]
+    fn test_afhds2a_rf_power_levels() {
+        use crate::rf::a7105;
+
+        let mut radio = Afhds2a::new(0x1234_5678);
+        assert_eq!(radio.rf_power_idx, 0);
+
+        radio.set_rf_power(1);
+        assert_eq!(radio.rf_power_idx, 1);
+
+        radio.set_rf_power(2);
+        assert_eq!(radio.rf_power_idx, 2);
+
+        radio.set_rf_power(3);
+        assert_eq!(radio.rf_power_idx, 3);
+
+        radio.set_rf_power(4); // Clamp to 0
+        assert_eq!(radio.rf_power_idx, 0);
+
+        // Verify hardware register mappings
+        assert_eq!(a7105::power_from_index(0), a7105::HIGH_POWER);
+        assert_eq!(a7105::power_from_index(1), a7105::POWER_10MW);
+        assert_eq!(a7105::power_from_index(2), a7105::POWER_1MW);
+        assert_eq!(a7105::power_from_index(3), a7105::POWER_100UW);
+        assert_eq!(a7105::power_from_index(4), a7105::HIGH_POWER);
     }
 }

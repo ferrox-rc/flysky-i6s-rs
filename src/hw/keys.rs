@@ -26,6 +26,12 @@ static TEST_SRAM_FLAG: AtomicU32 = AtomicU32::new(0);
 static TEST_FRONT_LEFT: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static TEST_FRONT_RIGHT: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static TEST_EXT_SWI: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static TEST_EXT_SWJ: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static TEST_EXT_SWK: AtomicBool = AtomicBool::new(false);
 
 /// Atomic holder for touch-injected navigation & virtual trim keys.
 static TOUCH_NAV_KEYS: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0);
@@ -165,6 +171,98 @@ pub fn set_test_j4_buttons(sg: bool, sh: bool) {
     TEST_J4_SH.store(sh, core::sync::atomic::Ordering::SeqCst);
 }
 
+/// Initialize extended GPIO switches:
+/// - PB6 (SWI): J15 expansion pin (active when CRSF is not active)
+/// - PB7 (SWJ): J15 expansion pin (active when CRSF is not active, or in CRSF half-duplex mode)
+/// - PF10 (SWK): J15 expansion pin (active when PPM-out is disabled)
+pub fn init_ext_switches(pb6_en: bool, pb7_en: bool, pf10_en: bool) {
+    #[cfg(not(test))]
+    unsafe {
+        let rcc = &*pac::RCC::ptr();
+        let gpiob = &*pac::GPIOB::ptr();
+        let gpiof = &*pac::GPIOF::ptr();
+
+        if pb6_en || pb7_en {
+            // Ensure GPIOB clock is enabled (bit 18)
+            rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 18)));
+            if pb6_en {
+                // PB6: Input (MODER bits 13:12 = 00), Pull-up (PUPDR bits 13:12 = 01)
+                gpiob.moder.modify(|r, w| w.bits(r.bits() & !(3 << 12)));
+                gpiob.pupdr.modify(|r, w| w.bits((r.bits() & !(3 << 12)) | (1 << 12)));
+            }
+            if pb7_en {
+                // PB7: Input (MODER bits 15:14 = 00), Pull-up (PUPDR bits 15:14 = 01)
+                gpiob.moder.modify(|r, w| w.bits(r.bits() & !(3 << 14)));
+                gpiob.pupdr.modify(|r, w| w.bits((r.bits() & !(3 << 14)) | (1 << 14)));
+            }
+        }
+
+        if pf10_en {
+            // Ensure GPIOF clock is enabled (bit 22)
+            rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 22)));
+            // PF10: Input (MODER bits 21:20 = 00), Pull-up (PUPDR bits 21:20 = 01)
+            gpiof.moder.modify(|r, w| w.bits(r.bits() & !(3 << 20)));
+            gpiof.pupdr.modify(|r, w| w.bits((r.bits() & !(3 << 20)) | (1 << 20)));
+        }
+    }
+    #[cfg(test)]
+    let _ = (pb6_en, pb7_en, pf10_en);
+}
+
+/// Read extended GPIO switches (SWI on PB6, SWJ on PB7, SWK on PF10).
+/// Returns `(swi_pressed, swj_pressed, swk_pressed)`.
+/// Active LOW: grounded = pressed (Down).
+pub fn read_ext_switches(pb6_en: bool, pb7_en: bool, pf10_en: bool) -> (bool, bool, bool) {
+    #[cfg(not(test))]
+    unsafe {
+        let swi = if pb6_en {
+            let gpiob = &*pac::GPIOB::ptr();
+            (gpiob.idr.read().bits() & (1 << 6)) == 0
+        } else {
+            false
+        };
+        let swj = if pb7_en {
+            let gpiob = &*pac::GPIOB::ptr();
+            (gpiob.idr.read().bits() & (1 << 7)) == 0
+        } else {
+            false
+        };
+        let swk = if pf10_en {
+            let gpiof = &*pac::GPIOF::ptr();
+            (gpiof.idr.read().bits() & (1 << 10)) == 0
+        } else {
+            false
+        };
+        (swi, swj, swk)
+    }
+    #[cfg(test)]
+    {
+        let swi = if pb6_en {
+            TEST_EXT_SWI.load(core::sync::atomic::Ordering::SeqCst)
+        } else {
+            false
+        };
+        let swj = if pb7_en {
+            TEST_EXT_SWJ.load(core::sync::atomic::Ordering::SeqCst)
+        } else {
+            false
+        };
+        let swk = if pf10_en {
+            TEST_EXT_SWK.load(core::sync::atomic::Ordering::SeqCst)
+        } else {
+            false
+        };
+        (swi, swj, swk)
+    }
+}
+
+#[cfg(test)]
+pub fn set_test_ext_switches(swi: bool, swj: bool, swk: bool) {
+    TEST_EXT_SWI.store(swi, core::sync::atomic::Ordering::SeqCst);
+    TEST_EXT_SWJ.store(swj, core::sync::atomic::Ordering::SeqCst);
+    TEST_EXT_SWK.store(swk, core::sync::atomic::Ordering::SeqCst);
+}
+
 /// Backward-compatible alias for `read_front_buttons()`.
 #[inline(always)]
 pub fn read_rear_buttons() -> (bool, bool) {
@@ -219,7 +317,7 @@ pub fn is_dfu_requested(keys: u16) -> bool {
 /// Sets `0xDEADBEEF` at SRAM `0x2000_3FF0`, keeps `PB15` power latch HIGH,
 /// and triggers an immediate software reset.
 pub fn reboot_to_dfu() -> ! {
-    crate::power::latch_on();
+    crate::hw::power::latch_on();
 
     #[cfg(not(test))]
     unsafe {
@@ -247,7 +345,7 @@ pub fn check_dfu_entry(profile: &McuProfile) {
     unsafe {
         if core::ptr::read_volatile(DFU_FLAG_ADDR) == DFU_MAGIC_FLAG {
             core::ptr::write_volatile(DFU_FLAG_ADDR, 0); // clear flag
-            crate::power::latch_on();
+            crate::hw::power::latch_on();
             chip::enter_dfu_bootloader(profile);
         }
     }
@@ -276,7 +374,7 @@ pub fn check_dfu_entry(profile: &McuProfile) {
     }
 
     if match_count >= 3 {
-        crate::power::latch_on();
+        crate::hw::power::latch_on();
         #[cfg(not(test))]
         chip::enter_dfu_bootloader(profile);
     }
@@ -356,5 +454,28 @@ mod tests {
         assert_eq!(test_get_sram_dfu_flag(), DFU_MAGIC_FLAG);
         check_dfu_entry(&profile);
         assert_eq!(test_get_sram_dfu_flag(), 0); // Cleared after detection
+    }
+
+    #[test]
+    fn test_ext_switches_reading() {
+        set_test_ext_switches(true, false, true);
+
+        // When all pins enabled
+        let (swi, swj, swk) = read_ext_switches(true, true, true);
+        assert!(swi);
+        assert!(!swj);
+        assert!(swk);
+
+        // When PB6 is disabled (e.g. CRSF full duplex using PB6)
+        let (swi, swj, swk) = read_ext_switches(false, true, true);
+        assert!(!swi);
+        assert!(!swj);
+        assert!(swk);
+
+        // When PF10 is disabled (PPM-out active)
+        let (swi, swj, swk) = read_ext_switches(true, true, false);
+        assert!(swi);
+        assert!(!swj);
+        assert!(!swk);
     }
 }

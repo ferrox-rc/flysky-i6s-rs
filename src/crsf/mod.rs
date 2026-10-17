@@ -1,44 +1,44 @@
-//! CRSF / ExpressLRS protocol subsystem for FlySky FS-i6S.
+//! CRSF / ExpressLRS protocol subsystem for FlySky FS-i6X.
 //!
-//! Handles USART1 hardware setup on PB6/PB7 (J15 header), PF6 module power management (H1),
+//! Handles USART2 hardware setup on PD5/PA15, PC13 module power management,
 //! periodic channel packet framing, and incoming telemetry processing.
 
 #![allow(dead_code)]
 #![allow(static_mut_refs)]
 
 pub mod protocol;
-pub mod uart;
+pub use crate::hw::uart;
 
 use protocol::{build_channels_frame, parse_telemetry_frame, CrsfTelemetry, CRSF_RC_FRAME_SIZE};
 
 static mut TELEMETRY: CrsfTelemetry = CrsfTelemetry::new();
 static mut CRSF_ENABLED: bool = false;
 static mut CURRENT_BAUD: u8 = 0xFF;
+static mut CURRENT_HALF_DUPLEX: bool = false;
 static mut LAST_TX_MS: u32 = 0;
 static mut RX_BUF: [u8; 64] = [0; 64];
 static mut RX_LEN: usize = 0;
 static mut LAST_RX_BYTE_MS: u32 = 0;
 
-/// Initialize CRSF subsystem hardware pins with configured PF6 power switch polarity.
+/// Initialize CRSF subsystem hardware pins with configured PC13 power switch polarity.
 pub fn init(active_high: bool) {
     uart::init(active_high);
 }
 
-/// Set external module power switch polarity (H1 PF6).
+/// Set external module power switch polarity (PC13).
 pub fn set_power_polarity(active_high: bool) {
     uart::set_power_polarity(active_high);
 }
 
-static mut CURRENT_DUPLEX: u8 = 0xFF;
-
 /// Enable or disable CRSF protocol, power external module, and configure baud rate and duplex mode.
 pub fn set_enabled(enabled: bool, baud_idx: u8, half_duplex: bool) {
-    let duplex_val = if half_duplex { 1 } else { 0 };
     unsafe {
-        if enabled != CRSF_ENABLED || (enabled && (baud_idx != CURRENT_BAUD || duplex_val != CURRENT_DUPLEX)) {
+        if enabled != CRSF_ENABLED
+            || (enabled && (baud_idx != CURRENT_BAUD || half_duplex != CURRENT_HALF_DUPLEX))
+        {
             CRSF_ENABLED = enabled;
             CURRENT_BAUD = baud_idx;
-            CURRENT_DUPLEX = duplex_val;
+            CURRENT_HALF_DUPLEX = half_duplex;
 
             uart::set_uart_enabled(enabled, baud_idx, half_duplex);
             uart::set_module_power(enabled);
@@ -334,7 +334,7 @@ impl DiscoveredDevice {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ElrsConfigState {
+pub enum CrsfConfigState {
     Idle,
     Discovering,      // Sending broadcast ping 0x28, collecting devices
     Connected,        // Received device info 0x29
@@ -342,8 +342,8 @@ pub enum ElrsConfigState {
     Ready,            // All parameters cached and interactive
 }
 
-pub struct ElrsConfigEngine {
-    pub state: ElrsConfigState,
+pub struct CrsfConfigEngine {
+    pub state: CrsfConfigState,
     pub active_cmd: ActiveCommandState,
     pub device_id: u8,
     pub device_name: [u8; 20],
@@ -377,16 +377,16 @@ pub struct ElrsConfigEngine {
     pub cmd_info_len: u8,
 }
 
-impl Default for ElrsConfigEngine {
+impl Default for CrsfConfigEngine {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ElrsConfigEngine {
+impl CrsfConfigEngine {
     pub const fn new() -> Self {
         Self {
-            state: ElrsConfigState::Idle,
+            state: CrsfConfigState::Idle,
             active_cmd: ActiveCommandState::Idle,
             device_id: 0, // Zeroed by default to sit in .bss
             device_name: [0; 20],
@@ -453,7 +453,7 @@ pub fn next_param_for_folder(
     None
 }
 
-static mut CONFIG_ENGINE: ElrsConfigEngine = ElrsConfigEngine::new();
+static mut CONFIG_ENGINE: CrsfConfigEngine = CrsfConfigEngine::new();
 
 /// Poll USART2 for incoming telemetry bytes from external module.
 pub fn poll_telemetry(now_ms: u32) {
@@ -544,7 +544,7 @@ pub fn poll_telemetry(now_ms: u32) {
         }
 
         // Service parameter configurator background retries
-        elrs_tick(now_ms);
+        crsf_tick(now_ms);
     }
 }
 
@@ -566,7 +566,7 @@ unsafe fn handle_device_info_frame(payload: &[u8], now_ms: u32) {
     };
 
     // If in Discovering state, collect responding devices into device list
-    if CONFIG_ENGINE.state == ElrsConfigState::Discovering {
+    if CONFIG_ENGINE.state == CrsfConfigState::Discovering {
         let mut found = false;
         for d in &mut CONFIG_ENGINE.devices[..CONFIG_ENGINE.devices_len] {
             if d.address == orig {
@@ -888,7 +888,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     let chunk_slice = &payload[4..];
 
     // If we're loading parameters, verify this frame matches the parameter being loaded
-    if let ElrsConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
+    if let CrsfConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
         if param_id != loading_id {
             // Stale or unsolicited param frame while loading another param, discard
             return;
@@ -941,7 +941,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
     parse_and_store_parameter(chunk, param_id, now_ms);
 
     // Only advance loading sequence if engine was actively in initial loading phase
-    if let ElrsConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
+    if let CrsfConfigState::LoadingParam(loading_id) = CONFIG_ENGINE.state {
         if param_id == loading_id {
             if let Some(next_id) = next_param_for_folder(
                 param_id,
@@ -950,7 +950,7 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                 &CONFIG_ENGINE.parent_map,
                 CONFIG_ENGINE.has_root_folder,
             ) {
-                CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
+                CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(next_id);
                 CONFIG_ENGINE.current_chunk = 0;
                 CONFIG_ENGINE.expect_chunks_remain = 0;
                 CONFIG_ENGINE.retry_count = 0;
@@ -966,16 +966,16 @@ unsafe fn handle_param_entry_frame(payload: &[u8], now_ms: u32) {
                 CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
                 send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
             } else {
-                CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                CONFIG_ENGINE.state = CrsfConfigState::Ready;
                 CONFIG_ENGINE.folder_loading = false;
             }
         }
     }
 }
 
-unsafe fn elrs_tick(now_ms: u32) {
+unsafe fn crsf_tick(now_ms: u32) {
     match CONFIG_ENGINE.state {
-        ElrsConfigState::Discovering => {
+        CrsfConfigState::Discovering => {
             if now_ms.wrapping_sub(CONFIG_ENGINE.last_req_ms) >= 1000 {
                 CONFIG_ENGINE.last_req_ms = now_ms;
                 send_ping();
@@ -999,7 +999,7 @@ unsafe fn elrs_tick(now_ms: u32) {
                 }
             }
         }
-        ElrsConfigState::LoadingParam(id)
+        CrsfConfigState::LoadingParam(id)
             if now_ms.wrapping_sub(CONFIG_ENGINE.next_req_ms) < 0x8000_0000 =>
         {
             let timeout: u32 =
@@ -1028,12 +1028,12 @@ unsafe fn elrs_tick(now_ms: u32) {
                     // Fall back to legacy sequential discovery starting at param 1.
                     CONFIG_ENGINE.has_root_folder = false;
                     if CONFIG_ENGINE.param_count >= 1 {
-                        CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+                        CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(1);
                         CONFIG_ENGINE.last_req_ms = now_ms;
                         CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
                         send_param_read(CONFIG_ENGINE.device_id, 1, 0);
                     } else {
-                        CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                        CONFIG_ENGINE.state = CrsfConfigState::Ready;
                         CONFIG_ENGINE.folder_loading = false;
                     }
                 } else if let Some(next_id) = next_param_for_folder(
@@ -1043,12 +1043,12 @@ unsafe fn elrs_tick(now_ms: u32) {
                     &CONFIG_ENGINE.parent_map,
                     CONFIG_ENGINE.has_root_folder,
                 ) {
-                    CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(next_id);
+                    CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(next_id);
                     CONFIG_ENGINE.last_req_ms = now_ms;
                     CONFIG_ENGINE.next_req_ms = now_ms.wrapping_add(timeout);
                     send_param_read(CONFIG_ENGINE.device_id, next_id, 0);
                 } else {
-                    CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                    CONFIG_ENGINE.state = CrsfConfigState::Ready;
                     CONFIG_ENGINE.folder_loading = false;
                 }
             }
@@ -1100,7 +1100,7 @@ unsafe fn elrs_tick(now_ms: u32) {
 pub fn start_config() {
     unsafe {
         let now = crate::time::millis();
-        CONFIG_ENGINE.state = ElrsConfigState::Discovering;
+        CONFIG_ENGINE.state = CrsfConfigState::Discovering;
         CONFIG_ENGINE.device_id = 0;
         CONFIG_ENGINE.devices_len = 0;
         CONFIG_ENGINE.selected_device_idx = 0;
@@ -1161,7 +1161,7 @@ pub fn select_device(idx: usize) -> bool {
         CONFIG_ENGINE.last_req_ms = now;
 
         if dev.param_count > 0 {
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(0);
+            CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(0);
             let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
                 1000
             } else {
@@ -1171,7 +1171,7 @@ pub fn select_device(idx: usize) -> bool {
             CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
             send_param_read(CONFIG_ENGINE.device_id, 0, 0);
         } else {
-            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            CONFIG_ENGINE.state = CrsfConfigState::Ready;
         }
         true
     }
@@ -1193,7 +1193,7 @@ pub fn select_device_by_addr(addr: u8) -> bool {
 pub fn return_to_device_list() {
     unsafe {
         let now = crate::time::millis();
-        CONFIG_ENGINE.state = ElrsConfigState::Discovering;
+        CONFIG_ENGINE.state = CrsfConfigState::Discovering;
         CONFIG_ENGINE.params_len = 0;
         CONFIG_ENGINE.string_pool_len = 0;
         CONFIG_ENGINE.current_chunk = 0;
@@ -1247,7 +1247,7 @@ pub fn enter_folder(folder_id: u8, name: &str) {
             &CONFIG_ENGINE.parent_map,
             CONFIG_ENGINE.has_root_folder,
         ) {
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(first_id);
+            CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(first_id);
             CONFIG_ENGINE.folder_loading = true;
             let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
                 1000
@@ -1259,7 +1259,7 @@ pub fn enter_folder(folder_id: u8, name: &str) {
             CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
             send_param_read(CONFIG_ENGINE.device_id, first_id, 0);
         } else {
-            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            CONFIG_ENGINE.state = CrsfConfigState::Ready;
             CONFIG_ENGINE.folder_loading = false;
         }
     }
@@ -1291,7 +1291,7 @@ pub fn exit_current_folder() -> bool {
                 &CONFIG_ENGINE.parent_map,
                 CONFIG_ENGINE.has_root_folder,
             ) {
-                CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(first_id);
+                CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(first_id);
                 CONFIG_ENGINE.folder_loading = true;
                 let timeout: u32 =
                     if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
@@ -1304,7 +1304,7 @@ pub fn exit_current_folder() -> bool {
                 CONFIG_ENGINE.next_req_ms = now.wrapping_add(timeout);
                 send_param_read(CONFIG_ENGINE.device_id, first_id, 0);
             } else {
-                CONFIG_ENGINE.state = ElrsConfigState::Ready;
+                CONFIG_ENGINE.state = CrsfConfigState::Ready;
                 CONFIG_ENGINE.folder_loading = false;
             }
             true
@@ -1471,7 +1471,7 @@ pub fn dismiss_command() {
 }
 
 /// Get current configurator engine state and cached parameters.
-pub fn get_config_engine() -> &'static ElrsConfigEngine {
+pub fn get_config_engine() -> &'static CrsfConfigEngine {
     unsafe { &CONFIG_ENGINE }
 }
 
@@ -1502,7 +1502,7 @@ mod tests {
             CHUNK_BUF = [0; CHUNK_BUF_SIZE];
             CHUNK_LEN = 0;
             CHUNK_PARAM_ID = 0;
-            CONFIG_ENGINE = ElrsConfigEngine::new();
+            CONFIG_ENGINE = CrsfConfigEngine::new();
             TELEMETRY = CrsfTelemetry::new();
             uart::mock::clear();
         }
@@ -1630,7 +1630,7 @@ mod tests {
         // 1. Start config handshake
         start_config();
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.state, CrsfConfigState::Discovering);
 
         // Verify Ping packet transmitted
         let tx = uart::mock::take_tx();
@@ -1675,7 +1675,7 @@ mod tests {
         assert_eq!(engine.device_id, CRSF_ADDRESS_CRSF_TRANSMITTER);
         assert_eq!(&engine.device_name[..9], b"ELRS 2.4G");
         assert_eq!(engine.param_count, 3);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+        assert_eq!(engine.state, CrsfConfigState::LoadingParam(0));
 
         // Immediate query dispatch: Parameter Read for Param 0 (Root Folder), Chunk 0 is sent immediately
         let tx = uart::mock::take_tx();
@@ -1717,7 +1717,7 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(
             engine.state,
-            ElrsConfigState::Ready,
+            CrsfConfigState::Ready,
             "0 parameters must transition directly to Ready"
         );
     }
@@ -1729,7 +1729,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
             CONFIG_ENGINE.param_count = 2;
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(1);
         }
 
         // Construct Param 1 Entry: SELECT type, Name="Pkt Rate\0", Options="50Hz;150Hz;250Hz;500Hz\0", Value=2
@@ -1775,7 +1775,7 @@ mod tests {
         assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "250Hz");
 
         // Advanced to loading Param 2
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(2));
+        assert_eq!(engine.state, CrsfConfigState::LoadingParam(2));
 
         // Immediate query dispatch: request for Param 2 Chunk 0 sent immediately
         let tx = uart::mock::take_tx();
@@ -1789,7 +1789,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
             CONFIG_ENGINE.param_count = 1;
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(1);
         }
 
         // Chunk 0: chunks_remain = 1
@@ -1851,7 +1851,7 @@ mod tests {
         assert_eq!(p.current_option_str(&engine.string_pool, &mut buf), "250mW");
 
         // Since param_count was 1, state must transition to Ready
-        assert_eq!(engine.state, ElrsConfigState::Ready);
+        assert_eq!(engine.state, CrsfConfigState::Ready);
     }
 
     #[test]
@@ -1862,7 +1862,7 @@ mod tests {
         // Setup ready engine with 1 command param
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
-            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            CONFIG_ENGINE.state = CrsfConfigState::Ready;
             add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY as i32, 0, "");
         }
 
@@ -1959,7 +1959,7 @@ mod tests {
 
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
-            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            CONFIG_ENGINE.state = CrsfConfigState::Ready;
             add_test_param(1, 0, CRSF_TYPE_COMMAND, "Bind", STATUS_READY as i32, 0, "");
         }
 
@@ -2055,7 +2055,7 @@ mod tests {
 
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
-            CONFIG_ENGINE.state = ElrsConfigState::Ready;
+            CONFIG_ENGINE.state = CrsfConfigState::Ready;
         }
 
         // 1. INFO parameter: parent(0), type(CRSF_TYPE_INFO = 12), Name="Regulatory\0", Info="ISM_2400\0"
@@ -2255,7 +2255,7 @@ mod tests {
         assert_eq!(engine.device_id, 0xEE);
         assert_eq!(&engine.device_name[..6], b"RM RP2");
         assert_eq!(engine.param_count, 21);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+        assert_eq!(engine.state, CrsfConfigState::LoadingParam(0));
 
         // Immediate query dispatch: Parameter Read for Param 0 Chunk 0 is sent immediately upon selection
         let tx = uart::mock::take_tx();
@@ -2371,7 +2371,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
             CONFIG_ENGINE.param_count = 1;
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(1);
         }
 
         // Chunk 0: chunks_remain = 2
@@ -2418,7 +2418,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER; // 500ms timeout
             CONFIG_ENGINE.param_count = 2;
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(1);
             CONFIG_ENGINE.next_req_ms = 1000;
         }
 
@@ -2467,7 +2467,7 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(
             engine.state,
-            ElrsConfigState::LoadingParam(2),
+            CrsfConfigState::LoadingParam(2),
             "Advanced to Param 2"
         );
         assert_eq!(engine.retry_count, 0, "Retry count reset for next param");
@@ -2519,7 +2519,7 @@ mod tests {
         assert_eq!(engine.device_id, 0xEE);
         assert_eq!(&engine.device_name[..6], b"RM RP2");
         assert_eq!(engine.param_count, 21);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+        assert_eq!(engine.state, CrsfConfigState::LoadingParam(0));
 
         let tx0 = uart::mock::take_tx();
         assert_eq!(tx0.len(), 1);
@@ -2637,7 +2637,7 @@ mod tests {
         poll_telemetry(1030);
 
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.state, CrsfConfigState::Discovering);
         assert_eq!(
             engine.devices_len, 2,
             "Must deduplicate and register exactly 2 devices"
@@ -2658,7 +2658,7 @@ mod tests {
             "Device ID must switch to 0xEC for receiver"
         );
         assert_eq!(engine.param_count, 11);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+        assert_eq!(engine.state, CrsfConfigState::LoadingParam(0));
 
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
@@ -2673,7 +2673,7 @@ mod tests {
         // 5. Test return to device list
         return_to_device_list();
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.state, CrsfConfigState::Discovering);
         assert_eq!(
             engine.devices_len, 2,
             "Discovered devices must persist when returning to list"
@@ -2721,7 +2721,7 @@ mod tests {
         unsafe {
             CONFIG_ENGINE.device_id = CRSF_ADDRESS_CRSF_TRANSMITTER;
             CONFIG_ENGINE.param_count = 4;
-            CONFIG_ENGINE.state = ElrsConfigState::LoadingParam(1);
+            CONFIG_ENGINE.state = CrsfConfigState::LoadingParam(1);
         }
 
         // 1. Simulate feeding root parameters (current_folder == 0)
@@ -2937,7 +2937,7 @@ mod tests {
         unsafe {
             for i in 1..=MAX_PARAMS {
                 let id = i as u8;
-                let opt = if id % 2 == 0 { "Low;Med;High" } else { "" };
+                let opt = if id.is_multiple_of(2) { "Low;Med;High" } else { "" };
                 add_test_param(id, 0, protocol::CRSF_TYPE_SELECT, "Param", 1, 2, opt);
             }
         }
@@ -3220,7 +3220,7 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(
             engine.state,
-            ElrsConfigState::LoadingParam(3),
+            CrsfConfigState::LoadingParam(3),
             "Must directly request Param 3"
         );
         let tx = uart::mock::take_tx();
@@ -3277,7 +3277,7 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(
             engine.state,
-            ElrsConfigState::Ready,
+            CrsfConfigState::Ready,
             "Must finish and transition to Ready without querying 9 or 10"
         );
         assert_eq!(uart::mock::take_tx().len(), 0, "No extra packets sent");
@@ -3302,7 +3302,7 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(
             engine.state,
-            ElrsConfigState::Ready,
+            CrsfConfigState::Ready,
             "Empty subfolder immediately reaches Ready"
         );
         assert!(!engine.folder_loading);
@@ -3345,7 +3345,7 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(engine.device_id, 0xC0);
         assert_eq!(engine.param_count, 59);
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+        assert_eq!(engine.state, CrsfConfigState::LoadingParam(0));
         assert!(!engine.has_root_folder);
 
         // Initial request must be Param 0 (Root Folder probe)
@@ -3384,7 +3384,7 @@ mod tests {
         assert!(engine.has_root_folder, "has_root_folder must be true");
         assert_eq!(
             engine.state,
-            ElrsConfigState::LoadingParam(1),
+            CrsfConfigState::LoadingParam(1),
             "Must advance to first child (Param 1)"
         );
         // Param 0 ("ROOT") must NOT be added to params display array
@@ -3493,7 +3493,7 @@ mod tests {
 
         // Root scan complete -> reaches Ready state!
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::Ready);
+        assert_eq!(engine.state, CrsfConfigState::Ready);
         assert_eq!(
             engine.params_len, 5,
             "Only the 5 root parameters are loaded in memory"
@@ -3505,7 +3505,7 @@ mod tests {
         let engine = get_config_engine();
         assert_eq!(
             engine.state,
-            ElrsConfigState::LoadingParam(5),
+            CrsfConfigState::LoadingParam(5),
             "Entering folder 4 starts loading Param 5"
         );
         let tx = uart::mock::take_tx();
@@ -3542,7 +3542,7 @@ mod tests {
         // Select device: initial request is Param 0
         assert!(select_device(0));
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(0));
+        assert_eq!(engine.state, CrsfConfigState::LoadingParam(0));
         let tx = uart::mock::take_tx();
         assert_eq!(tx.len(), 1);
         assert_eq!(tx[0][5], 0, "Attempt 0: Param 0");
@@ -3566,7 +3566,7 @@ mod tests {
         set_millis(2500);
         poll_telemetry(2500);
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::LoadingParam(1));
+        assert_eq!(engine.state, CrsfConfigState::LoadingParam(1));
         assert!(
             !engine.has_root_folder,
             "has_root_folder must be false after Param 0 timeout"
@@ -3708,7 +3708,7 @@ mod tests {
         uart::mock::clear();
 
         let engine = get_config_engine();
-        assert_eq!(engine.state, ElrsConfigState::Discovering);
+        assert_eq!(engine.state, CrsfConfigState::Discovering);
         assert_eq!(engine.devices_len, 0);
 
         // Discovery responses for 16 diverse devices (TX, RX, FC, VTX, 4xESCs, PDB, OSD, SatRX, BT, GPS, Sound, Lights, Retracts)
@@ -3829,6 +3829,33 @@ mod tests {
 
         // Out-of-bounds selection index returns false
         assert!(!select_device(16));
+    }
+
+    #[test]
+    fn test_crsf_baud_and_half_duplex_configuration() {
+        // Test BRR calculation for 1.875M baud (index 4)
+        assert_eq!(uart::get_brr_for_baud(0), 417); // 115.2k
+        assert_eq!(uart::get_brr_for_baud(1), 115); // 416.6k
+        assert_eq!(uart::get_brr_for_baud(2), 114); // 420k
+        assert_eq!(uart::get_brr_for_baud(3), 52);  // 921.6k
+        assert_eq!(uart::get_brr_for_baud(4), 26);  // 1.875M
+
+        // Test enabling CRSF with half-duplex and 1.8M baud
+        set_enabled(true, 4, true);
+        assert!(is_enabled());
+        assert!(uart::is_half_duplex());
+
+        // Test disabling CRSF resets state
+        set_enabled(false, 2, false);
+        assert!(!is_enabled());
+        assert!(!uart::is_half_duplex());
+
+        // Test enabling CRSF with full-duplex standard baud
+        set_enabled(true, 2, false);
+        assert!(is_enabled());
+        assert!(!uart::is_half_duplex());
+
+        set_enabled(false, 2, false);
     }
 }
 

@@ -5,6 +5,47 @@ All notable changes to the `flysky-i6s-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-16
+
+### Added
+- **Unified `ferrox` Core Architecture & `src/hw/` HAL Isolation ([`src/lib.rs`](src/lib.rs), [`src/hw/mod.rs`](src/hw/mod.rs), [`src/hw/power.rs`](src/hw/power.rs), [`src/hw/touch.rs`](src/hw/touch.rs))**:
+  - Unified the core crate name (`ferrox`) and 100% of shared flight control, protocol, storage, mixer, UI, and USB modules across `flysky-i6s-rs` and `flysky-i6x-rs`.
+  - Isolated all board-specific constants, peripheral pin definitions, power latching (`src/hw/power.rs`), and FT6236 capacitive touch / nav driver (`src/hw/touch.rs`) inside `src/hw/`.
+- **Configurable 4-Tile Telemetry Dashboard (`CUSTOM TELEM`) ([`src/ui/dashboard/pages/telemetry.rs`](src/ui/dashboard/pages/telemetry.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Implemented high-visibility 2x2 quadrant telemetry dashboard on Flight Page 5/5 (`CUSTOM TELEM`) with centered vertical ($x=64$) and horizontal ($y=31$) divider lines.
+  - Added **`TELEM DASH SETUP`** configuration screen under `Radio Setup` (item 17) supporting 13 selectable telemetry sensors (`RX BAT`, `LQ/RSSI`, `TX BAT`, `CURRENT`, `CAP mAh`, `TX PWR`, `SNR`, `PKT RATE`, `ANTENNA`, `PKTS TX`, `PKTS RX`, `TIMER`, and `OFF`).
+- **Hardware `TIM15` Trainer Subsystem (CPPM Output & Student Input Capture) ([`src/trainer.rs`](src/trainer.rs), [`src/main.rs`](src/main.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Unified `TIM15` (1 MHz / 1 µs resolution) trainer driver supporting both 8-channel CPPM Output on `PF10` (`TIM15_CH2`, 22.5 ms frame, 300 µs sync pulse) and CPPM Student Input Capture on `PF9` (`TIM15_CH1`, `TIM15` IRQ 20).
+  - Implemented instructor handover switch: holding **`SD` Down (`SDv`)** when `Trainer In` is enabled and a valid student PPM stream is present (< 100 ms age) overrides primary flight axes (`CH1..CH4`).
+  - Enforced mutual exclusion between `PPM Out` (item 18) and `Trainer In` (item 19) in `Radio Setup`.
+- **Universal Configurable ADC Input Modes (`AdcInputMode`) ([`src/storage.rs`](src/storage.rs), [`src/input.rs`](src/input.rs), [`src/calib.rs`](src/calib.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Added universal decoding modes (`DEFAULT`, `2-POS`, `3-POS`, `6-POS`, `POT`, `POT-D`, `INST TRM`) across all 10 auxiliary analog channels (`SA`..`SD`, `VRA`..`VRB`, and `VRC`..`VRF` on `PC2`..`PC5`).
+  - Added dedicated **`INPUT MODES`** configuration screen under `Radio Setup` (item 15) and `Ext ADC (PC)` 15-channel DMA toggle (item 16).
+  - Dynamic adaptive calibration wizard and non-overlapping main flight dashboard switches/pots layout (`draw_pots`).
+- **AFHDS 2A Transmitter RF Power Configuration & A7105 Deep Sleep ([`src/rf/mod.rs`](src/rf/mod.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Added per-model configurable AFHDS 2A RF output power under `Protocol Setup`: `100mW (HI)`, `10mW (MID)`, `1mW (LOW)`, and `100uW (TST)` (range-test mode).
+  - Automatically commands internal A7105 transceiver into deep sleep (`0x0F`) when operating in CRSF mode.
+- **5 Ascending CRSF Baud Rates & Single-Wire Half-Duplex (`HDSEL`) ([`src/crsf/uart.rs`](src/crsf/uart.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Standardized 5 ascending CRSF baud rates (`0 = 115.2k`, `1 = 416.6k`, `2 = 420k`, `3 = 921.6k`, `4 = 1.875M`) and per-model `Duplex: Full (2W) / Half (1W)` selection in `Protocol Setup`.
+- **In-Tree Bare-Metal 1bpp Glyph Tables ([`src/display/fonts.rs`](src/display/fonts.rs), [`src/display/st7567.rs`](src/display/st7567.rs))**:
+  - Replaced `embedded-graphics` runtime font tables with pixel-exact in-tree 1bpp glyph lookup tables (`FONT_4X6_DATA` and `FONT_6X10_DATA`), saving ~8.6 KB of Flash memory.
+- **Expanded Host Test Suite**:
+  - Expanded `cargo test-host` suite to **140 unit tests** verifying core logic, storage serialization (140-byte `RadioConfig` / 128-byte `ModelConfig`), input modes, calibration, and UI layouts.
+
+## [0.1.2] - 2026-10-09
+
+### Added
+- **Stick Modes 1–4 & Decoupled Logical Controls ([`src/safety.rs`](src/safety.rs), [`src/input.rs`](src/input.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Decoupled physical gimbals (`rh`, `rv`, `lv`, `lh`) from model-type and control axis assumptions.
+  - Added full support for Stick Modes 1, 2, 3, and 4 in `RadioConfig`, selectable via the Radio Setup menu.
+  - Logical primary flight controls (`aileron`, `elevator`, `throttle`, `rudder`) dynamically map according to active stick mode.
+  - Preflight safety checks evaluate model-type requirements (Airplane, Heli, Multirotor, General) against physical throttle stick position across all 4 modes.
+- **Complete 3-Axis Instant Trim Support ([`src/main.rs`](src/main.rs))**:
+  - Added Yaw (Rudder) to Instant Trim evaluation alongside Roll (Aileron) and Pitch (Elevator) via Right Rear Button.
+  - Implemented symmetric nearest-step rounding (`((val ± 20) / 40)`) so stick deflections snap to their closest trim step.
+  - Activated dashboard trim status overlay (`trims.last_active`, `trims.active_timer_ms = 1500`) upon Instant Trim activation.
+  - Added neutral-stick reset capability: toggling Instant Trim with sticks at neutral center resets all primary flight trims to zero (`0, 0, 0`) with the center audio chime (`buzzer.trim_center()`).
+
 ## [0.1.1] - 2026-10-03
 
 ### Fixed

@@ -4,7 +4,7 @@
 //! hierarchical folder drill-down and back navigation, and in-place modal option editing.
 
 use crate::buzzer::Buzzer;
-use crate::crsf::{self, ElrsConfigState};
+use crate::crsf::{self, CrsfConfigState};
 use crate::display::St7567;
 use crate::menu::widgets;
 use crate::menu::{MenuController, MenuState, NavKeys};
@@ -52,7 +52,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
 
     match engine.state {
         // --- State: Idle / Device Discovery (TBS-Agent Device List) ---
-        ElrsConfigState::Idle | ElrsConfigState::Discovering => {
+        CrsfConfigState::Idle | CrsfConfigState::Discovering => {
             if engine.devices_len == 0 {
                 // No devices responded to discovery pings yet
                 if keys.ok {
@@ -162,7 +162,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
         }
 
         // --- State: Loading Parameters for Selected Device (Initial Connection) ---
-        ElrsConfigState::Connected | ElrsConfigState::LoadingParam(_) if !engine.folder_loading => {
+        CrsfConfigState::Connected | CrsfConfigState::LoadingParam(_) if !engine.folder_loading => {
             if keys.cancel {
                 // Abort loading and return to device list
                 crsf::return_to_device_list();
@@ -181,7 +181,7 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
         }
 
         // --- State: Ready / Interactive Parameter Navigation & On-Demand Folder Paging ---
-        ElrsConfigState::Ready | ElrsConfigState::LoadingParam(_) | ElrsConfigState::Connected => {
+        CrsfConfigState::Ready | CrsfConfigState::LoadingParam(_) | CrsfConfigState::Connected => {
             let current_folder = engine.current_folder;
             let mut folder_indices = [0u8; crsf::MAX_FOLDER_ITEMS];
             let count = crsf::get_folder_params(current_folder, &mut folder_indices);

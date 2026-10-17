@@ -126,21 +126,22 @@ CH6 (Right Aileron) = -Roll + (Flap / 2)
 
 ## 4. Auxiliary Channel Remapping (CH5..CH18)
 
-All 14 auxiliary channels (CH5 through CH18) can be independently assigned to any physical control on the radio from the `Aux Channels` menu:
+All 14 auxiliary channels (`CH5` through `CH18`) can be independently assigned to any physical control on the radio from the `Aux Channels` menu:
 
 | Source ID | Label | Description | Output Range |
 | :--- | :--- | :--- | :--- |
 | **0** | `None` | Neutral output (no input source) | 1500 µs |
-| **1** | `Roll` | Conditioned Aileron stick input | 1000..2000 µs |
-| **2** | `Pitch`| Conditioned Elevator stick input | 1000..2000 µs |
-| **3** | `Thr`  | Spline-curved Throttle stick input | 1000..2000 µs |
-| **4** | `Yaw`  | Conditioned Rudder stick input | 1000..2000 µs |
-| **5** | `VRA`  | Left rotary dial potentiometer | 1000..2000 µs |
-| **6** | `VRB`  | Right rotary dial potentiometer | 1000..2000 µs |
-| **7** | `SA`   | 2-position toggle switch | UP: 1000 µs / DN: 2000 µs |
-| **8** | `SB`   | 3-position toggle switch | UP: 1000 µs / MID: 1500 µs / DN: 2000 µs |
-| **9** | `SC`   | 3-position toggle switch | UP: 1000 µs / MID: 1500 µs / DN: 2000 µs |
-| **10**| `SD`   | 2-position toggle switch | UP: 1000 µs / DN: 2000 µs |
+| **1** | `Roll` | Conditioned Aileron stick input | 988..2012 µs |
+| **2** | `Pitch`| Conditioned Elevator stick input | 988..2012 µs |
+| **3** | `Thr`  | Spline-curved Throttle stick input | 988..2012 µs |
+| **4** | `Yaw`  | Conditioned Rudder stick input | 988..2012 µs |
+| **5** | `VRA`  | Left rotary dial / jog wheel | 988..2012 µs |
+| **6** | `VRB`  | Right rotary dial / jog wheel | 988..2012 µs |
+| **7..10** | `SA..SD` | Physical switches `SA`..`SD` (2-pos, 3-pos, 6-pos, or pot per `AdcInputMode`) | 988..2012 µs |
+| **31..32**| `SE..SF` | Rear tactile buttons `PA9`/`PA10` (when configured as `RC SW`) | UP: 988 µs / DN: 2012 µs |
+| **33..34**| `SG..SH` | Header `J4` tactile buttons `PA13`/`PA14` (when `J4 Mode` = `SG/SH BTN`) | UP: 988 µs / DN: 2012 µs |
+| **35..38**| `VRC..VRF`| Extended analog pots on `PC1..PC4` (when `Ext ADC (PC)` enabled) | 988..2012 µs |
+| **39..42**| `SWI..SWL`| Extended switches on `PC1..PC4` (2-pos or 3-pos via `AdcInputMode`) | 988 / 1500 / 2012 µs |
 
 ### Factory Default Auxiliary Mapping
 - `CH5`: **SA** (Arming switch / Flight mode)
@@ -148,7 +149,7 @@ All 14 auxiliary channels (CH5 through CH18) can be independently assigned to an
 - `CH7`: **VRA** (Gimbal tilt / Camber flap)
 - `CH8`: **VRB** (Payload release / Volume)
 - `CH9`: **SC** (3-position auxiliary: Beeper / OSD switch)
-- `CH10`: **SD** (Throttle cut / Rescue switch)
+- `CH10`: **SD** (Throttle cut / Trainer switch)
 - `CH11..CH18`: `None` (Centered 1500 µs)
 
 ---
@@ -163,10 +164,10 @@ Each mix line comprises a compact 6-byte struct stored in Flash memory:
 ```rust
 pub struct MixLine {
     pub target_ch: u8,   // 0: Disabled, 1..18: Target Channel (CH1..CH18)
-    pub source: u8,      // 0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: ThrUnipolar
+    pub source: u8,      // 0: None, 1..4: AETR, 5..6: VRA/VRB, 7..10: SA..SD, 11: MAX, 12..29: CH1..CH18, 30: Thr+, 31..42: SE..SWL
     pub weight: i8,      // -100% .. +100% (gain / authority)
     pub offset: i8,      // -100% .. +100% (center shift)
-    pub switch: u8,      // 0: Always ON, 1..10: Physical switch position condition
+    pub switch: u8,      // 0: Always ON, 1..26: Physical switch position condition (SA^..SWLv)
     pub mode: u8,        // 0: ADD (+), 1: MULTIPLY (*), 2: REPLACE (:=)
 }
 ```
@@ -187,12 +188,7 @@ When a mix line is active, it modifies the target channel based on its configure
    ```
 
 ### Switch Conditions
-A mix line can be gated by a hardware switch:
-- `ON`: Always active.
-- `SA^`, `SAv`: Active when switch `SA` is UP or DOWN.
-- `SB^`, `SB-`, `SBv`: Active when switch `SB` is UP, MID, or DOWN.
-- `SC^`, `SC-`, `SCv`: Active when switch `SC` is UP, MID, or DOWN.
-- `SD^`, `SDv`: Active when switch `SD` is UP or DOWN.
+A mix line can be gated by any hardware switch condition (`0` = `ON`, `1..10` = `SA^`..`SDv`, `11..14` = `SE^`..`SFv`, `15..18` = `SG^`..`SHv`, `19..26` = `SWI^`..`SWLv`). Flipping any physical switch while editing the `Switch:` field auto-detects and selects that switch condition immediately.
 
 ---
 
@@ -201,7 +197,7 @@ A mix line can be gated by a hardware switch:
 Here are proven mixer setups used by RC pilots:
 
 ### Recipe 1: Throttle Cut Safety Switch
-*Prevents accidental motor start by locking CH3 to minimum pulse (1000 µs) whenever switch `SD` is flipped DOWN:*
+*Prevents accidental motor start by locking CH3 to minimum pulse (988 µs) whenever switch `SD` is flipped DOWN:*
 - **Target**: `CH3`
 - **Source**: `MAX`
 - **Weight**: `-100%`
@@ -239,20 +235,19 @@ Here are proven mixer setups used by RC pilots:
 
 ## 7. Storage & Flash Memory Budget
 
-All Phase 10 flight mixer parameters are stored directly inside each 128-byte [`ModelConfig`](../src/storage.rs) structure in the append-only sequential storage log (Keys 1..20 across Flash Pages 60–63 at `0x0801_E000`):
+All flight mixer parameters are stored directly inside each 128-byte [`ModelConfig`](../src/storage.rs) structure in the append-only sequential storage log (Keys 1..20 across Flash Pages 60–63 at `0x0801_E000`):
 
 | Parameter | Type | Bytes | Offset in Model Profile |
 | :--- | :--- | :--- | :--- |
-| `dr_switch` | `u8` | 1 | Offset 22 |
-| `dr_high` | `[u8; 3]` | 3 | Offset 34..37 |
-| `dr_low` | `[u8; 3]` | 3 | Offset 37..40 |
-| `expo_high` | `[i8; 3]` | 3 | Offset 40..43 |
-| `expo_low` | `[i8; 3]` | 3 | Offset 43..46 |
-| `aux_channels` | `[u8; 10]` | 10 | Offset 52..62 |
-| `wing_tail_mix` | `u8` | 1 | Offset 62 |
-| `template_diff` | `i8` | 1 | Offset 63 |
-| `mixes` | `[MixLine; 8]` | 48 | Offset 64..112 |
-| `_reserved` | `[u8; 14]` | 14 | Offset 114..128 |
+| `channel_reverse` | `u32` | 4 | Offset 20..24 |
+| `dr_switch` | `u8` | 1 | Offset 24 |
+| `dr_high` | `[u8; 3]` | 3 | Offset 36..39 |
+| `dr_low` | `[u8; 3]` | 3 | Offset 39..42 |
+| `expo_high` | `[i8; 3]` | 3 | Offset 42..45 |
+| `expo_low` | `[i8; 3]` | 3 | Offset 45..48 |
+| `aux_channels` | `[u8; 14]` | 14 | Offset 54..68 |
+| `wing_tail_mix` | `u8` | 1 | Offset 68 |
+| `template_diff` | `i8` | 1 | Offset 69 |
+| `mixes` | `[MixLine; 8]` | 48 | Offset 70..118 |
 
-Total `ModelConfig` size: **exactly 128 bytes** (100% backward and forward compatible, 0 migration loss).
-Total firmware binary size: **52.9 KB** / 128 KB (~58% Flash headroom remaining).
+Total `ModelConfig` size: **exactly 128 bytes** (100% backward and forward compatible with v4-to-v5 sequential storage migration).

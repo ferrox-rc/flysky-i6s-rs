@@ -14,45 +14,8 @@
 
 #![allow(dead_code)]
 
-use core::ptr;
-
-// RCC registers
-const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
-const RCC_APB2ENR: *mut u32 = 0x4002_1018 as *mut u32;
-
-// GPIO registers
-const GPIOB_MODER: *mut u32 = 0x4800_0400 as *mut u32;
-const GPIOB_PUPDR: *mut u32 = 0x4800_040C as *mut u32;
-
-const GPIOE_MODER: *mut u32 = 0x4800_1000 as *mut u32;
-const GPIOE_OSPEEDR: *mut u32 = 0x4800_1008 as *mut u32;
-const GPIOE_BSRR: *mut u32 = 0x4800_1018 as *mut u32;
-const GPIOE_AFRH: *mut u32 = 0x4800_1024 as *mut u32;
-
-// SPI1 registers (Base: 0x4001_3000)
-const SPI1_CR1: *mut u32 = 0x4001_3000 as *mut u32;
-const SPI1_CR2: *mut u32 = 0x4001_3004 as *mut u32;
-const SPI1_SR: *mut u32 = 0x4001_3008 as *mut u32;
-const SPI1_DR: *mut u32 = 0x4001_300C as *mut u32;
-
-// SYSCFG & EXTI registers
-const SYSCFG_EXTICR1: *mut u32 = 0x4001_0008 as *mut u32;
-const EXTI_IMR: *mut u32 = 0x4001_0400 as *mut u32;
-const EXTI_FTSR: *mut u32 = 0x4001_040C as *mut u32;
-const EXTI_PR: *mut u32 = 0x4001_0414 as *mut u32;
-
-// TIM16 registers (Base: 0x4001_4400)
-const TIM16_CR1: *mut u32 = 0x4001_4400 as *mut u32;
-const TIM16_SMCR: *mut u32 = 0x4001_4408 as *mut u32;
-const TIM16_DIER: *mut u32 = 0x4001_440C as *mut u32;
-const TIM16_SR: *mut u32 = 0x4001_4410 as *mut u32;
-const TIM16_PSC: *mut u32 = 0x4001_4428 as *mut u32;
-const TIM16_ARR: *mut u32 = 0x4001_442C as *mut u32;
-
-// NVIC registers
-const NVIC_ISER: *mut u32 = 0xE000_E100 as *mut u32;
-const NVIC_IPR1: *mut u32 = 0xE000_E404 as *mut u32; // IRQ 4..7 (EXTI2_3 = IRQ 6)
-const NVIC_IPR5: *mut u32 = 0xE000_E414 as *mut u32; // IRQ 20..23 (TIM16 = IRQ 21)
+#[cfg(not(test))]
+use stm32f0xx_hal::pac;
 
 // RF Mode constants matching OpenI6X / A7105 hardware
 pub const RF_MODE_RX_EN: u8 = 0b0000_0001;
@@ -63,22 +26,28 @@ static mut ANTENNA_STATE: u8 = 0;
 
 /// Initialize SPI1, frontend control GPIOs, EXTI2 on PB2, and TIM16.
 pub fn init() {
+    #[cfg(not(test))]
     unsafe {
-        // 1. Enable peripheral clocks
-        // GPIOB (bit 18), GPIOE (bit 21)
-        let ahbenr = ptr::read_volatile(RCC_AHBENR);
-        ptr::write_volatile(RCC_AHBENR, ahbenr | (1 << 18) | (1 << 21));
+        let rcc = &*pac::RCC::ptr();
+        let gpiob = &*pac::GPIOB::ptr();
+        let gpioe = &*pac::GPIOE::ptr();
+        let syscfg = &*pac::SYSCFG::ptr();
+        let exti = &*pac::EXTI::ptr();
+        let spi1 = &*pac::SPI1::ptr();
 
-        // SYSCFG (bit 0), SPI1 (bit 12), TIM16 (bit 17)
-        let apb2enr = ptr::read_volatile(RCC_APB2ENR);
-        ptr::write_volatile(RCC_APB2ENR, apb2enr | (1 << 0) | (1 << 12) | (1 << 17));
+        // 1. Enable peripheral clocks
+        // GPIOB, GPIOE
+        rcc.ahbenr.modify(|_, w| w.iopben().set_bit().iopeen().set_bit());
+
+        // SYSCFG, SPI1, TIM16
+        rcc.apb2enr.modify(|_, w| w.syscfgen().set_bit().spi1en().set_bit().tim16en().set_bit());
 
         // 2. Configure GPIOE pins:
         // PE13 (SCK), PE14 (MISO), PE15 (MOSI) -> Alternate Function (0b10)
         // PE12 (CSN) -> Output (0b01)
         // PE8 (RX_EN), PE9 (TX_EN) -> Output (0b01)
         // PE10 (RF0), PE11 (RF1) -> Output (0b01)
-        let moder = ptr::read_volatile(GPIOE_MODER);
+        let moder = gpioe.moder.read().bits();
         let moder_cleared = moder & !(
             (0b11 << 16) | // PE8
             (0b11 << 18) | // PE9
@@ -97,74 +66,58 @@ pub fn init() {
             | (0b10 << 26)             // PE13 AF (SCK)
             | (0b10 << 28)             // PE14 AF (MISO)
             | (0b10 << 30);            // PE15 AF (MOSI)
-        ptr::write_volatile(GPIOE_MODER, moder_cleared | moder_set);
+        gpioe.moder.write(|w| w.bits(moder_cleared | moder_set));
 
         // High speed for SPI pins PE13, PE14, PE15
-        let ospeedr = ptr::read_volatile(GPIOE_OSPEEDR);
-        ptr::write_volatile(
-            GPIOE_OSPEEDR,
-            ospeedr | (0b11 << 26) | (0b11 << 28) | (0b11 << 30),
-        );
+        gpioe.ospeedr.modify(|r, w| w.bits(r.bits() | (0b11 << 26) | (0b11 << 28) | (0b11 << 30)));
 
         // Set AF1 (SPI1) for PE13, PE14, PE15 in AFRH
-        // PE13 -> AFRH bits [23:20], PE14 -> [27:24], PE15 -> [31:28]
-        let afrh = ptr::read_volatile(GPIOE_AFRH);
+        let afrh = gpioe.afrh.read().bits();
         let afrh_cleared = afrh & !(0x0FFF << 20);
         let afrh_set = (1 << 20) | (1 << 24) | (1 << 28); // AF1 on pins 13, 14, 15
-        ptr::write_volatile(GPIOE_AFRH, afrh_cleared | afrh_set);
+        gpioe.afrh.write(|w| w.bits(afrh_cleared | afrh_set));
 
         // CSN starts HIGH (idle, deselected)
-        ptr::write_volatile(GPIOE_BSRR, 1 << 12);
+        gpioe.bsrr.write(|w| w.bs12().set_bit());
 
         // Turn front-end OFF initially
         set_tx_rx_mode(RF_MODE_OFF);
 
         // Antenna 0 selected by default (RF0=1, RF1=0)
-        ptr::write_volatile(GPIOE_BSRR, (1 << 10) | (1 << (11 + 16)));
+        gpioe.bsrr.write(|w| w.bits((1 << 10) | (1 << (11 + 16))));
 
         // 3. Configure PB2 (GIO2 / WTR) as input with pull-up
-        let pb_moder = ptr::read_volatile(GPIOB_MODER);
-        ptr::write_volatile(GPIOB_MODER, pb_moder & !(0b11 << 4));
-        let pb_pupdr = ptr::read_volatile(GPIOB_PUPDR);
-        ptr::write_volatile(GPIOB_PUPDR, (pb_pupdr & !(0b11 << 4)) | (0b01 << 4));
+        gpiob.moder.modify(|r, w| w.bits(r.bits() & !(0b11 << 4)));
+        gpiob.pupdr.modify(|r, w| w.bits((r.bits() & !(0b11 << 4)) | (0b01 << 4)));
 
-        // Route EXTI2 to PB2 in SYSCFG_EXTICR1 (bits [11:8] = 0b0001 for Port B)
-        let exticr = ptr::read_volatile(SYSCFG_EXTICR1);
-        ptr::write_volatile(SYSCFG_EXTICR1, (exticr & !(0x0F << 8)) | (0x01 << 8));
+        // Route EXTI2 to PB2 in SYSCFG_EXTICR1
+        syscfg.exticr1.modify(|r, w| w.bits((r.bits() & !(0x0F << 8)) | (0x01 << 8)));
 
         // Falling edge trigger for EXTI2
-        let ftsr = ptr::read_volatile(EXTI_FTSR);
-        ptr::write_volatile(EXTI_FTSR, ftsr | (1 << 2));
+        exti.ftsr.modify(|_, w| w.tr2().set_bit());
 
         // Clear any pending EXTI2 flag
-        ptr::write_volatile(EXTI_PR, 1 << 2);
+        exti.pr.write(|w| w.bits(1 << 2));
 
         // 4. Configure SPI1:
         // Disable first
-        ptr::write_volatile(SPI1_CR1, 0);
+        spi1.cr1.write(|w| w.bits(0));
 
-        // CR1:
-        // MSTR = 1 (bit 2)
-        // BR_1 = 1 (bit 4) -> fPCLK / 8 (1 MHz at 8 MHz, matching OpenI6X SPI_CR1_BR_1)
-        // SSI = 1 (bit 8), SSM = 1 (bit 9) -> Software NSS management
-        // Mode 0: CPOL = 0 (bit 1), CPHA = 0 (bit 0)
         let cr1 = (1 << 2) | (1 << 4) | (1 << 8) | (1 << 9);
-        ptr::write_volatile(SPI1_CR1, cr1);
+        spi1.cr1.write(|w| w.bits(cr1));
 
-        // CR2:
-        // DS = 0b0111 (bits 11:8) -> 8-bit data size
-        // FRXTH = 1 (bit 12) -> FIFO reception threshold 1/4 (8-bit)
+        // CR2: DS = 0b0111 (8-bit data), FRXTH = 1 (1/4 threshold)
         let cr2 = (0b0111 << 8) | (1 << 12);
-        ptr::write_volatile(SPI1_CR2, cr2);
+        spi1.cr2.write(|w| w.bits(cr2));
 
-        // Enable SPI1
-        ptr::write_volatile(SPI1_CR1, cr1 | (1 << 6)); // SPE = bit 6
+        // Enable SPI1 (SPE = bit 6)
+        spi1.cr1.write(|w| w.bits(cr1 | (1 << 6)));
 
         // Drain any stale data in RX FIFO (max 16 bytes)
         let mut drain = 16;
-        while (ptr::read_volatile(SPI1_SR) & (1 << 0)) != 0 && drain > 0 {
+        while spi1.sr.read().rxne().bit_is_set() && drain > 0 {
             drain -= 1;
-            let _ = ptr::read_volatile(SPI1_DR as *const u8);
+            let _ = core::ptr::read_volatile(core::ptr::addr_of!((*pac::SPI1::ptr()).dr) as *const u8);
         }
     }
 }
@@ -172,12 +125,15 @@ pub fn init() {
 /// Assert Chip Select (Active Low).
 #[inline]
 pub fn csn_low() {
+    #[cfg(not(test))]
     unsafe {
+        let spi1 = &*pac::SPI1::ptr();
+        let gpioe = &*pac::GPIOE::ptr();
         let mut timeout = 10_000u32;
-        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 && timeout > 0 {
+        while spi1.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
-        ptr::write_volatile(GPIOE_BSRR, 1 << (12 + 16));
+        gpioe.bsrr.write(|w| w.br12().set_bit());
         cortex_m::asm::nop();
         cortex_m::asm::nop();
     }
@@ -186,14 +142,17 @@ pub fn csn_low() {
 /// Deassert Chip Select (High).
 #[inline]
 pub fn csn_high() {
+    #[cfg(not(test))]
     unsafe {
+        let spi1 = &*pac::SPI1::ptr();
+        let gpioe = &*pac::GPIOE::ptr();
         let mut timeout = 10_000u32;
-        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 && timeout > 0 {
+        while spi1.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
         cortex_m::asm::nop();
         cortex_m::asm::nop();
-        ptr::write_volatile(GPIOE_BSRR, 1 << 12);
+        gpioe.bsrr.write(|w| w.bs12().set_bit());
         cortex_m::asm::nop();
         cortex_m::asm::nop();
     }
@@ -202,21 +161,28 @@ pub fn csn_high() {
 /// Transfer a single byte over SPI1 (Full Duplex).
 #[inline]
 pub fn transfer_byte(data: u8) -> u8 {
+    #[cfg(not(test))]
     unsafe {
+        let spi1 = &*pac::SPI1::ptr();
         let mut timeout = 10_000u32;
-        while (ptr::read_volatile(SPI1_SR) & (1 << 7)) != 0 && timeout > 0 {
+        while spi1.sr.read().bsy().bit_is_set() && timeout > 0 {
             timeout -= 1;
         }
         timeout = 10_000;
-        while (ptr::read_volatile(SPI1_SR) & (1 << 1)) == 0 && timeout > 0 {
+        while spi1.sr.read().txe().bit_is_clear() && timeout > 0 {
             timeout -= 1;
         }
-        ptr::write_volatile(SPI1_DR as *mut u8, data);
+        core::ptr::write_volatile(core::ptr::addr_of!((*pac::SPI1::ptr()).dr) as *mut u8, data);
         timeout = 10_000;
-        while (ptr::read_volatile(SPI1_SR) & (1 << 0)) == 0 && timeout > 0 {
+        while spi1.sr.read().rxne().bit_is_clear() && timeout > 0 {
             timeout -= 1;
         }
-        ptr::read_volatile(SPI1_DR as *const u8)
+        core::ptr::read_volatile(core::ptr::addr_of!((*pac::SPI1::ptr()).dr) as *const u8)
+    }
+    #[cfg(test)]
+    {
+        let _ = data;
+        0
     }
 }
 
@@ -238,22 +204,28 @@ pub fn read_byte() -> u8 {
 /// - RF_MODE_OFF:   PE8 = 1, PE9 = 1 (or 0, 0)
 pub fn set_tx_rx_mode(mode: u8) {
     let tmp = ((mode << 1) & 0x02) | ((mode >> 1) & 0x01);
+    #[cfg(not(test))]
     unsafe {
         let val = (0x0300u32 << 16) | ((tmp as u32) << 8);
-        ptr::write_volatile(GPIOE_BSRR, val);
+        let gpioe = &*pac::GPIOE::ptr();
+        gpioe.bsrr.write(|w| w.bits(val));
     }
+    #[cfg(test)]
+    let _ = tmp;
 }
 
 /// Alternate antenna diversity switch between Antenna 0 and Antenna 1.
 pub fn switch_antenna() {
+    #[cfg(not(test))]
     unsafe {
+        let gpioe = &*pac::GPIOE::ptr();
         if ANTENNA_STATE == 0 {
             // Select Antenna 0: PE10 = 1, PE11 = 0
-            ptr::write_volatile(GPIOE_BSRR, (1 << 10) | (1 << (11 + 16)));
+            gpioe.bsrr.write(|w| w.bits((1 << 10) | (1 << (11 + 16))));
             ANTENNA_STATE = 1;
         } else {
             // Select Antenna 1: PE10 = 0, PE11 = 1
-            ptr::write_volatile(GPIOE_BSRR, (1 << (10 + 16)) | (1 << 11));
+            gpioe.bsrr.write(|w| w.bits((1 << (10 + 16)) | (1 << 11)));
             ANTENNA_STATE = 0;
         }
     }
@@ -262,61 +234,68 @@ pub fn switch_antenna() {
 /// Enable EXTI2 interrupt line (GIO2 falling edge).
 #[inline(always)]
 pub fn enable_gio2_irq() {
+    #[cfg(not(test))]
     unsafe {
+        let exti = &*pac::EXTI::ptr();
         // Clear pending bit first
-        ptr::write_volatile(EXTI_PR, 1 << 2);
-        let imr = ptr::read_volatile(EXTI_IMR);
-        ptr::write_volatile(EXTI_IMR, imr | (1 << 2));
+        exti.pr.write(|w| w.bits(1 << 2));
+        exti.imr.modify(|_, w| w.mr2().set_bit());
     }
 }
 
 /// Disable EXTI2 interrupt line.
 #[inline(always)]
 pub fn disable_gio2_irq() {
+    #[cfg(not(test))]
     unsafe {
-        let imr = ptr::read_volatile(EXTI_IMR);
-        ptr::write_volatile(EXTI_IMR, imr & !(1 << 2));
+        let exti = &*pac::EXTI::ptr();
+        exti.imr.modify(|_, w| w.mr2().clear_bit());
     }
 }
 
 /// Initialize TIM16 for periodic packet generation (e.g. 3850 µs).
 /// Assumes 48 MHz core clock (PSC = 47 gives 1 µs tick).
 pub fn init_tim16(period_us: u16) {
+    #[cfg(not(test))]
     unsafe {
-        // Stop timer and disable preload
-        ptr::write_volatile(TIM16_CR1, 0);
-        ptr::write_volatile(TIM16_SMCR, 0);
+        let tim16 = &*pac::TIM16::ptr();
+
+        // Stop timer
+        tim16.cr1.write(|w| w.bits(0));
 
         // PSC = 47 -> 48 MHz / (47 + 1) = 1 MHz = 1.0 µs per tick
-        ptr::write_volatile(TIM16_PSC, 47);
+        tim16.psc.write(|w| w.psc().bits(47));
         // ARR = period_us - 1 (e.g. 3850 - 1 = 3849 for 3.850 ms period)
-        ptr::write_volatile(TIM16_ARR, (period_us as u32).saturating_sub(1));
+        tim16.arr.write(|w| w.arr().bits(period_us.saturating_sub(1)));
 
         // Clear update interrupt flag
-        ptr::write_volatile(TIM16_SR, 0);
+        tim16.sr.write(|w| w.bits(0));
 
         // Enable Update Interrupt (UIE = bit 0)
-        ptr::write_volatile(TIM16_DIER, 1 << 0);
+        tim16.dier.write(|w| w.uie().set_bit());
 
         // Set priority for EXTI2_3 (IRQ 6) and TIM16 (IRQ 21) in NVIC
-        let ipr1 = ptr::read_volatile(NVIC_IPR1);
-        ptr::write_volatile(NVIC_IPR1, (ipr1 & !(0xFF << 16)) | (0x80 << 16)); // IRQ 6 = byte 2
+        let mut cp = cortex_m::peripheral::Peripherals::steal();
+        cp.NVIC.set_priority(pac::Interrupt::EXTI2_3, 0x80);
+        cp.NVIC.set_priority(pac::Interrupt::TIM16, 0x80);
 
-        let ipr5 = ptr::read_volatile(NVIC_IPR5);
-        ptr::write_volatile(NVIC_IPR5, (ipr5 & !(0xFF << 8)) | (0x80 << 8));   // IRQ 21 = byte 1
-
-        // Enable IRQ 6 (EXTI2_3) and IRQ 21 (TIM16) in NVIC_ISER
-        ptr::write_volatile(NVIC_ISER, (1 << 6) | (1 << 21));
+        // Enable IRQ 6 (EXTI2_3) and IRQ 21 (TIM16)
+        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::EXTI2_3);
+        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::TIM16);
 
         // Start timer (CEN = bit 0)
-        ptr::write_volatile(TIM16_CR1, 1);
+        tim16.cr1.write(|w| w.cen().set_bit());
     }
+    #[cfg(test)]
+    let _ = period_us;
 }
 
 /// Clear TIM16 update interrupt flag.
 #[inline(always)]
 pub fn clear_tim16_flag() {
+    #[cfg(not(test))]
     unsafe {
-        ptr::write_volatile(TIM16_SR, 0);
+        let tim16 = &*pac::TIM16::ptr();
+        tim16.sr.write(|w| w.bits(0));
     }
 }

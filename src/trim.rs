@@ -238,7 +238,7 @@ mod tests {
         // Mid-stick: roughly 50% authority
         let mid = (CHANNEL_MIN_US + CHANNEL_MAX_US) / 2; // 1500
         let mid_val = TrimController::apply_throttle(mid, 25, 1);
-        assert!(mid_val >= 1545 && mid_val <= 1555, "Mid-stick idle trim should be ~50 µs offset, got {}", mid_val);
+        assert!((1545..=1555).contains(&mid_val), "Mid-stick idle trim should be ~50 µs offset, got {}", mid_val);
 
         // Mode 2: LINEAR
         assert_eq!(TrimController::apply_throttle(1500, 10, 2), 1540);

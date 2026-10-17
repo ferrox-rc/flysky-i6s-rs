@@ -20,13 +20,7 @@ pub fn render(
     let m_name = ascii_as_str(&active.name);
     lcd.draw_str_6x10(2, 14, m_name, false);
 
-    let type_str = match active.model_type {
-        0 => "AIRPLANE",
-        1 => "GLIDER",
-        2 => "HELI",
-        3 => "QUAD",
-        _ => "GENERAL",
-    };
+    let type_str = active.model_type().as_str();
     lcd.draw_str_6x10(74, 14, type_str, false);
 
     // Line 2 (y = 24): Receiver ID
@@ -45,22 +39,48 @@ pub fn render(
 
     // Line 4 (y = 44): Telemetry Voltage & RSSI
     if telem.connected {
-        let mut rxv_buf = [0u8; 6];
-        let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
         lcd.draw_str_6x10(2, 44, "RX:", false);
-        lcd.draw_str_6x10(22, 44, rxv_str, false);
-
-        let mut r_buf = *b"RSSI:   %";
-        let r = telem.rssi.min(100);
-        if r >= 10 {
-            r_buf[5] = b'0' + (r / 10);
-            r_buf[6] = b'0' + (r % 10);
+        if telem.rx_voltage_mv > 0 {
+            let mut rxv_buf = [0u8; 6];
+            let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
+            lcd.draw_str_6x10(22, 44, rxv_str, false);
         } else {
-            r_buf[5] = b' ';
-            r_buf[6] = b'0' + r;
+            lcd.draw_str_6x10(22, 44, "----", false);
         }
-        let r_str = ascii_as_str(&r_buf);
-        lcd.draw_str_6x10(64, 44, r_str, false);
+
+        if is_crsf {
+            let mut lq_buf = *b"LQ:   %";
+            let lq = telem.rssi.min(100);
+            if lq >= 100 {
+                lq_buf[3] = b'1';
+                lq_buf[4] = b'0';
+                lq_buf[5] = b'0';
+            } else if lq >= 10 {
+                lq_buf[4] = b'0' + (lq / 10);
+                lq_buf[5] = b'0' + (lq % 10);
+            } else {
+                lq_buf[4] = b' ';
+                lq_buf[5] = b'0' + lq;
+            }
+            let lq_str = ascii_as_str(&lq_buf);
+            lcd.draw_str_6x10(70, 44, lq_str, false);
+        } else {
+            let mut r_buf = *b"RSSI:   %";
+            let r = telem.rssi.min(100);
+            if r >= 100 {
+                r_buf[5] = b'1';
+                r_buf[6] = b'0';
+                r_buf[7] = b'0';
+            } else if r >= 10 {
+                r_buf[5] = b'0' + (r / 10);
+                r_buf[6] = b'0' + (r % 10);
+            } else {
+                r_buf[5] = b' ';
+                r_buf[6] = b'0' + r;
+            }
+            let r_str = ascii_as_str(&r_buf);
+            lcd.draw_str_6x10(64, 44, r_str, false);
+        }
     } else if is_crsf {
         lcd.draw_str_6x10(2, 44, "CRSF: DISCONNECTED", false);
     } else {

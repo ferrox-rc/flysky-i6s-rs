@@ -9,22 +9,18 @@ static SYSTEM_MILLIS: AtomicU32 = AtomicU32::new(0);
 /// Configures SysTick to lowest hardware interrupt priority (0xC0) so it never
 /// preempts or delays RF time-critical IRQs (TIM16 and EXTI2_3 at 0x80).
 pub fn init() {
+    #[cfg(not(test))]
     unsafe {
-        // SysTick base: 0xE000_E010
-        // Set SysTick interrupt priority to lowest (0xC0) in SHPR3 (bits 31:24)
-        let shpr3 = 0xE000_ED20 as *mut u32;
-        let val = core::ptr::read_volatile(shpr3);
-        core::ptr::write_volatile(shpr3, (val & !(0xFF << 24)) | (0xC0 << 24));
-
-        let syst_csr = 0xE000_E010 as *mut u32;
-        let syst_rvr = 0xE000_E014 as *mut u32;
-        let syst_cvr = 0xE000_E018 as *mut u32;
+        let mut p = cortex_m::peripheral::Peripherals::steal();
+        // Set SysTick interrupt priority to lowest (0xC0) in SHPR3
+        p.SCB.set_priority(cortex_m::peripheral::scb::SystemHandler::SysTick, 0xC0);
 
         // 48 MHz clock -> 48,000 ticks per 1 ms
-        core::ptr::write_volatile(syst_rvr, 48_000 - 1);
-        core::ptr::write_volatile(syst_cvr, 0);
-        // Enable counter (bit 0), enable interrupt (bit 1), processor clock (bit 2)
-        core::ptr::write_volatile(syst_csr, (1 << 0) | (1 << 1) | (1 << 2));
+        p.SYST.set_reload(48_000 - 1);
+        p.SYST.clear_current();
+        p.SYST.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
+        p.SYST.enable_interrupt();
+        p.SYST.enable_counter();
     }
 }
 

@@ -1,16 +1,14 @@
 //! Live Flight Dashboard subsystem for FlySky FS-i6X.
 //!
 //! Provides the primary 4-page flight display:
-//! - Page 0 (P1/4): Primary Gimbals, Trims, Switches, Pots
-//! - Page 1 (P2/4): 14-Channel Dual-Column Live Monitor
-//! - Page 2 (P3/4): Model Dashboard, Type, RX ID, Throttle Curve
-//! - Page 3 (P4/4): Telemetry & RF Diagnostics (CRSF Link Diag / AFHDS 2A)
+//! - Page 0 (P1/5): Primary Gimbals, Trims, Switches, Pots
+//! - Page 1 (P2/5): 18-Channel Dual-Column Live Monitor
+//! - Page 2 (P3/5): 18-Channel Dual-Column Live Monitor cont.
+//! - Page 3 (P4/5): Model Dashboard, Type, RX ID, Throttle Curve
+//! - Page 4 (P5/5): Telemetry & RF Diagnostics (CRSF Link Diag / AFHDS 2A)
 
 pub mod pages;
 pub mod status_bar;
-
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
@@ -89,7 +87,7 @@ impl DashboardController {
         timer_expired: bool,
         buzzer: &mut Buzzer,
     ) {
-        lcd.clear(BinaryColor::Off).ok();
+        lcd.clear_buffer();
 
         status_bar::render(
             lcd,
@@ -128,6 +126,7 @@ impl DashboardController {
                 let is_crsf = storage.active_model().rf_protocol == 1;
                 pages::telemetry::render(
                     lcd,
+                    storage,
                     is_crsf,
                     telem,
                     state.battery_mv,
@@ -135,6 +134,7 @@ impl DashboardController {
                     self.min_rx_v_mv,
                     self.telem_seen,
                     is_binding,
+                    timer_str,
                 );
             }
         }
@@ -175,5 +175,27 @@ mod tests {
         assert_eq!(dash.page, 1);
         dash.prev_page(&mut buzzer);
         assert_eq!(dash.page, 0);
+    }
+
+    #[test]
+    fn test_dashboard_custom_telemetry_render() {
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let telem = TelemetryData::default();
+
+        storage.radio.telem_slots = [4, 5, 6, 11]; // Custom slots: CAPACITY, TX POWER, SNR, TIMER
+
+        pages::telemetry::render(
+            &mut lcd,
+            &storage,
+            false,
+            &telem,
+            4100,
+            0,
+            0,
+            false,
+            false,
+            Some("05:32"),
+        );
     }
 }

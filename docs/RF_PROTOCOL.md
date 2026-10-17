@@ -64,11 +64,15 @@ All AFHDS 2A frames start with a 38-byte payload:
 
 | Command | Name | Description |
 | :--- | :--- | :--- |
-| `0x58` | **PACKET_STICKS** | Transmits 14 channels encoded as 16-bit microsecond pulse widths (1000..2000 µs) |
-| `0x56` | **PACKET_FAILSAFE** | Broadcasts failsafe pulse positions for all channels |
-| `0xAA` | **PACKET_SETTINGS** | Configures receiver output modes (i-BUS, S.BUS, PWM, PPM) |
+| `0x58` | **PACKET_STICKS** | Transmits 18 channels (14 base 16-bit microsecond pulse widths `988..2012 µs` + 4 interleaved upper-nibble channels `CH15..CH18` matching Betaflight/INAV `rx/ibus.c`) |
+| `0x56` | **PACKET_FAILSAFE** | Broadcasts failsafe pulse positions for channels 1..14 every 1,569 packets (~6.0s) or on flight-loop staleness timeout |
+| `0xAA` | **PACKET_SETTINGS** | Configures receiver output modes (`i-BUS`, `S.BUS`, `PWM`, `PPM`) and servo refresh frequency (`50..400 Hz`) |
 | `0xBB` | **PACKET_BIND1** | Transmits TX ID and prompts receiver for handshake |
 | `0xBC` | **PACKET_BIND2** | Sends 16-channel hopping table and binds receiver ID |
+
+### Configurable Transmitter Output Power & Deep Sleep
+- **Per-Model TX Power (`ModelConfig.rf_power`)**: Configurable in `Protocol Setup` between `100mW (HI)` (`0x07`), `10mW (MID)` (`0x04`), `1mW (LOW)` (`0x02`), and `100uW (TST)` (`0x00` range test mode).
+- **Automatic Deep Sleep (`0x0F`)**: When a model uses `Proto: CRSF`, the internal A7105 transceiver is placed into deep sleep (`0x0F`) with PA/LNA switches off (`RF_MODE_OFF`).
 
 ---
 

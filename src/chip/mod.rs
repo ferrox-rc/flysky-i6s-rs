@@ -140,85 +140,64 @@ pub fn check_and_clear_reset_flags() -> bool {
 
 /// Reset RCC to default power-on state (HSI 8MHz, no PLL, peripheral clocks disabled).
 unsafe fn rcc_deinit() {
-    const RCC_CR: *mut u32 = 0x4002_1000 as *mut u32;
-    const RCC_CFGR: *mut u32 = 0x4002_1004 as *mut u32;
-    const RCC_CIR: *mut u32 = 0x4002_1008 as *mut u32;
-    const RCC_APB2RSTR: *mut u32 = 0x4002_100C as *mut u32;
-    const RCC_APB1RSTR: *mut u32 = 0x4002_1010 as *mut u32;
-    const RCC_AHBENR: *mut u32 = 0x4002_1014 as *mut u32;
-    const RCC_APB2ENR: *mut u32 = 0x4002_1018 as *mut u32;
-    const RCC_APB1ENR: *mut u32 = 0x4002_101C as *mut u32;
+    let rcc = &*stm32f0xx_hal::pac::RCC::ptr();
 
     // Turn on HSI
-    let cr = ptr::read_volatile(RCC_CR);
-    ptr::write_volatile(RCC_CR, cr | 0x0000_0001); // HSION
-    while (ptr::read_volatile(RCC_CR) & 0x0000_0002) == 0 {
+    rcc.cr.modify(|_, w| w.hsion().set_bit());
+    while rcc.cr.read().hsirdy().bit_is_clear() {
         // Wait for HSIRDY
     }
 
     // Reset CFGR
-    ptr::write_volatile(RCC_CFGR, 0x0000_0000);
+    rcc.cfgr.write(|w| w.bits(0x0000_0000));
 
     // Reset HSEON, CSSON, PLLON
-    let cr = ptr::read_volatile(RCC_CR);
-    ptr::write_volatile(RCC_CR, cr & !(0x0001_0000 | 0x0008_0000 | 0x0100_0000));
+    rcc.cr.modify(|_, w| w.hseon().clear_bit().csson().clear_bit().pllon().clear_bit());
 
     // Reset CIR interrupts
-    ptr::write_volatile(RCC_CIR, 0x0000_0000);
+    rcc.cir.write(|w| w.bits(0x0000_0000));
 
     // Reset APB peripherals
-    ptr::write_volatile(RCC_APB2RSTR, 0xFFFF_FFFF);
-    ptr::write_volatile(RCC_APB2RSTR, 0x0000_0000);
-    ptr::write_volatile(RCC_APB1RSTR, 0xFFFF_FFFF);
-    ptr::write_volatile(RCC_APB1RSTR, 0x0000_0000);
+    rcc.apb2rstr.write(|w| w.bits(0xFFFF_FFFF));
+    rcc.apb2rstr.write(|w| w.bits(0x0000_0000));
+    rcc.apb1rstr.write(|w| w.bits(0xFFFF_FFFF));
+    rcc.apb1rstr.write(|w| w.bits(0x0000_0000));
 
-    // Reset peripheral clocks except SYSCFG, SRAM, and GPIOB (keeps PB15 power latch active)
-    ptr::write_volatile(RCC_AHBENR, 0x0004_0014); // GPIOBEN (bit 18) + SRAMEN (bit 2) + FLITFEN (bit 4)
-    ptr::write_volatile(RCC_APB2ENR, 0x0000_0001); // SYSCFGEN
-    ptr::write_volatile(RCC_APB1ENR, 0x0000_0000);
+    // Reset peripheral clocks except SYSCFG & SRAM
+    rcc.ahbenr.write(|w| w.bits(0x0000_0014)); // SRAMEN + FLITFEN
+    rcc.apb2enr.write(|w| w.bits(0x0000_0001)); // SYSCFGEN
+    rcc.apb1enr.write(|w| w.bits(0x0000_0000));
 }
 
 /// Perform a clean software jump to the MCU's built-in factory DFU bootloader.
 ///
 /// Matches the exact OpenI6X SystemBootloaderJump() sequence:
-/// 1. Reset RCC to default state while keeping GPIOB clock active
-/// 2. Assert PB15 HIGH to keep radio powered
-/// 3. Clear SysTick timer and NVIC interrupts
-/// 4. Remap System Memory to 0x0000_0000 via SYSCFG
-/// 5. Re-enable interrupts so the factory bootloader's USB stack functions!
-/// 6. Bootstrap into the bootloader reset vector.
+/// 1. Reset RCC to default state
+/// 2. Clear SysTick timer
+/// 3. Remap System Memory to 0x0000_0000 via SYSCFG
+/// 4. Re-enable interrupts so the factory bootloader's USB stack functions!
+/// 5. Bootstrap into the bootloader reset vector.
 pub fn enter_dfu_bootloader(profile: &McuProfile) -> ! {
-    crate::power::latch_on();
-
     unsafe {
         // 1. Reset RCC to default HSI 8MHz state
         rcc_deinit();
 
-        // Re-assert power latch after RCC reset
-        crate::power::latch_on();
+        // 2. Clear SysTick and 3. Clear NVIC interrupt enables and pendings
+        let mut cp = cortex_m::peripheral::Peripherals::steal();
+        cp.SYST.disable_counter();
+        cp.SYST.disable_interrupt();
+        cp.SYST.clear_current();
 
-        // 2. Clear SysTick
-        const SYST_CSR: *mut u32 = 0xE000_E010 as *mut u32;
-        const SYST_RVR: *mut u32 = 0xE000_E014 as *mut u32;
-        const SYST_CVR: *mut u32 = 0xE000_E018 as *mut u32;
-        ptr::write_volatile(SYST_CSR, 0);
-        ptr::write_volatile(SYST_RVR, 0);
-        ptr::write_volatile(SYST_CVR, 0);
-
-        // 3. Clear NVIC interrupt enables and pendings
-        const NVIC_ICER: *mut u32 = 0xE000_E180 as *mut u32;
-        const NVIC_ICPR: *mut u32 = 0xE000_E280 as *mut u32;
-        ptr::write_volatile(NVIC_ICER, 0xFFFF_FFFF);
-        ptr::write_volatile(NVIC_ICPR, 0xFFFF_FFFF);
+        cp.NVIC.icer[0].write(0xFFFF_FFFF);
+        cp.NVIC.icpr[0].write(0xFFFF_FFFF);
 
         cortex_m::interrupt::disable();
 
         cortex_m::asm::dsb();
 
-        // 4. Remap System Memory to 0x0000_0000
-        const SYSCFG_CFGR1: *mut u32 = 0x4001_0000 as *mut u32;
-        let cfgr1 = ptr::read_volatile(SYSCFG_CFGR1);
-        ptr::write_volatile(SYSCFG_CFGR1, (cfgr1 & !0x03) | 0x01);
+        // 4. Remap System Memory to 0x0000_0000 via SYSCFG
+        let syscfg = &*stm32f0xx_hal::pac::SYSCFG::ptr();
+        syscfg.cfgr1.modify(|r, w| w.bits((r.bits() & !0x03) | 0x01));
 
         cortex_m::asm::dsb();
         cortex_m::asm::isb();

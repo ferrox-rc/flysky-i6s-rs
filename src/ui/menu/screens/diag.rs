@@ -14,6 +14,7 @@ pub fn update_diag_anas(
     lcd: &mut St7567,
     keys: &NavKeys,
     raw_adc: &[u16; adc::NUM_CHANNELS],
+    switches: &crate::input::Switches,
     buzzer: &mut Buzzer,
 ) {
     if keys.cancel {
@@ -22,34 +23,45 @@ pub fn update_diag_anas(
         return;
     }
 
-    if keys.up || keys.down {
-        ctrl.page_idx = if ctrl.page_idx == 0 { 1 } else { 0 };
+    if keys.up {
+        ctrl.page_idx = if ctrl.page_idx == 0 {
+            3
+        } else {
+            ctrl.page_idx - 1
+        };
+        buzzer.play_tone(2200, 30);
+    } else if keys.down {
+        ctrl.page_idx = (ctrl.page_idx + 1) % 4;
         buzzer.play_tone(2200, 30);
     }
 
-    let title = if ctrl.page_idx == 0 { "ANALOG (1-6)" } else { "ANALOG (7-11)" };
+    let title = crate::hw::diag_page_title(ctrl.page_idx);
     widgets::draw_header(lcd, title);
 
-    let start_idx = if ctrl.page_idx == 0 { 0 } else { 6 };
-    let names: &[&str] = if ctrl.page_idx == 0 {
-        &["RH:AIL", "RV:ELE", "LV:THR", "LH:RUD", "SW:SA ", "SW:SB "]
+    if ctrl.page_idx < 2 {
+        let start_idx = if ctrl.page_idx == 0 { 0 } else { 6 };
+        let names: &[&str] = if ctrl.page_idx == 0 {
+            &["RH:AIL", "RV:ELE", "LV:THR", "LH:RUD", "SW:SA ", "SW:SB "]
+        } else {
+            &["POT:V1", "POT:V2", "SW:SC ", "SW:SD ", "VBAT  "]
+        };
+
+        for (i, &name) in names.iter().enumerate() {
+            let adc_idx = start_idx + i;
+            let y = 12 + (i as i32 * 7);
+            lcd.draw_str_4x6(2, y, name, false);
+
+            let raw = raw_adc[adc_idx].min(4095);
+            let fill_w = ((raw as u32 * 38) / 4095).min(38);
+            widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
+
+            let mut val_buf = [0u8; 4];
+            u16_to_dec_4(raw, &mut val_buf);
+            let val_str = ascii_as_str(&val_buf);
+            lcd.draw_str_4x6(90, y, val_str, false);
+        }
     } else {
-        &["POT:V1", "POT:V2", "SW:SC ", "SW:SD ", "VBAT  "]
-    };
-
-    for (i, &name) in names.iter().enumerate() {
-        let adc_idx = start_idx + i;
-        let y = 12 + (i as i32 * 7);
-        lcd.draw_str_4x6(2, y, name, false);
-
-        let raw = raw_adc[adc_idx].min(4095);
-        let fill_w = ((raw as u32 * 38) / 4095).min(38);
-        widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
-
-        let mut val_buf = [0u8; 4];
-        u16_to_dec_4(raw, &mut val_buf);
-        let val_str = ascii_as_str(&val_buf);
-        lcd.draw_str_4x6(90, y, val_str, false);
+        crate::hw::draw_diag_ext_page(lcd, ctrl.page_idx, raw_adc, switches);
     }
 
     widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");
@@ -95,4 +107,3 @@ pub fn update_system_info(
 
     widgets::draw_footer(lcd, "[OK] DFU Mode  [ESC] Back");
 }
-

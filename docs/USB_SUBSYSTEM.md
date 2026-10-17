@@ -215,13 +215,15 @@ Operating an RF transmitter indoors in close proximity to a computer monitor, ro
 When **`JOYSTICK`** mode is active and the USB cable is connected:
 - The A7105 transceiver is immediately strobed into **`STROBE_STANDBY`** (`0xA0`).
 - The antenna front-end switches are set to **`RF_MODE_OFF`** (`0b0000_0011`), turning off both the power amplifier (PA) and low-noise amplifier (LNA).
+- External CPPM output (`PF10` / `TIM15_CH2`) is automatically paused (`trainer::set_ppm_out(false)`).
 - The `TIM16` packet transmission interrupt handler returns immediately without pulsing the radio or modifying the A7105 FIFO.
 - The flight screen replaces the RF indicator with **`U:SIM`**.
-- As soon as the USB cable is unplugged or the mode is switched to `SERIAL`, normal RF transmission automatically resumes.
+- As soon as the USB cable is unplugged or the mode is switched to `SERIAL`, normal RF transmission and configured `PPM Out` automatically resume.
 
 ### Deterministic Real-Time Concurrency
 In embedded safety-critical avionics, flight-control tasks must never suffer priority inversion or starvation from peripheral I/O:
-- **`TIM16` RF Interrupt (Priority 0x80)**: Fires every 3.850 ms (260 Hz) to transmit AFHDS 2A packets. Highest peripheral priority.
+- **`USART1` CRSF RX Interrupt (Priority 0x40)**: Buffers high-speed external module telemetry bytes.
+- **`TIM16` RF Interrupt (Priority 0x80)**: Fires every 3.850 ms (260 Hz) to transmit AFHDS 2A packets.
 - **`EXTI2` RF Packet Ready (Priority 0x80)**: Handles A7105 TX/RX FIFO events.
 - **`SysTick` Monotonic Timer (Priority 0x40)**: Drives system timekeeping.
 - **`USB` Full-Speed Interrupt (Priority 0xC0)**: Lowest peripheral priority.
@@ -232,26 +234,26 @@ If a large USB transfer or host polling stall occurs, the hardware NVIC preempts
 
 ## 7. Storage Compatibility & Configuration
 
-To guarantee backwards compatibility with existing users' saved models, all additions are strictly size-invariant:
+All USB and protocol settings are persisted in the 4-page append-only sequential storage log (`src/storage.rs`):
 
-### `RadioConfig` Binary Layout (Strictly 128 Bytes)
+### `RadioConfig` Binary Layout (140 Bytes, 4-Byte Aligned)
 ```
-Offset  0..4   : Magic (0x46534B59 "FSKY")
-Offset  4..8   : Version (CONFIG_VERSION = 4)
-Offset  8      : Active Model (0..19)
-Offset  9      : Throttle Trim Method
-Offset 10      : Audio Enabled
-Offset 11      : Backlight Timeout
-Offset 12      : Backlight Brightness
-Offset 13      : Vbat Warn Threshold
-Offset 14      : LCD Contrast
-Offset 15      : usb_mode (0: Off, 1: Joystick, 2: Serial, 3: Composite) <-- Default: 0 (Off)
-Offset 16..48  : Stick Calibrations (4 x 8B)
-Offset 48..64  : Pot Calibrations (2 x 8B)
-Offset 64..128 : Reserved (64B)
+Offset   0..4   : Magic (0x46534B59 "FSKY")
+Offset   4..8   : Version (CONFIG_VERSION = 5)
+Offset   8      : Active Model (0..19)
+Offset   9      : Throttle Trim Method
+Offset  10      : Audio Enabled
+Offset  11      : Backlight Timeout
+Offset  12      : Backlight Brightness
+Offset  13      : Vbat Warn Threshold
+Offset  14      : LCD Contrast
+Offset  15      : usb_mode (0: Off, 1: Joystick, 2: Serial, 3: Composite) <-- Default: 0 (Off)
+Offset  16..48  : Stick Calibrations (4 x 8B)
+Offset  48..108 : Aux Pot Calibrations (10 x 6B: SA..SD, VRA..VRB, VRC..VRF)
+Offset 108..140 : Hardware Extension, Input Mode, Telemetry, Trainer, & UI Config
 ```
 
 ### Protocol Selection (`ModelConfig`)
 In Menu Item 9 (**`Protocol Setup`**), the radio supports per-model RF output selection:
-- **`AFHDS 2A`**: Uses built-in A7105 transceiver. Pressing `[OK]` triggers receiver binding.
-- **`CRSF / ELRS`**: Drives external Crossfire / ExpressLRS transmitter modules connected to the rear expansion bay (`PD5` TX / `PA15` RX) with active power control on `PC13`. Pressing `[OK]` toggles between protocol and selectable baud rates (`420k (ELRS)`, `416.6k (TBS)`, `115.2k (Low)`, `921.6k (Fast)`). Field `crsf_baud` occupies byte 115 in `ModelConfig`.
+- **`AFHDS 2A`**: Uses built-in A7105 transceiver (`Power`: `100mW`, `10mW`, `1mW`, `100uW`; `Servo Hz`: `50..400 Hz`; `RX Out`: `PWM`/`PPM`; `Serial`: `i-BUS`/`S.BUS`).
+- **`CRSF`**: Drives external Crossfire / ExpressLRS transmitter modules connected to header `J15` (`PB6` TX / `PB7` RX) with active power control on `PF6` (`H1`) and automatic A7105 deep sleep (`0x0F`). Supports 5 ascending baud rates (`115.2k (Low)`, `416.6k (TBS)`, `420k (ELRS)` default, `921.6k (Fast)`, `1.875M (Max)`) and `Full (2W)` / `Half (1W)` duplex modes.

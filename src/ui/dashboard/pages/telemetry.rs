@@ -3,13 +3,208 @@
 use crate::crsf;
 use crate::display::St7567;
 use crate::rf::afhds2a::TelemetryData;
+use crate::storage::RadioStorage;
 use crate::ui::format::{ascii_as_str, format_vbat, u32_to_dec_5};
 use crate::ui::widgets;
+
+#[allow(clippy::too_many_arguments)]
+fn render_sensor_tile(
+    lcd: &mut St7567,
+    sensor_id: u8,
+    x: i32,
+    y: i32,
+    is_crsf: bool,
+    telem: &TelemetryData,
+    battery_mv: u16,
+    timer_str: Option<&str>,
+) {
+    let ct = crsf::get_telemetry();
+    match sensor_id {
+        0 => {
+            // RX BAT
+            lcd.draw_str_4x6(x, y, "RX BAT", false);
+            if is_crsf {
+                if ct.connected && ct.rx_battery_mv > 0 {
+                    let mut buf = [0u8; 6];
+                    let s = format_vbat(ct.rx_battery_mv, &mut buf);
+                    lcd.draw_str_6x10(x, y + 7, s, false);
+                } else {
+                    lcd.draw_str_6x10(x, y + 7, "----", false);
+                }
+            } else if telem.connected && telem.rx_voltage_mv > 0 {
+                let mut buf = [0u8; 6];
+                let s = format_vbat(telem.rx_voltage_mv, &mut buf);
+                lcd.draw_str_6x10(x, y + 7, s, false);
+            } else {
+                lcd.draw_str_6x10(x, y + 7, "----", false);
+            }
+        }
+        1 => {
+            // LQ / RSSI
+            if is_crsf {
+                lcd.draw_str_4x6(x, y, "LINK Q", false);
+                if ct.connected {
+                    let mut buf = *b"100%";
+                    let lq = ct.uplink_link_quality.min(100);
+                    if lq == 100 {
+                        buf = *b"100%";
+                    } else if lq >= 10 {
+                        buf[0] = b' ';
+                        buf[1] = b'0' + (lq / 10);
+                        buf[2] = b'0' + (lq % 10);
+                        buf[3] = b'%';
+                    } else {
+                        buf[0] = b' ';
+                        buf[1] = b' ';
+                        buf[2] = b'0' + lq;
+                        buf[3] = b'%';
+                    }
+                    lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+                } else {
+                    lcd.draw_str_6x10(x, y + 7, "---%", false);
+                }
+            } else {
+                lcd.draw_str_4x6(x, y, "RSSI", false);
+                if telem.connected {
+                    let mut buf = *b"100%";
+                    let r = telem.rssi.min(100);
+                    if r == 100 {
+                        buf = *b"100%";
+                    } else if r >= 10 {
+                        buf[0] = b' ';
+                        buf[1] = b'0' + (r / 10);
+                        buf[2] = b'0' + (r % 10);
+                        buf[3] = b'%';
+                    } else {
+                        buf[0] = b' ';
+                        buf[1] = b' ';
+                        buf[2] = b'0' + r;
+                        buf[3] = b'%';
+                    }
+                    lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+                } else {
+                    lcd.draw_str_6x10(x, y + 7, "---%", false);
+                }
+            }
+        }
+        2 => {
+            // TX BAT
+            lcd.draw_str_4x6(x, y, "TX BAT", false);
+            let mut buf = [0u8; 6];
+            let s = format_vbat(battery_mv, &mut buf);
+            lcd.draw_str_6x10(x, y + 7, s, false);
+        }
+        3 => {
+            // CURRENT (CRSF) or LINK (AFHDS 2A)
+            if is_crsf {
+                lcd.draw_str_4x6(x, y, "CURRENT", false);
+                if ct.connected && ct.rx_current_ma > 0 {
+                    let mut buf = [b' '; 6];
+                    let a = ct.rx_current_ma / 10;
+                    let da = ct.rx_current_ma % 10;
+                    buf[0] = b'0' + ((a / 10) % 10) as u8;
+                    buf[1] = b'0' + (a % 10) as u8;
+                    buf[2] = b'.';
+                    buf[3] = b'0' + da as u8;
+                    buf[4] = b'A';
+                    lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf[..5]), false);
+                } else {
+                    lcd.draw_str_6x10(x, y + 7, "0.0A", false);
+                }
+            } else {
+                lcd.draw_str_4x6(x, y, "LINK", false);
+                let link_str = if telem.connected { "OK" } else { "DISC" };
+                lcd.draw_str_6x10(x, y + 7, link_str, false);
+            }
+        }
+        4 => {
+            // CAPACITY
+            lcd.draw_str_4x6(x, y, "CAP mAh", false);
+            if is_crsf && ct.connected && ct.rx_capacity_mah > 0 {
+                let mut buf = [b' '; 5];
+                u32_to_dec_5(ct.rx_capacity_mah.min(99999), &mut buf);
+                lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+            } else {
+                lcd.draw_str_6x10(x, y + 7, "0", false);
+            }
+        }
+        5 => {
+            // TX POWER
+            lcd.draw_str_4x6(x, y, "PWR mW", false);
+            if is_crsf && ct.connected && ct.tx_power_mw > 0 {
+                let mut buf = [b' '; 5];
+                u32_to_dec_5(ct.tx_power_mw as u32, &mut buf);
+                lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+            } else {
+                lcd.draw_str_6x10(x, y + 7, "---", false);
+            }
+        }
+        6 => {
+            // SNR
+            lcd.draw_str_4x6(x, y, "SNR dB", false);
+            if is_crsf && ct.connected {
+                let mut buf = *b"+00dB";
+                let sign = if ct.uplink_snr >= 0 { b'+' } else { b'-' };
+                let mag = ct.uplink_snr.unsigned_abs();
+                buf[0] = sign;
+                buf[1] = b'0' + ((mag / 10) % 10);
+                buf[2] = b'0' + (mag % 10);
+                lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+            } else {
+                lcd.draw_str_6x10(x, y + 7, "--dB", false);
+            }
+        }
+        7 => {
+            // PKT RATE
+            lcd.draw_str_4x6(x, y, "RATE", false);
+            let rate_name = if is_crsf && ct.connected {
+                crsf::protocol::rf_mode_to_str(ct.rf_mode)
+            } else {
+                "---"
+            };
+            lcd.draw_str_6x10(x, y + 7, rate_name, false);
+        }
+        8 => {
+            // ANTENNA
+            lcd.draw_str_4x6(x, y, "ANTENNA", false);
+            let ant = if is_crsf && ct.connected {
+                if ct.active_antenna == 0 { "ANT 1" } else { "ANT 2" }
+            } else {
+                "ANT -"
+            };
+            lcd.draw_str_6x10(x, y + 7, ant, false);
+        }
+        9 => {
+            // PACKETS TX
+            lcd.draw_str_4x6(x, y, "PKTS TX", false);
+            let mut buf = [b' '; 5];
+            u32_to_dec_5(telem.packets_sent, &mut buf);
+            lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+        }
+        10 => {
+            // PACKETS RX
+            lcd.draw_str_4x6(x, y, "PKTS RX", false);
+            let mut buf = [b' '; 5];
+            u32_to_dec_5(telem.packets_received, &mut buf);
+            lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+        }
+        11 => {
+            // TIMER
+            lcd.draw_str_4x6(x, y, "TIMER", false);
+            lcd.draw_str_6x10(x, y + 7, timer_str.unwrap_or("00:00"), false);
+        }
+        _ => {
+            // OFF
+            lcd.draw_str_4x6(x, y, "SLOT OFF", false);
+        }
+    }
+}
 
 #[inline(never)]
 #[allow(clippy::too_many_arguments)]
 pub fn render(
     lcd: &mut St7567,
+    storage: &RadioStorage,
     is_crsf: bool,
     telem: &TelemetryData,
     battery_mv: u16,
@@ -17,7 +212,34 @@ pub fn render(
     min_rx_v_mv: u16,
     telem_seen: bool,
     is_binding: bool,
+    timer_str: Option<&str>,
 ) {
+    let slots = storage.radio.telem_slots;
+    let is_custom = slots != [0, 1, 2, 3];
+
+    if is_custom {
+        // Render 4 custom configurable telemetry tiles (2x2 grid)
+        // Tile 0 (Top-Left): x=4, y=14
+        render_sensor_tile(lcd, slots[0], 4, 14, is_crsf, telem, battery_mv, timer_str);
+        // Tile 1 (Top-Right): x=68, y=14
+        render_sensor_tile(lcd, slots[1], 68, 14, is_crsf, telem, battery_mv, timer_str);
+        // Tile 2 (Bottom-Left): x=4, y=33
+        render_sensor_tile(lcd, slots[2], 4, 33, is_crsf, telem, battery_mv, timer_str);
+        // Tile 3 (Bottom-Right): x=68, y=33
+        render_sensor_tile(lcd, slots[3], 68, 33, is_crsf, telem, battery_mv, timer_str);
+
+        // Grid divider lines
+        lcd.draw_vline(64, 12, 42, true);
+        lcd.draw_hline(2, 31, 124, true);
+
+        // Standardized Footer
+        if is_binding {
+            widgets::draw_footer(lcd, "[ESC] Finish Bind");
+        } else {
+            widgets::draw_footer_split(lcd, "P5/5", "CUSTOM TELEM");
+        }
+        return;
+    }
     if is_crsf {
         let ct = crsf::get_telemetry();
 

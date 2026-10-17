@@ -57,6 +57,20 @@ pub const POWER_100MW: u8 = 0x1F; //  +1 dBm into PA (Stock High Power)
 pub const BIND_POWER: u8 = POWER_100UW;
 pub const HIGH_POWER: u8 = POWER_100MW;
 
+/// Map user power selection index (0..3) to A7105 register power level:
+/// - 0: HIGH (100 mW / +20 dBm)
+/// - 1: MID  (10 mW / +10 dBm)
+/// - 2: LOW  (1 mW / 0 dBm)
+/// - 3: TEST (100 µW / -23 dBm)
+pub fn power_from_index(idx: u8) -> u8 {
+    match idx {
+        1 => POWER_10MW,
+        2 => POWER_1MW,
+        3 => POWER_100UW,
+        _ => HIGH_POWER,
+    }
+}
+
 /// A7105 Register Initialization Table for AFHDS 2A (500 kbps GFSK)
 /// Entries matching 0xFF are skipped (unmodified).
 static AFHDS2A_A7105_REGS: [u8; 50] = [

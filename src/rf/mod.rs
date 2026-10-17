@@ -1,11 +1,10 @@
-//! RF subsystem module for the FlySky FS-i6S.
+//! RF subsystem module for the FlySky FS-i6X.
 //!
-//! Orchestrates the A7105 2.4 GHz transceiver, SPI1 driver, AFHDS 2A stack
-//! via TIM16 (3.85 ms framing) and EXTI2, as well as PPM output on PF10.
+//! Orchestrates the A7105 2.4 GHz transceiver, SPI1 driver, and AFHDS 2A stack
+//! via TIM16 (3.85 ms framing) and EXTI2 (A7105 GIO2 WTR signal).
 
 pub mod a7105;
 pub mod afhds2a;
-pub mod ppm_out;
 pub mod spi;
 
 use crate::mixer::SAFE_IDLE_CHANNELS;
@@ -164,16 +163,29 @@ pub fn get_last_chip_id() -> u8 {
     a7105::LAST_CHIP_ID.load(Ordering::Relaxed)
 }
 
-/// Put RF frontend and A7105 into standby (silent running) during USB Joystick simulator mode.
+/// Put RF frontend and A7105 into ultra-low-power sleep (< 1 µA) during CRSF
+/// or USB Joystick simulator mode, or wake back up to standby for AFHDS 2A.
 pub fn set_silenced(silenced: bool) {
     let prev = RF_SILENCED.load(Ordering::Relaxed);
     if prev != silenced {
         RF_SILENCED.store(silenced, Ordering::Relaxed);
         if silenced {
-            a7105::strobe(a7105::STROBE_STANDBY);
+            // 1. Disable external PA and LNA frontend
             spi::set_tx_rx_mode(spi::RF_MODE_OFF);
+            // 2. Strobe A7105 into deep power-down sleep (< 1 µA, XTAL off)
+            a7105::strobe(a7105::STROBE_SLEEP);
+        } else {
+            // Wake A7105 back to standby (turns on crystal oscillator)
+            a7105::strobe(a7105::STROBE_STANDBY);
+            // Delay ~1.5 ms (72,000 cycles at 48 MHz) for XTAL oscillator and on-chip LDO to stabilize
+            cortex_m::asm::delay(72_000);
         }
     }
+}
+
+/// Set active AFHDS 2A RF power level (0: HIGH [100mW], 1: MID [10mW], 2: LOW [1mW], 3: TEST [100uW]).
+pub fn set_rf_power(power_idx: u8) {
+    with_driver_mut(|d| d.set_rf_power(power_idx));
 }
 
 /// Check if RF transmission is silenced.
@@ -316,10 +328,10 @@ fn TIM16() {
 #[interrupt]
 fn EXTI2_3() {
     unsafe {
-        let exti_pr = core::ptr::read_volatile(0x4001_0414 as *const u32);
-        if (exti_pr & (1 << 2)) != 0 {
+        let exti = &*stm32f0xx_hal::pac::EXTI::ptr();
+        if (exti.pr.read().bits() & (1 << 2)) != 0 {
             // Clear pending flag for EXTI2
-            core::ptr::write_volatile(0x4001_0414 as *mut u32, 1 << 2);
+            exti.pr.write(|w| w.bits(1 << 2));
 
             let driver = &mut *RF_DRIVER.0.get();
             if let Some(ref mut d) = driver {

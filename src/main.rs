@@ -24,7 +24,10 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
         };
 
         if count < PANIC_MAX_CONSECUTIVE {
-            core::ptr::write_volatile(core::ptr::addr_of_mut!(PANIC_COUNT), PANIC_MAGIC | (count + 1));
+            core::ptr::write_volatile(
+                core::ptr::addr_of_mut!(PANIC_COUNT),
+                PANIC_MAGIC | (count + 1),
+            );
             // Trigger rapid Cortex-M0 warm reset (<20ms recovery vs 2.0s watchdog)
             cortex_m::peripheral::SCB::sys_reset();
         }
@@ -39,9 +42,9 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 
 use cortex_m_rt::entry;
 
-use flysky_i6s_rs::{
-    adc, boot, buzzer, calib, chip, crsf, curve, display, input, mixer, power, rf, storage, time, touch, trim,
-    ui, usb, watchdog,
+use ferrox::{
+    adc, boot, buzzer, calib, chip, crsf, curve, display, hw, input, mixer, rf, safety, storage,
+    time, trainer, trim, ui, usb, watchdog,
 };
 pub use ui::menu;
 
@@ -91,31 +94,10 @@ impl FlightPipeline {
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
-        let mut state = input::poll();
+        let mut state = input::read();
+        hw::update_flight_switches(&mut state, storage, menu_active);
+
         let active_model = storage.active_model();
-
-        // Update SWE and SWF if rear buttons configured as RC switches (func == 0) and not in menu
-        let (left_btn, right_btn) = boot::read_front_buttons();
-        if !menu_active && storage.radio.rear_left_func == 0 && left_btn {
-            state.switches.swe = input::SwitchPos::Down;
-        } else {
-            state.switches.swe = input::SwitchPos::Up;
-        }
-        if !menu_active && storage.radio.rear_right_func == 0 && right_btn {
-            state.switches.swf = input::SwitchPos::Down;
-        } else {
-            state.switches.swf = input::SwitchPos::Up;
-        }
-
-        // Update SG and SH from J4 (PA13/PA14) if enabled
-        if storage.radio.j4_sg_sh_en != 0 {
-            let (sg_pressed, sh_pressed) = boot::read_j4_buttons();
-            state.switches.sg = if sg_pressed { input::SwitchPos::Down } else { input::SwitchPos::Up };
-            state.switches.sh = if sh_pressed { input::SwitchPos::Down } else { input::SwitchPos::Up };
-        } else {
-            state.switches.sg = input::SwitchPos::Up;
-            state.switches.sh = input::SwitchPos::Up;
-        }
 
         // 2. Resynchronize arm state when active model changes or when exiting settings menu
         if storage.radio.active_model != self.prev_active_model {
@@ -128,7 +110,7 @@ impl FlightPipeline {
         let mut just_disarmed = false;
         let is_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
         if active_model.arm_switch > 0
-            && active_model.arm_switch <= 10
+            && active_model.arm_switch <= 14
             && is_armed != self.prev_armed
         {
             if is_armed {
@@ -145,9 +127,12 @@ impl FlightPipeline {
             self.prev_armed = is_armed;
         }
 
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let controls = state.flight_controls(stick_mode);
+
         // 4. Evaluate active model throttle curve (normalized 0..MIXER_MAX)
         let thr_input =
-            ((state.sticks.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
+            ((controls.throttle + mixer::MIXER_MAX) / 2).clamp(0, mixer::MIXER_MAX) as u16;
         let thr_curved = curve::evaluate_curve(
             thr_input,
             active_model.thr_curve_pts,
@@ -156,26 +141,50 @@ impl FlightPipeline {
         );
 
         // 5. Compute all 14 channels via 4-stage pipeline (D/R, Expo, Matrix Mixer, Trims, Reversing)
-        let rf_chs = mixer::compute_channels(
-            state.sticks.roll,
-            state.sticks.pitch,
+        let mut rf_chs = mixer::compute_channels(
+            controls.aileron,
+            controls.elevator,
             thr_curved,
-            state.sticks.yaw,
-            &[state.pots.vr1, state.pots.vr2],
+            controls.rudder,
+            &[
+                state.aux_pots[4],
+                state.aux_pots[5],
+                state.aux_pots[6],
+                state.aux_pots[7],
+                state.aux_pots[8],
+                state.aux_pots[9],
+            ],
             &state.switches,
             active_model,
             trims,
             storage.radio.throttle_trim,
         );
 
+        // 5b. Safety Handover: Process student PPM input if Trainer In is enabled
+        if storage.radio.is_ppm_in_enabled() {
+            let trainer_switch_active = state.switches.sd == input::SwitchPos::Down;
+            let mut handover_chs = rf_chs;
+            trainer::process_handover(trainer_switch_active, &rf_chs, &mut handover_chs);
+            rf_chs = handover_chs;
+        }
+
+        let sim_mode = usb::is_sim_mode();
+
+        // 5c. PPM Output: Update 22.5ms CPPM stream on PF10 if PPM Out is enabled
+        if !sim_mode && storage.radio.is_ppm_out_enabled() {
+            trainer::update_out_channels(&rf_chs);
+        }
+
         // 6. Publish channels to active RF subsystem
         let is_crsf = active_model.rf_protocol == 1;
-        let sim_mode = usb::is_sim_mode();
 
         if is_crsf {
             let crsf_active = !sim_mode;
-            let half_duplex = storage.radio.crsf_duplex != 0;
-            crsf::set_enabled(crsf_active, active_model.crsf_baud, half_duplex);
+            crsf::set_enabled(
+                crsf_active,
+                active_model.crsf_baud,
+                active_model.crsf_half_duplex != 0,
+            );
             if crsf_active {
                 crsf::update_channels(now, &rf_chs);
                 crsf::poll_telemetry(now);
@@ -187,10 +196,6 @@ impl FlightPipeline {
             if !sim_mode {
                 rf::set_channels(&rf_chs);
             }
-        }
-
-        if !sim_mode && storage.radio.ppm_out_en != 0 {
-            rf::ppm_out::update_channels(&rf_chs);
         }
 
         // 7. Map telemetry data based on active protocol
@@ -226,7 +231,7 @@ impl FlightPipeline {
 /// Background idle and UI context: tracks inactivity, backlight timers, user input, and screen rendering.
 struct BackgroundIdleManager {
     prev_stick_samples: [u16; 6],
-    prev_pots: [i16; 2],
+    prev_pots: [i16; 6],
     prev_switches: input::Switches,
     prev_bind_key: bool,
     bind_hold_ms: u32,
@@ -248,14 +253,11 @@ struct BackgroundIdleManager {
     inactivity_beep_timer: u32,
     last_display_ms: u32,
     menu_was_active: bool,
-    pub power_manager: power::PowerManager,
     rx_id_dirty: bool,
     trim_dirty: bool,
     trim_save_cooldown_ms: u16,
-    prev_left_btn: bool,
-    prev_right_btn: bool,
-    latched_keys: u16,
-    last_center_touch_ms: u32,
+    prev_instant_trim_active: bool,
+    board_idle: hw::BoardIdleState,
 }
 
 impl BackgroundIdleManager {
@@ -269,7 +271,14 @@ impl BackgroundIdleManager {
                 init_state.raw[6],
                 init_state.raw[7],
             ],
-            prev_pots: [init_state.pots.vr1, init_state.pots.vr2],
+            prev_pots: [
+                init_state.aux_pots[4],
+                init_state.aux_pots[5],
+                init_state.aux_pots[6],
+                init_state.aux_pots[7],
+                init_state.aux_pots[8],
+                init_state.aux_pots[9],
+            ],
             prev_switches: init_state.switches,
             prev_bind_key: bind_on_boot,
             bind_hold_ms: 0,
@@ -291,14 +300,11 @@ impl BackgroundIdleManager {
             inactivity_beep_timer: 0,
             last_display_ms: 0,
             menu_was_active: false,
-            power_manager: power::PowerManager::new(),
             rx_id_dirty: false,
             trim_dirty: false,
             trim_save_cooldown_ms: 0,
-            prev_left_btn: false,
-            prev_right_btn: false,
-            latched_keys: 0,
-            last_center_touch_ms: 0,
+            prev_instant_trim_active: false,
+            board_idle: hw::BoardIdleState::new(),
         }
     }
 
@@ -322,21 +328,25 @@ impl BackgroundIdleManager {
         rf_ok: bool,
     ) {
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();
-        self.power_manager.update(dt_ms, storage, buzzer);
+
+        let (ok_held, timer_reset_clicked, instant_trim_clicked) =
+            self.board_idle
+                .update(now, dt_ms, keys, menu_active, storage, buzzer);
 
         // 1. Resynchronize arm tracking when exiting settings menu
         if self.menu_was_active && !menu_active {
             let active = storage.active_model();
-            pipeline.prev_armed = mixer::eval_arm_switch(active.arm_switch, &flight.state.switches);
+            pipeline.prev_armed =
+                mixer::eval_arm_switch(active.arm_switch, &flight.state.switches);
         }
         self.menu_was_active = menu_active;
 
-        // Pot Center Crossing Haptic/Audio Feedback (VR1 & VR2)
+        // Pot Center Crossing Haptic/Audio Feedback (VRA..VRF)
         // Detect transitions across deadband ±25 from outside (|prev| >= 25 && |curr| < 25)
-        for (&curr, prev) in [flight.state.pots.vr1, flight.state.pots.vr2]
-            .iter()
-            .zip(self.prev_pots.iter_mut())
-        {
+        let max_pot = if storage.radio.ext_adc != 0 { 6 } else { 2 };
+        for idx in 0..max_pot {
+            let curr = flight.state.aux_pots[idx + 4];
+            let prev = &mut self.prev_pots[idx];
             if prev.abs() >= 25 && curr.abs() < 25 {
                 buzzer.pot_center_click();
             }
@@ -460,7 +470,85 @@ impl BackgroundIdleManager {
             buzzer.play_tone_pattern(2400, 70, 50, 2);
         }
 
-        // 7. Debounced auto-save of active model trims to Flash (inhibit while armed)
+        // 7. Instant Trim Evaluation: Check if any auxiliary channel configured as InstantTrim went active
+        let mut instant_trim_active = false;
+        let max_adc = if storage.radio.ext_adc != 0 { 10 } else { 6 };
+        for ch in 0..max_adc {
+            let mode = storage::AdcInputMode::resolve(ch, storage.radio.adc_modes[ch]);
+            if matches!(mode, storage::AdcInputMode::InstantTrim) {
+                // Active when switch is toggled down (raw reading > 2048)
+                let raw_val = flight.state.raw[match ch {
+                    0 => 4,
+                    1 => 5,
+                    2 => 8,
+                    3 => 9,
+                    4 => 6,
+                    5 => 7,
+                    6 => 11,
+                    7 => 12,
+                    8 => 13,
+                    _ => 14,
+                }];
+                if raw_val >= 2048 {
+                    instant_trim_active = true;
+                    break;
+                }
+            }
+        }
+
+        let instant_trim_triggered = instant_trim_active && !self.prev_instant_trim_active;
+        self.prev_instant_trim_active = instant_trim_active;
+
+        if instant_trim_clicked || (!menu_active && instant_trim_triggered) {
+            let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+            let controls = flight.state.flight_controls(stick_mode);
+            // Apply symmetric rounding to nearest trim step (40 counts per trim step: -1000..+1000 -> -25..+25)
+            let round_step = |val: i16| -> i8 {
+                if val >= 0 {
+                    ((val + 20) / 40) as i8
+                } else {
+                    ((val - 20) / 40) as i8
+                }
+            };
+            let delta_roll = round_step(controls.aileron);
+            let delta_pitch = round_step(controls.elevator);
+            let delta_yaw = round_step(controls.rudder);
+
+            if delta_roll != 0 || delta_pitch != 0 || delta_yaw != 0 {
+                // Sticks deflected: adjust trims toward the stick deflection
+                trims.values.roll = (trims.values.roll + delta_roll).clamp(-25, 25);
+                trims.values.pitch = (trims.values.pitch + delta_pitch).clamp(-25, 25);
+                trims.values.yaw = (trims.values.yaw + delta_yaw).clamp(-25, 25);
+
+                // Set active trim indicator so the dashboard footer immediately shows the updated trim value
+                if delta_roll != 0 {
+                    trims.last_active = trim::ActiveTrim::Roll;
+                } else if delta_pitch != 0 {
+                    trims.last_active = trim::ActiveTrim::Pitch;
+                } else {
+                    trims.last_active = trim::ActiveTrim::Yaw;
+                }
+                trims.active_timer_ms = 1500;
+
+                self.trim_dirty = true;
+                self.trim_save_cooldown_ms = 1000;
+                buzzer.play_tone_pattern(2400, 60, 40, 2);
+            } else if trims.values.roll != 0 || trims.values.pitch != 0 || trims.values.yaw != 0 {
+                // Sticks centered and trims were non-zero: reset all primary flight trims back to neutral
+                trims.values.roll = 0;
+                trims.values.pitch = 0;
+                trims.values.yaw = 0;
+
+                trims.last_active = trim::ActiveTrim::Roll;
+                trims.active_timer_ms = 1500;
+
+                self.trim_dirty = true;
+                self.trim_save_cooldown_ms = 1000;
+                buzzer.trim_center();
+            }
+        }
+
+        // 8. Debounced auto-save of active model trims to Flash (inhibit while armed)
         let active_trims = [
             trims.values.roll,
             trims.values.pitch,
@@ -485,32 +573,22 @@ impl BackgroundIdleManager {
             self.trim_dirty = false;
         }
 
-        // 8. Open Settings Menu from flight dashboard:
-        // Strictly require holding OK for >= 1.2s from physical PA10 button or center touch hold (KEY_MENU_OPEN)
+        // 8b. Long-press OK (1.2s) from flight dashboard opens Settings Menu
         if !menu_active {
-            let (_, right_btn) = boot::read_front_buttons();
-            let center_touch = (keys & touch::nav::KEY_MENU_OPEN) != 0;
-            if center_touch {
-                self.last_center_touch_ms = now;
-            }
-            let touch_active = self.last_center_touch_ms != 0
-                && now.wrapping_sub(self.last_center_touch_ms) < 150;
-            let ok_held = touch_active || right_btn;
-
             if ok_held {
                 self.ok_hold_ms = self.ok_hold_ms.saturating_add(dt_ms);
                 if self.ok_hold_ms >= 1200 {
                     menu_controller.open(buzzer);
                     self.ok_hold_ms = 0;
-                    self.last_center_touch_ms = 0;
+                    self.board_idle.clear_menu_open_state();
                 }
             } else {
                 self.ok_hold_ms = 0;
-                self.last_center_touch_ms = 0;
+                self.board_idle.clear_menu_open_state();
             }
         }
 
-        // 8. Flight Timer Engine
+        // 8c. Flight Timer Engine
         let active_idx = storage.radio.active_model;
         let model = storage.active_model();
         if self.prev_timer_model != active_idx {
@@ -522,7 +600,7 @@ impl BackgroundIdleManager {
         }
 
         // Arm Switch transitions: auto-reset upon Arming, unlatch upon Disarming
-        if model.arm_switch > 0 && model.arm_switch <= 10 {
+        if model.arm_switch > 0 && model.arm_switch <= 14 {
             if flight.just_armed {
                 self.timer_remaining_secs = model.timer_secs;
                 self.timer_elapsed_secs = 0;
@@ -544,41 +622,18 @@ impl BackgroundIdleManager {
             self.cancel_waiting_release = false;
         }
 
-        // Physical rear button edge detection for special functions in flight mode
-        let (left_btn, right_btn) = boot::read_front_buttons();
-        let left_clicked = left_btn && !self.prev_left_btn;
-        let right_clicked = right_btn && !self.prev_right_btn;
-        self.prev_left_btn = left_btn;
-        self.prev_right_btn = right_btn;
-
-        // Instant Timer Reset via Left Rear Button (func == 1)
-        if !menu_active
-            && left_clicked
-            && storage.radio.rear_left_func == 1
-            && self.timer_reset_cooldown_ms == 0
-        {
+        // Check for manual reset via assigned button or [CANCEL] held for >= 1.0s on flight dashboard
+        if timer_reset_clicked && self.timer_reset_cooldown_ms == 0 {
             self.timer_remaining_secs = model.timer_secs;
             self.timer_elapsed_secs = 0;
             self.timer_ms_acc = 0;
             self.timer_latched = false;
+            self.cancel_hold_ms = 0;
+            self.cancel_waiting_release = true;
             self.timer_reset_toast_ms = 800;
-            self.timer_reset_cooldown_ms = 500;
+            self.timer_reset_cooldown_ms = 1500;
             buzzer.play_tone(2400, 100);
-        }
-
-        // Instant Trim via Right Rear Button (func == 1)
-        if !menu_active && right_clicked && storage.radio.rear_right_func == 1 {
-            let delta_roll = (flight.state.sticks.roll / 40) as i8;
-            let delta_pitch = (flight.state.sticks.pitch / 40) as i8;
-            trims.values.roll = (trims.values.roll + delta_roll).clamp(-25, 25);
-            trims.values.pitch = (trims.values.pitch + delta_pitch).clamp(-25, 25);
-            self.trim_dirty = true;
-            self.trim_save_cooldown_ms = 1000;
-            buzzer.play_tone_pattern(2400, 60, 40, 2);
-        }
-
-        // Check for manual reset via [CANCEL] held for >= 1.0s on flight dashboard
-        if !menu_active
+        } else if !menu_active
             && cancel_key
             && !self.cancel_waiting_release
             && self.timer_reset_cooldown_ms == 0
@@ -600,14 +655,16 @@ impl BackgroundIdleManager {
         }
 
         // Evaluate timer trigger condition
-        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 10 {
+        let is_armed_or_unassigned = if model.arm_switch > 0 && model.arm_switch <= 14 {
             flight.is_armed
         } else {
             true
         };
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let controls = flight.state.flight_controls(stick_mode);
         let timer_running = mixer::is_timer_active(
             model.timer_source,
-            flight.state.sticks.throttle,
+            controls.throttle,
             &mut self.timer_latched,
             &flight.state.switches,
             is_armed_or_unassigned,
@@ -632,9 +689,6 @@ impl BackgroundIdleManager {
             }
         }
 
-        // Accumulate instantaneous key events across background ticks
-        self.latched_keys |= keys;
-
         // 9. Display Frame Rendering (~30 Hz)
         let run_display = now.wrapping_sub(self.last_display_ms) >= 33;
         if !run_display {
@@ -642,16 +696,7 @@ impl BackgroundIdleManager {
         }
         self.last_display_ms = now;
 
-        let mut frame_keys = self.latched_keys;
-        self.latched_keys = 0;
-
-        // In menus, scrolling (UP / DOWN) takes priority; mask out OK in the same frame
-        // to prevent simultaneous scroll + item selection!
-        if (menu_controller.is_active() || calib_wizard.is_active())
-            && (frame_keys & ((1 << 8) | (1 << 9))) != 0
-        {
-            frame_keys &= !(1 << 10);
-        }
+        let frame_keys = self.board_idle.take_frame_keys(keys, menu_active);
 
         self.render_display_frame(
             lcd,
@@ -707,11 +752,8 @@ impl BackgroundIdleManager {
                 menu_controller.request_bind = false;
                 buzzer.play_tone(2400, 150);
             }
-
-            lcd.flush();
         } else if calib_wizard.is_active() {
             calib_wizard.update(lcd, storage, &flight.state.raw, keys, dt_ms.max(20), buzzer);
-            lcd.flush();
         } else {
             let model = storage.active_model();
             let mut timer_buf = [0u8; 8];
@@ -758,10 +800,7 @@ impl BackgroundIdleManager {
             }
         }
 
-        if self.power_manager.shutdown_progress_pct() > 0 {
-            draw_shutdown_modal(lcd, self.power_manager.shutdown_progress_pct());
-        }
-
+        self.board_idle.render_overlay(lcd);
         lcd.flush();
     }
 }
@@ -779,7 +818,6 @@ fn run_preflight_check(
         return;
     }
 
-
     let mut preflight_beep_timer: u32 = 0;
     let mut preflight_last_render: u32 = 0;
     let mut warned = false;
@@ -788,20 +826,37 @@ fn run_preflight_check(
         watchdog::feed();
 
         let now = time::millis();
-        let state = input::poll();
+        let state = input::read();
         let keys = boot::scan_keys();
 
-        let is_general = storage.active_model().model_type == 4;
-        let is_calibrated = storage.radio.sticks[2].min > 200;
-        let thr_unsafe = if is_general {
-            false
-        } else if is_calibrated {
-            state.sticks.throttle > -900
-        } else {
-            state.raw[2] > 1400
-        };
+        let raw_adc = [state.raw[0], state.raw[1], state.raw[2], state.raw[3]];
+        let model_type = storage.active_model().model_type();
+        let stick_mode = safety::StickMode::from_u8(storage.radio.stick_mode);
+        let cal = [
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[0]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[1]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[2]),
+            safety::ChannelCalibration::from_channel_calib(&storage.radio.sticks[3]),
+        ];
+        let thr_hold = state.switches.sa == input::SwitchPos::Down;
 
-        let sa_unsafe = state.switches.sa != input::SwitchPos::Up;
+        let thr_result = safety::check_preflight_throttle(
+            &raw_adc,
+            Some(&cal),
+            stick_mode,
+            model_type,
+            thr_hold,
+        );
+        let thr_unsafe = thr_result.is_err();
+
+        // For helicopters, SA Down is the required Throttle Hold position.
+        // For all other models, SA Up is the safe position.
+        let is_heli = model_type == safety::ModelType::Heli;
+        let sa_unsafe = if is_heli {
+            state.switches.sa != input::SwitchPos::Down
+        } else {
+            state.switches.sa != input::SwitchPos::Up
+        };
         let sb_unsafe = state.switches.sb != input::SwitchPos::Up;
         let sc_unsafe = state.switches.sc != input::SwitchPos::Up;
         let sd_unsafe = state.switches.sd != input::SwitchPos::Up;
@@ -838,15 +893,20 @@ fn run_preflight_check(
             buzzer.tick(dt);
 
             lcd.clear_buffer();
-            lcd.draw_str_6x10(16, 1, "SAFETY WARNING!", false);
+            lcd.draw_str_6x10(16, 2, "SAFETY WARNING!", false);
             lcd.draw_hline(0, 11, 128, true);
 
-            if thr_unsafe {
-                lcd.draw_str_6x10(2, 15, "THROTTLE NOT AT IDLE!", false);
+            if let Err(err) = thr_result {
+                let msg = match err {
+                    safety::PreflightError::ThrottleHigh { .. } => "THROTTLE NOT AT IDLE!",
+                    safety::PreflightError::ThrottleNotCentered { .. } => "CENTER THROTTLE STICK!",
+                    safety::PreflightError::ThrottleHoldDisengaged => "THROTTLE HOLD OFF!",
+                };
+                lcd.draw_str_6x10(2, 16, msg, false);
             }
 
             if sw_unsafe {
-                lcd.draw_str_6x10(2, 26, "SWITCH WARNING:", false);
+                lcd.draw_str_6x10(2, 27, "SWITCH WARNING:", false);
                 let mut sw_warn = [b' '; 20];
                 let mut col = 0;
                 for &(unsafe_flag, label) in &[
@@ -864,13 +924,17 @@ fn run_preflight_check(
                         }
                     }
                 }
-                let sw_str =
-                    ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
-                lcd.draw_str_6x10(2, 36, sw_str, false);
+                let sw_str = ui::format::ascii_as_str(&sw_warn[..col.saturating_sub(1).min(16)]);
+                lcd.draw_str_6x10(2, 37, sw_str, false);
             }
 
             lcd.draw_hline(0, 55, 128, true);
-            lcd.draw_str_4x6(2, 57, "Lower Thr/Safe SW  [ESC]Skip", false);
+            let footer = match thr_result {
+                Err(safety::PreflightError::ThrottleNotCentered { .. }) => "Center Thr/Safe SW [ESC]Skip",
+                Err(safety::PreflightError::ThrottleHoldDisengaged) => "Hold Thr/Safe SW   [ESC]Skip",
+                _ => "Lower Thr/Safe SW  [ESC]Skip",
+            };
+            lcd.draw_str_4x6(2, 57, footer, false);
             lcd.flush();
         }
     }
@@ -882,9 +946,9 @@ fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
     lcd.draw_rect(18, 19, 92, 26, true);
 
     if completed {
-        lcd.draw_str_6x10(28, 27, "TIMER RESET!", false);
+        lcd.draw_str_6x10(28, 28, "TIMER RESET!", false);
     } else {
-        lcd.draw_str_6x10(31, 21, "RESET TIMER", false);
+        lcd.draw_str_6x10(31, 22, "RESET TIMER", false);
 
         // Progress bar container: 74 x 6, positioned at (27, 33)
         lcd.draw_rect(27, 33, 74, 6, true);
@@ -897,27 +961,10 @@ fn draw_timer_reset_modal(lcd: &mut St7567, progress_pct: u8, completed: bool) {
     }
 }
 
-/// Draw centered modal overlay for power button shutdown hold progress.
-fn draw_shutdown_modal(lcd: &mut St7567, progress_pct: u8) {
-    lcd.fill_rect(18, 19, 92, 26, false);
-    lcd.draw_rect(18, 19, 92, 26, true);
-
-    lcd.draw_str_6x10(28, 21, "SHUTDOWN...", false);
-
-    // Progress bar container: 74 x 6, positioned at (27, 33)
-    lcd.draw_rect(27, 33, 74, 6, true);
-
-    // Progress fill: up to 70px wide
-    let fill_w = ((progress_pct as u32 * 70) / 100).min(70);
-    if fill_w > 0 {
-        lcd.fill_rect(29, 35, fill_w, 2, true);
-    }
-}
-
 #[entry]
 fn main() -> ! {
-    // 0. Electronic power latch: MUST be the first instruction to hold power rail ON!
-    power::init();
+    // 0. Early board initialization (e.g. electronic power latch on FS-i6S)
+    hw::pre_init();
 
     // Standalone feed immediately refreshes any watchdog running across soft reboot
     watchdog::feed();
@@ -942,8 +989,8 @@ fn main() -> ! {
     // Initialize SysTick 1.000 ms hardware monotonic timekeeper
     time::init();
 
-    // Initialize FT6236 Capacitive Touchscreen on I2C1 (PB8 SCL, PB9 SDA @ 400kHz, PA15 RST, PC12 INT)
-    touch::ft6236::init();
+    // Initialize board-specific touch controller (if present)
+    hw::init_touch();
 
     // 3. Load persistent radio storage and 20-model configuration
     let storage = storage::get_storage();
@@ -976,7 +1023,7 @@ fn main() -> ! {
     watchdog::start();
 
     // 7. Initialize ADC1 + DMA1 autonomous continuous scanner
-    adc::init();
+    adc::init(storage.radio.ext_adc != 0);
     watchdog::feed();
     {
         let now = time::millis();
@@ -990,7 +1037,7 @@ fn main() -> ! {
     // 8. Initialize input calibration and capture resting stick centers
     input::init();
     input::apply_calibration(&storage.radio);
-    boot::init_j4_keys(storage.radio.j4_sg_sh_en != 0);
+    hw::init_board_keys(&storage.radio);
     watchdog::feed();
     {
         let now = time::millis();
@@ -1028,11 +1075,14 @@ fn main() -> ! {
     // Initialize USB peripheral (Joystick / Serial / Composite / Off)
     usb::init(storage.radio.usb_mode);
 
-    // Initialize CRSF / ExpressLRS expansion bay peripheral (USART1 PB6/PB7 & PF6)
+    // Initialize CRSF / ExpressLRS expansion bay peripheral
     crsf::init(storage.radio.ext_module_pwr == 0);
 
-    // Initialize PPM output peripheral on PF10 (J15 header)
-    rf::ppm_out::init(storage.radio.ppm_out_en != 0);
+    // Initialize Trainer / PPM subsystem (TIM15, PF9 In, PF10 Out)
+    trainer::init(
+        storage.radio.is_ppm_out_enabled(),
+        storage.radio.is_ppm_in_enabled(),
+    );
 
     let mut trims = trim::TrimController::new();
     trims.throttle_enabled = storage.radio.throttle_trim != 0;
@@ -1044,6 +1094,7 @@ fn main() -> ! {
     trims.values.throttle = active.trims[2];
     trims.values.yaw = active.trims[3];
     rf::set_rx_id(active.rx_id);
+    rf::set_rf_power(active.rf_power);
     rf::set_rx_settings(
         active.servo_rate_hz,
         active.rx_out_mode,
@@ -1074,10 +1125,16 @@ fn main() -> ! {
 
     // 11. Pre-flight Startup Safety Check: Throttle at idle and switches in safe (UP) positions
     // Bypassed on watchdog reset to immediately resume RF control in flight
-    run_preflight_check(storage, &mut buzzer, &mut lcd, &calib_wizard, was_watchdog_reset);
+    run_preflight_check(
+        storage,
+        &mut buzzer,
+        &mut lcd,
+        &calib_wizard,
+        was_watchdog_reset,
+    );
 
     // Initialize execution tiers
-    let init_state = input::poll();
+    let init_state = input::read();
     let mut pipeline = FlightPipeline::new(storage, &init_state);
     let mut idle_manager = BackgroundIdleManager::new(&init_state, bind_on_boot);
     let mut dashboard = ui::dashboard::DashboardController::new();
@@ -1088,30 +1145,21 @@ fn main() -> ! {
         // Feed watchdog at loop start to guarantee active execution
         watchdog::feed();
 
+        // Service deferred USB reconfiguration outside deep UI call stacks
+        if let Some(mode) = usb::take_pending_init() {
+            usb::init(mode);
+        }
+
         let now = time::millis();
         let dt_ms = (now.wrapping_sub(last_tick_ms)).min(100) as u16;
 
         let menu_active = menu_controller.is_active() || calib_wizard.is_active();
-
-        // Poll touchscreen when interrupt asserted
-        let touch_sample = if storage.radio.touch_disabled == 0 && touch::ft6236::is_touch_int_asserted() {
-            touch::ft6236::read_touch()
-        } else {
-            None
-        };
-        let current_sticks = input::poll().sticks;
-        let keys = touch::nav::update_inputs(
-            touch_sample.as_ref(),
-            &current_sticks,
-            menu_active,
-            storage.radio.rear_left_func,
-            storage.radio.rear_right_func,
-            storage.radio.throttle_trim != 0,
-        );
+        let keys = hw::poll_keys(storage, menu_active);
 
         if dt_ms > 0 {
             last_tick_ms = now;
             buzzer.tick(dt_ms);
+            trainer::tick_ms(dt_ms);
             if !menu_active {
                 trims.update(keys, dt_ms, &mut buzzer);
             }

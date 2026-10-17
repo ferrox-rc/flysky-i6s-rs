@@ -4,7 +4,7 @@ version = "0.1.2"
 edition = "2021"
 
 [lib]
-name = "flysky_i6s_rs"
+name = "ferrox"
 path = "src/lib.rs"
 
 [[bin]]

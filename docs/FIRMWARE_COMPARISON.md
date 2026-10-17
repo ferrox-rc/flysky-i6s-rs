@@ -38,10 +38,11 @@ While sharing the STM32F072VB core and A7105 RF transceiver with the older FS-i6
 
 ---
 
-## 3. Design Philosophy of `flysky-i6s-rs`
+## 3. Design Philosophy of `flysky-i6s-rs` & Unified `ferrox` Core
 
-- **Clean-Slate Bare-Metal `no_std` Rust:** Zero dynamic heap allocation (`alloc` free), zero allocator stalls, and guaranteed memory safety on Cortex-M0.
-- **Deterministic RF Timing:** Dedicated hardware timer (`TIM16`) for frame synchronization, autonomous DMA ADC scanning, and a decoupled execution loop.
+- **Unified `ferrox` Core + Zero Dead-Code HAL (`src/hw/`):** `flysky-i6s-rs` and [`flysky-i6x-rs`](https://github.com/bryansouza/flysky-i6x-rs) share a 100% byte-for-byte identical hardware-agnostic core (`ferrox`), while all board-specific peripherals (`src/hw/power.rs`, `src/hw/touch/`, `src/hw/adc.rs`, `src/hw/keys.rs`, `src/hw/uart.rs`) live cleanly in `src/hw/` with zero dead-code stubs.
+- **Clean-Slate Bare-Metal `no_std` Rust:** Zero dynamic heap allocation (`alloc` free), in-tree 1bpp bitmap fonts, zero allocator stalls, and guaranteed memory safety on Cortex-M0.
+- **Deterministic RF Timing:** Dedicated hardware timer (`TIM16`) for frame synchronization, autonomous DMA ADC scanning, `TIM15` hardware CPPM trainer I/O, and a decoupled execution loop.
 - **Embedded CRSF & ExpressLRS Engine:** Native bidirectional CRSF parameter parsing directly in Rust to configure external modules on the touch interface without a Lua engine.
 - **Safety First & Instant Recovery:** Watchdog reset recovery in $< 2\text{ ms}$ bypassing interlocks, and safe hold-to-shutdown Flash flushing.
 
@@ -52,7 +53,9 @@ While sharing the STM32F072VB core and A7105 RF transceiver with the older FS-i6
 Because the STM32F072 features a permanent factory DFU bootloader in System ROM, pilots can explore different firmwares safely with **zero disassembly**:
 
 1. **Enter Bootloader Mode:**
-   - Hold both front push-buttons (**`PA9` + `PA10`**) while powering ON.
+   - **Cold-Boot Combo:** Hold both rear/front push-buttons (**`PA9` + `PA10`**) while powering ON.
+   - **Software Menu:** Navigate to `Settings -> 13. System Info -> [OK] Reboot DFU`.
+   - **USB Serial CLI:** Send `dfu` over the virtual serial port.
 2. **Back Up Current Firmware (Recommended):**
    ```bash
    dfu-util -a 0 -s 0x08000000:131072 -U backup_full.bin

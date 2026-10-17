@@ -1,4 +1,4 @@
-//! USB HID Gamepad / Joystick driver for FlySky FS-i6X.
+//! USB HID Gamepad / Joystick driver for FlySky Transmitters.
 //!
 //! Exposes an 8-axis, 16-button standard USB Gamepad compatible with all FPV
 //! and RC flight simulators (Liftoff, Velocidrone, RealFlight, AccuRC, DCL, etc.).
@@ -65,6 +65,10 @@ fn us_to_axis(us: u16) -> u16 {
 ///   - Button 5: Switch SC (Down)
 ///   - Button 6: Switch SD (Down)
 ///   - Buttons 7..10: Channels 11..14 (> AUX_BUTTON_THRESHOLD_US for auxiliary functions)
+///   - Button 11: Switch SE (Down)
+///   - Button 12: Switch SF (Down)
+///   - Button 13: Switch SG (Down)
+///   - Button 14: Switch SH (Down)
 pub fn build_gamepad_report(
     rf_chs: &[u16; NUM_CHANNELS],
     switches: &Switches,
@@ -100,6 +104,20 @@ pub fn build_gamepad_report(
         if pulse > AUX_BUTTON_THRESHOLD_US {
             btns |= 1 << (6 + i);
         }
+    }
+
+    // Buttons 11..14: Auxiliary switches SE, SF, SG, SH (Down)
+    if switches.se == SwitchPos::Down {
+        btns |= 1 << 10; // Button 11
+    }
+    if switches.sf == SwitchPos::Down {
+        btns |= 1 << 11; // Button 12
+    }
+    if switches.sg == SwitchPos::Down {
+        btns |= 1 << 12; // Button 13
+    }
+    if switches.sh == SwitchPos::Down {
+        btns |= 1 << 13; // Button 14
     }
 
     out[0] = (btns & 0xFF) as u8;
@@ -145,4 +163,49 @@ pub fn build_gamepad_report(
     let a8 = us_to_axis(rf_chs[7]);
     out[16] = (a8 & 0xFF) as u8;
     out[17] = ((a8 >> 8) & 0xFF) as u8;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gamepad_report_buttons_all_up() {
+        let chs = [1500u16; NUM_CHANNELS];
+        let switches = Switches::DEFAULT;
+        let mut report = [0u8; REPORT_SIZE];
+
+        build_gamepad_report(&chs, &switches, &mut report);
+
+        let btns = (report[0] as u16) | ((report[1] as u16) << 8);
+        assert_eq!(btns, 0, "All switches UP should yield 0 buttons");
+    }
+
+    #[test]
+    fn test_gamepad_report_buttons_se_sf() {
+        let chs = [1500u16; NUM_CHANNELS];
+        let mut report = [0u8; REPORT_SIZE];
+
+        // SE Down -> Button 11 (bit 10)
+        let mut switches = Switches::DEFAULT;
+        switches.se = SwitchPos::Down;
+        build_gamepad_report(&chs, &switches, &mut report);
+        let btns = (report[0] as u16) | ((report[1] as u16) << 8);
+        assert_eq!(btns, 1 << 10, "SE Down should set button 11 (bit 10)");
+
+        // SF Down -> Button 12 (bit 11)
+        let mut switches = Switches::DEFAULT;
+        switches.sf = SwitchPos::Down;
+        build_gamepad_report(&chs, &switches, &mut report);
+        let btns = (report[0] as u16) | ((report[1] as u16) << 8);
+        assert_eq!(btns, 1 << 11, "SF Down should set button 12 (bit 11)");
+
+        // Both SE and SF Down -> bits 10 and 11
+        let mut switches = Switches::DEFAULT;
+        switches.se = SwitchPos::Down;
+        switches.sf = SwitchPos::Down;
+        build_gamepad_report(&chs, &switches, &mut report);
+        let btns = (report[0] as u16) | ((report[1] as u16) << 8);
+        assert_eq!(btns, (1 << 10) | (1 << 11), "Both SE and SF Down should set buttons 11 & 12");
+    }
 }

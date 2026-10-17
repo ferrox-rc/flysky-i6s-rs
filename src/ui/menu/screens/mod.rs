@@ -2,7 +2,7 @@
 
 pub mod channels;
 pub mod diag;
-pub mod elrs;
+pub mod crsf;
 pub mod main_menu;
 pub mod mixer;
 pub mod model;

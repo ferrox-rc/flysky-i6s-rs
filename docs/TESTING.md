@@ -21,7 +21,7 @@ To achieve **instant, sub-millisecond local feedback** with zero hardware requir
 
 ```text
 +-----------------------------------------------------------------------------------+
-|                                     src/lib.rs                                    |
+|                              src/lib.rs (ferrox)                                  |
 |                      #![cfg_attr(not(test), no_std)]                             |
 +-----------------------------------------+-----------------------------------------+
                                           |
@@ -34,11 +34,11 @@ To achieve **instant, sub-millisecond local feedback** with zero hardware requir
         Profile: #![no_std]                          Profile: std enabled
         Peripheral Driver: Hardware MMIO             Peripheral Driver: Mock FIFO
         Hardware: Cortex-M0 (STM32F072)              Harness: Built-in Rust Test Runner
-        Binary: flysky-i6s.bin (Flash)               Speed: 91 tests in 0.04s
+        Binary: flysky-i6s.bin (Flash)               Speed: 140 tests in <0.1s
 ```
 
-1. **`src/lib.rs` Entry Point**: Configured with `#![cfg_attr(not(test), no_std)]`. When compiling firmware binaries, the codebase compiles strictly as `#![no_std]`. When running tests on the host, standard library support (`std`) is conditionally enabled for test assertion macros, vector allocations, and test runners.
-2. **Zero-File-Move Design**: Rather than moving modules or refactoring git trees into separate workspaces, `src/lib.rs` exports all existing internal modules (`curve`, `trim`, `mixer`, `crsf`, `storage`, `time`, etc.). This preserves 100% clean git histories and avoids merge conflicts across concurrent WIP feature branches.
+1. **`src/lib.rs` Entry Point (`ferrox`)**: Configured with `#![cfg_attr(not(test), no_std)]`. When compiling firmware binaries, the codebase compiles strictly as `#![no_std]`. When running tests on the host, standard library support (`std`) is conditionally enabled for test assertion macros, vector allocations, and test runners.
+2. **Zero-File-Move Design**: Rather than moving modules or refactoring git trees into separate workspaces, `src/lib.rs` exports all internal modules (`hw`, `curve`, `trim`, `mixer`, `crsf`, `trainer`, `safety`, `storage`, `time`, `ui`, etc.).
 3. **`Cargo.toml` Integration**: The firmware binary target `[[bin]]` has `test = false` so that `cargo test` does not attempt to compile the bare-metal reset vector on the host.
 
 ---
@@ -55,14 +55,15 @@ test-host = "test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1"
 ### Quick Commands
 
 ```bash
-# Run all host unit tests (sub-millisecond execution)
+# Run all host unit tests (sub-second execution)
 cargo test-host
 
 # Run only CRSF protocol and state machine tests
 cargo test-host crsf
 
-# Run only mixer and curve tests
+# Run only mixer, trainer, or curve tests
 cargo test-host mixer
+cargo test-host trainer
 cargo test-host curve
 
 # Run tests with unsuppressed console output
@@ -71,7 +72,7 @@ cargo test-host -- --nocapture
 
 ### Why `--test-threads=1` is Mandatory
 
-In bare-metal embedded firmware, hardware peripherals and global runtime state are designed as **singletons** (e.g. `USART2` hardware registers, `CONFIG_ENGINE`, `TELEMETRY`, and mock FIFO buffers). 
+In bare-metal embedded firmware, hardware peripherals and global runtime state are designed as **singletons** (e.g. `USART1` hardware registers, `CONFIG_ENGINE`, `TELEMETRY`, and mock FIFO buffers). 
 
 By default, Cargo runs test cases in parallel across all available host CPU cores. When multiple unit tests concurrently access or mutate these static structures, race conditions occur. By appending `-- --test-threads=1` to the `test-host` alias, test execution is strictly serialized, guaranteeing **100% deterministic, reproducible test runs**.
 
@@ -81,9 +82,9 @@ By default, Cargo runs test cases in parallel across all available host CPU core
 
 To isolate core logic (state machines, math pipelines, packet framing) from physical silicon, peripherals use conditional compilation (`#[cfg(test)]` vs `#[cfg(not(test))]`).
 
-### 3.1 Serial UART Driver Decoupling (`src/crsf/uart.rs`)
+### 3.1 Serial UART Driver Decoupling (`src/hw/uart.rs`)
 
-The CRSF subsystem interfaces with external modules via `USART2`. The driver cleanly splits hardware register access from mock test buffers:
+The CRSF subsystem interfaces with external modules via `USART1` (`PB6`/`PB7` on `J15`). The driver in [`src/hw/uart.rs`](../src/hw/uart.rs) cleanly splits hardware register access from mock test buffers:
 
 ```rust
 // In production firmware (thumbv6m-none-eabi bare-metal):
@@ -94,7 +95,7 @@ pub fn read_byte() -> Option<u8> {
 
 #[cfg(not(test))]
 pub fn send_bytes(bytes: &[u8]) {
-    // Direct MMIO writes to USART2_TDR and USART2_ISR
+    // Direct MMIO writes to USART1_TDR and USART1_ISR
 }
 
 // In host unit tests (x86_64):
@@ -194,7 +195,7 @@ Instead of synthetic test data alone, tests incorporate exact raw byte captures 
 - Injects a 27-byte capture from an ExpressLRS RadioMaster RP2 receiver:
   `[0xC8, 0x19, 0x29, 0xEA, 0xEE, 0x52, 0x4D, 0x20, 0x52, 0x50, 0x32, 0x00, 0x45, 0x4C, 0x52, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x15, 0x00, 0x0D]`
 - Asserts that the parser extracts device ID `0xEE`, name `"RM RP2"`, serial `"ELRS"`, firmware `4`, and parameter count `21`.
-- Validates that the handset automatically emits the correct `0x2C` Parameter Read request for Param 1 Chunk 0 addressed to `0xEE`.
+- Validates that the handset automatically emits the correct `0x2C` Parameter Read request for Param 0 (Root Folder) addressed to `0xEE`.
 
 ### 4.2 Wire Framing, Noise Rejection, & Inter-Byte Timeout
 
@@ -223,15 +224,19 @@ CRSF allows communicating with modules (`0xEE`), receivers (`0xEC`), and flight 
 
 ## 5. Subsystem Unit Test Suites
 
-The test suite covers core flight, calculation, and protocol components:
+The test suite covers core flight, calculation, hardware navigation, trainer, and protocol components:
 
 | Module | Test Coverage | Key Verifications |
 | :--- | :--- | :--- |
 | **`curve.rs`** | Throttle & Expo Curves | 5-point and 9-point linear identity, flat and inverted curves, Catmull-Rom cubic Hermite spline monotonicity, endpoint clamping ($0..1000$). |
 | **`trim.rs`** | Digital Trims | Linear trim steps ($-125..+125$), center-cross clicks, throttle trim safety options (linear trim vs bottom-half idle-only trim). |
-| **`mixer.rs`** | Flight Pipeline & Matrix Mixer | Linear and cubic exponential curves, channel reversing bitmask, Elevon/Delta and V-Tail mixing formulas, throw limits ($1000..2000\,\mu\text{s}$), and 8-line matrix mixing modes (`ADD`, `MULT`, `REPLACE`). |
-| **`crsf/protocol.rs`** | CRSF Wire Serialization | 16-channel 11-bit packing/unpacking, FlySky pulse scaling ($988..2012\,\mu\text{s} \to 172..1811$), CRC8-DVB validation against standard polynomials, telemetry payload parsing (Battery, Link Statistics). |
-| **`crsf/mod.rs`** | ELRS Configurator & State Machine | Discovery handshake, parameter loading, multi-frame chunk reassembly, interactive command execution, silence timeout recovery, and real-world receiver trace validation. |
+| **`input.rs` & `safety.rs`**| Input Scaling & Safety | Stick Modes 1..4 logical remapping, 2-pos/3-pos/6-pos/Pot/PotDetent decoding, model-type preflight safety checks, and in-flight throttle hold/disarm lockouts. |
+| **`hw/touch/`** | Capacitive Touch & Trims | FT6236 coordinate rotation/clamping, swipe/tap gesture classification, stick-modifier trims, and virtual perimeter trim hitboxes. |
+| **`mixer.rs`** | Flight Pipeline & Matrix Mixer | Linear and cubic exponential curves, 18-channel reversing bitmask, Elevon/Delta, V-Tail, and Flaperon templates, differential throw, `Thr+` unipolar source, and 8-line matrix mixing (`ADD`, `MULT`, `REPLACE`). |
+| **`trainer/`** | PPM Out/In & Handover | 22.5 ms 8-channel CPPM frame generation, 0.5 µs input capture sync/channel validation, student handover on `SD` Down, and >5% instructor stick-override takeover. |
+| **`storage.rs`** | Non-Volatile Persistence | 140-byte `RadioConfig` and 128-byte `ModelConfig` alignment, v4/v5 migration, and bounds sanitization. |
+| **`crsf/protocol.rs`** | CRSF Wire Serialization | 16-channel 11-bit packing/unpacking, FlySky pulse scaling ($988..2012\,\mu\text{s} \to 172..1811$), CRC8-DVB validation, and telemetry payload parsing. |
+| **`crsf/mod.rs`** | ELRS Configurator & State Machine | 16-device discovery & pruning, Parameter 0 root query, multi-frame chunk reassembly, integer/select modal editing, command execution, and real-world trace validation. |
 
 ---
 
@@ -240,19 +245,19 @@ The test suite covers core flight, calculation, and protocol components:
 Every contribution, bug fix, or feature branch must pass the **Dual Verification Requirement** before merging into `dev` or `main`:
 
 ```bash
-# 1. Run all host unit tests (must pass 91/91 tests with 0 failures)
-cargo test --lib --target x86_64-unknown-linux-gnu -- --test-threads=1
+# 1. Run all host unit tests (must pass 140/140 tests with 0 failures)
+cargo test-host
 
-# 2. Compile bare-metal firmware (must produce 0 warnings and 0 errors)
+# 2. Run Clippy static analysis on bare-metal target (must produce 0 warnings)
+cargo clippy --target thumbv6m-none-eabi -- -D warnings
+
+# 3. Compile bare-metal firmware (must produce 0 warnings and 0 errors)
 cargo build --release --target thumbv6m-none-eabi
-
-# 3. (Optional) Check binary size and Flash budget (<120 KB partition limit)
-size target/thumbv6m-none-eabi/release/flysky-i6s-rs
 ```
 
 ### CI / CD Integration
 
-In continuous integration environments, both checks can be executed in sequence:
+In continuous integration environments, all checks can be executed in sequence:
 ```yaml
 - name: Run Host Unit Tests
   run: cargo test-host

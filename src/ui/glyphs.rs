@@ -120,6 +120,26 @@ pub fn draw_switch_arrow(lcd: &mut St7567, x: i32, y: i32, pos: SwitchPos) {
     }
 }
 
+/// Draw a compact 3x7 switch position arrow at (x, y) for dense switch rows.
+#[inline]
+pub fn draw_switch_arrow_compact(lcd: &mut St7567, x: i32, y: i32, pos: SwitchPos) {
+    match pos {
+        SwitchPos::Up => {
+            lcd.set_pixel(x + 1, y, true);
+            lcd.draw_hline(x, y + 1, 3, true);
+            lcd.draw_vline(x + 1, y + 2, 5, true);
+        }
+        SwitchPos::Mid => {
+            lcd.draw_hline(x, y + 3, 3, true);
+        }
+        SwitchPos::Down => {
+            lcd.draw_vline(x + 1, y, 5, true);
+            lcd.draw_hline(x, y + 5, 3, true);
+            lcd.set_pixel(x + 1, y + 6, true);
+        }
+    }
+}
+
 /// Draw a horizontal battery gauge with outline and procedural min-max subtraction fill.
 /// - Dimensions: 11x7 px (terminal tip at x, body at x+1..x+10, y..y+6).
 /// - Inner cavity is 8x5 px (x+2..x+9, y+1..y+5).
