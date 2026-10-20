@@ -175,13 +175,15 @@ impl CalibWizard {
                     }
                 }
 
-                // Readiness criteria: sticks must travel at least 250 counts from center in each direction
+                // Readiness criteria: sticks must travel sufficiently from center in each direction
+                // Stock pots sweep ~1300 counts (require >=250); Hall gimbals sweep ~1000 counts (require >=200).
+                let min_stick_span = if storage.radio.is_hall_gimbals() { 200 } else { 250 };
                 let mut ready_count = 0u8;
                 let mut stick_ready = [false; 4];
                 for (i, ready) in stick_ready.iter_mut().enumerate() {
                     let span_neg = self.centers[i].saturating_sub(self.mins[i]);
                     let span_pos = self.maxs[i].saturating_sub(self.centers[i]);
-                    if span_neg >= 250 && span_pos >= 250 {
+                    if span_neg >= min_stick_span && span_pos >= min_stick_span {
                         *ready = true;
                         ready_count += 1;
                     }

@@ -172,7 +172,9 @@ pub struct RadioConfig {
     pub touch_disabled: u8,        // 141: 0: Touch Enabled, 1: Touch Disabled
     pub j4_sg_sh_en: u8,           // 142: 0: SWD Debug, 1: SG/SH Buttons on PA13/PA14
     pub switch_beep: u8,           // 143: 0: Muted, 1: Beep on switch toggle
-    pub _pad_align: [u8; 4],       // 144..148: Align to 148 bytes (4-byte word boundary)
+    pub gimbal_type: u8,           // 144: 0: Standard Potentiometer, 1: Hall Effect
+    pub stick_invert_mask: u8,     // 145: 4 bits (bit 0: RH, bit 1: RV, bit 2: LV, bit 3: LH), default 0x03 (RH+RV inverted)
+    pub _pad_align: [u8; 2],       // 146..148: Align to 148 bytes (4-byte word boundary)
 }
 
 impl RadioConfig {
@@ -282,8 +284,32 @@ impl RadioConfig {
             rear_right_func: 0,
             touch_disabled: 0,
             j4_sg_sh_en: 0,
-            switch_beep: 1,
-            _pad_align: [0; 4],
+            gimbal_type: 0,
+            stick_invert_mask: 0x03, // RH (bit 0) and RV (bit 1) inverted by default for factory pot gimbals
+            _pad_align: [0; 2],
+        }
+    }
+
+    /// Check if aftermarket Hall effect gimbals mode is enabled.
+    #[inline(always)]
+    pub fn is_hall_gimbals(&self) -> bool {
+        self.gimbal_type == 1
+    }
+
+    /// Check if a specific stick axis is inverted (0: RH, 1: RV, 2: LV, 3: LH).
+    #[inline(always)]
+    pub fn is_stick_inverted(&self, stick_idx: usize) -> bool {
+        (self.stick_invert_mask & (1 << (stick_idx & 3))) != 0
+    }
+
+    /// Set stick axis inversion bit (0: RH, 1: RV, 2: LV, 3: LH).
+    #[inline(always)]
+    pub fn set_stick_inverted(&mut self, stick_idx: usize, inverted: bool) {
+        let bit = 1 << (stick_idx & 3);
+        if inverted {
+            self.stick_invert_mask |= bit;
+        } else {
+            self.stick_invert_mask &= !bit;
         }
     }
 
@@ -915,6 +941,12 @@ impl RadioStorage {
         }
         if self.radio.switch_beep > 1 {
             self.radio.switch_beep = 1;
+        }
+        if self.radio.gimbal_type > 1 {
+            self.radio.gimbal_type = 0;
+        }
+        if self.radio.stick_invert_mask > 0x0F {
+            self.radio.stick_invert_mask = 0x03; // Default RH+RV inverted
         }
 
         for stick in self.radio.sticks.iter_mut() {
@@ -2091,6 +2123,14 @@ mod tests {
         assert_eq!(pot.min, 100);
         assert_eq!(pot.center, 2000);
         assert_eq!(pot.max, 3900);
+
+        assert_eq!(radio.gimbal_type, 0);
+        assert!(!radio.is_hall_gimbals());
+        assert_eq!(radio.stick_invert_mask, 0x03);
+        assert!(radio.is_stick_inverted(0)); // RH
+        assert!(radio.is_stick_inverted(1)); // RV
+        assert!(!radio.is_stick_inverted(2)); // LV
+        assert!(!radio.is_stick_inverted(3)); // LH
     }
 
     #[test]

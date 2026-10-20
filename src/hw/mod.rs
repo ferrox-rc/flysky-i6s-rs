@@ -61,10 +61,10 @@ pub const AUX_SOURCES: &[u8] = &[
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
 ];
 
-pub const SETUP_ITEMS: usize = 20;
-pub const INPUT_SETUP_RETURN: (usize, usize) = (15, 12);
-pub const TELEM_SETUP_RETURN: (usize, usize) = (17, 14);
-pub const PPM_OUT_SETUP_IDX: usize = 18;
+pub const SETUP_ITEMS: usize = 21;
+pub const INPUT_SETUP_RETURN: (usize, usize) = (16, 13);
+pub const TELEM_SETUP_RETURN: (usize, usize) = (18, 15);
+pub const PPM_OUT_SETUP_IDX: usize = 19;
 
 /// Early board initialization (power latch on FS-i6S).
 #[inline]
@@ -262,16 +262,22 @@ pub fn handle_board_setup_ok(
         }
         14 => {
             buzzer.click();
-            storage.radio.switch_beep = if storage.radio.switch_beep == 0 { 1 } else { 0 };
+            storage.radio.gimbal_type = if storage.radio.gimbal_type == 0 { 1 } else { 0 };
+            crate::input::apply_calibration(&storage.radio);
             crate::storage::save_radio_config(storage);
         }
         15 => {
+            buzzer.click();
+            storage.radio.switch_beep = if storage.radio.switch_beep == 0 { 1 } else { 0 };
+            crate::storage::save_radio_config(storage);
+        }
+        16 => {
             buzzer.click();
             ctrl.state = MenuState::InputSetup;
             ctrl.selected_item = 0;
             ctrl.scroll_offset = 0;
         }
-        16 => {
+        17 => {
             buzzer.click();
             storage.radio.ext_adc = if storage.radio.ext_adc == 0 { 1 } else { 0 };
             adc::set_ext_adc_enabled(storage.radio.ext_adc != 0);
@@ -279,20 +285,20 @@ pub fn handle_board_setup_ok(
             crate::input::apply_calibration(&storage.radio);
             crate::storage::save_radio_config(storage);
         }
-        17 => {
+        18 => {
             buzzer.click();
             ctrl.state = MenuState::TelemSetup;
             ctrl.selected_item = 0;
             ctrl.scroll_offset = 0;
         }
-        18 => {
+        19 => {
             buzzer.click();
             let en = !storage.radio.is_ppm_out_enabled();
             storage.radio.set_ppm_out_enabled(en);
             crate::trainer::set_ppm_out(en);
             crate::storage::save_radio_config(storage);
         }
-        19 => {
+        20 => {
             buzzer.click();
             let en = !storage.radio.is_ppm_in_enabled();
             storage.radio.set_ppm_in_enabled(en);
@@ -363,6 +369,14 @@ pub fn draw_board_setup_row(
             widgets::draw_list_row_right(lcd, slot, is_sel, "Stick Mode:", Some(mode_str));
         }
         14 => {
+            let gmb_str = if storage.radio.is_hall_gimbals() {
+                "HALL"
+            } else {
+                "POT"
+            };
+            widgets::draw_list_row_right(lcd, slot, is_sel, "Gimbals:", Some(gmb_str));
+        }
+        15 => {
             let sw_snd_str = if storage.radio.switch_beep != 0 {
                 "ENABLED"
             } else {
@@ -370,10 +384,10 @@ pub fn draw_board_setup_row(
             };
             widgets::draw_list_row_right(lcd, slot, is_sel, "Sw Sound:", Some(sw_snd_str));
         }
-        15 => {
+        16 => {
             widgets::draw_list_row_right(lcd, slot, is_sel, "Inputs:", Some("[SETUP]"));
         }
-        16 => {
+        17 => {
             let ext_str = if storage.radio.ext_adc != 0 {
                 "ENABLED"
             } else {
@@ -381,10 +395,10 @@ pub fn draw_board_setup_row(
             };
             widgets::draw_list_row_right(lcd, slot, is_sel, "Ext ADC (PC):", Some(ext_str));
         }
-        17 => {
+        18 => {
             widgets::draw_list_row_right(lcd, slot, is_sel, "Telem Page:", Some("[SETUP]"));
         }
-        18 => {
+        19 => {
             let ppm_str = if storage.radio.is_ppm_out_enabled() {
                 "ENABLED"
             } else {
@@ -392,7 +406,7 @@ pub fn draw_board_setup_row(
             };
             widgets::draw_list_row_right(lcd, slot, is_sel, "PPM Out:", Some(ppm_str));
         }
-        19 => {
+        20 => {
             let in_str = if storage.radio.is_ppm_in_enabled() {
                 "ENABLED"
             } else {

@@ -934,4 +934,41 @@ mod tests {
         assert!(storage.radio.is_ppm_out_enabled());
         assert!(!storage.radio.is_ppm_in_enabled());
     }
+
+    #[test]
+    fn test_radio_setup_gimbal_toggle() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+        let mut trims = crate::trim::TrimController::new();
+
+        ctrl.state = MenuState::RadioSetup;
+        ctrl.selected_item = 12; // Gimbals row
+        ctrl.scroll_offset = 10;
+
+        assert_eq!(storage.radio.gimbal_type, 0);
+        assert!(!storage.radio.is_hall_gimbals());
+
+        let nav = NavKeys {
+            ok: true,
+            cancel: false,
+            up: false,
+            down: false,
+            bind: false,
+            sw_change: None,
+            dr_change: None,
+            pot_change: None,
+        };
+
+        // Press OK on Gimbals -> Toggle to Hall Effect
+        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        assert_eq!(storage.radio.gimbal_type, 1);
+        assert!(storage.radio.is_hall_gimbals());
+
+        // Press OK again -> Toggle back to Potentiometers
+        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        assert_eq!(storage.radio.gimbal_type, 0);
+        assert!(!storage.radio.is_hall_gimbals());
+    }
 }
