@@ -425,6 +425,8 @@ pub struct ModelConfig {
     pub rx_serial_proto: u8, // 344: 0: i-BUS, 1: S.BUS (default 0)
     pub crsf_half_duplex: u8, // 345: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
     pub _pad_end: [u8; 2], // 346..348: Align struct to 4-byte word boundary
+    pub gvars: [i16; 5],   // 348..358: Global Variables GV1..GV5 (-1000..+1000)
+    pub _pad_gvar: [u8; 2], // 358..360: Align to 4-byte word boundary
 }
 
 impl ModelConfig {
@@ -469,6 +471,8 @@ impl ModelConfig {
             rx_serial_proto: 0,
             crsf_half_duplex: 0,
             _pad_end: [0; 2],
+            gvars: [0; 5],
+            _pad_gvar: [0; 2],
         }
     }
 
@@ -559,6 +563,7 @@ impl RadioStorage {
             42 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(8), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWK (ADC ch 8 / PC3)
             43 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(9), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWL (ADC ch 9 / PC4)
             44 => self.radio.ext_adc != 0 && matches!(self.radio.get_adc_mode(10), AdcInputMode::TwoPos | AdcInputMode::ThreePos), // SWM (ADC ch 10 / PC5)
+            45..=49 => true, // GV1..GV5 (Global Variables) are always available
             _ => false,
         }
     }
@@ -605,12 +610,13 @@ impl RadioStorage {
         self.active_model.mixes.iter().any(|m| m.target_ch == ch)
     }
 
-    /// Check if a weight modulation source index (0..=36, matching `WEIGHT_SRC_NAMES`) is available.
+    /// Check if a weight modulation source index (0..=41, matching `WEIGHT_SRC_NAMES`) is available.
     pub fn is_weight_src_available(&self, ws: u8) -> bool {
         match ws {
             0 => true, // Fixed weight
             1..=18 => self.is_channel_configured(ws), // Bipolar CH1..CH18
             19..=36 => self.is_channel_configured(ws - 18), // Unipolar CH1+..CH18+
+            37..=41 => true, // GV1..GV5 (Global Variables) are always available
             _ => false,
         }
     }
@@ -993,9 +999,12 @@ impl RadioStorage {
             }
         }
         for mix in m.mixes.iter_mut() {
-            if mix.target_ch > 18 || mix.source > 40 || mix.weight_src > 36 || mix.mode > 2 || mix.switch > 22 {
+            if mix.target_ch > 18 || mix.source > 49 || mix.weight_src > 41 || mix.mode > 2 || mix.switch > 22 {
                 *mix = MixLine::disabled();
             }
+        }
+        for gv in m.gvars.iter_mut() {
+            *gv = (*gv).clamp(-1000, 1000);
         }
         if m.thr_curve_pts != 5 && m.thr_curve_pts != 7 && m.thr_curve_pts != 9 {
             m.thr_curve_pts = 5;
@@ -1035,8 +1044,8 @@ impl RadioStorage {
 
 const _: () = assert!(core::mem::size_of::<RadioConfig>() == 148);
 const _: () = assert!(core::mem::size_of::<MixLine>() == 8);
-const _: () = assert!(core::mem::size_of::<ModelConfig>() == 348);
-const _: () = assert!(core::mem::size_of::<RadioStorage>() == 496);
+const _: () = assert!(core::mem::size_of::<ModelConfig>() == 360);
+const _: () = assert!(core::mem::size_of::<RadioStorage>() == 508);
 
 static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
 
@@ -2086,9 +2095,9 @@ mod tests {
 
     #[test]
     fn test_model_config_size_and_rf_power() {
-        assert_eq!(core::mem::size_of::<ModelConfig>(), 348);
+        assert_eq!(core::mem::size_of::<ModelConfig>(), 360);
         assert_eq!(core::mem::size_of::<RadioConfig>(), 148);
-        assert_eq!(core::mem::size_of::<RadioStorage>(), 496);
+        assert_eq!(core::mem::size_of::<RadioStorage>(), 508);
 
         let default_m = ModelConfig::default_for_index(0);
         assert_eq!(default_m.rf_power, 0);
@@ -2167,6 +2176,7 @@ mod tests {
         for i in 8..32 {
             assert_eq!(v2.mixes[i], MixLine::disabled());
         }
+        assert_eq!(v2.gvars, [0; 5]);
     }
 
     #[test]
@@ -2346,5 +2356,13 @@ mod tests {
         assert!(storage.is_channel_configured(11));
         assert!(storage.is_source_available(22)); // CH11 source
         assert!(storage.is_weight_src_available(11));
+
+        // Global Variables GV1..GV5 (sources 45..49 and weight sources 37..41) are always available
+        for gv in 45..=49 {
+            assert!(storage.is_source_available(gv));
+        }
+        for ws in 37..=41 {
+            assert!(storage.is_weight_src_available(ws));
+        }
     }
 }
