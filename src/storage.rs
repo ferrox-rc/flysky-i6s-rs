@@ -451,9 +451,14 @@ pub struct ModelConfig {
     pub servo_rate_hz: u16, // 342..344: 50..400 Hz (default 50 Hz)
     pub rx_serial_proto: u8, // 344: 0: i-BUS, 1: S.BUS (default 0)
     pub crsf_half_duplex: u8, // 345: 0: Full-Duplex (2-Wire), 1: Half-Duplex (1-Wire)
-    pub _pad_end: [u8; 2], // 346..348: Align struct to 4-byte word boundary
-    pub gvars: [i16; 5],   // 348..358: Global Variables GV1..GV5 (-1000..+1000)
-    pub _pad_gvar: [u8; 2], // 358..360: Align to 4-byte word boundary
+    pub vario_switch: u8,     // 346: 0: Off, 1..=28: switch condition
+    pub vario_climb_deadband: u8, // 347: Climb deadband in 0.1 m/s (default 2 = +0.2 m/s)
+    pub vario_sink_deadband: u8,  // 348: Sink deadband in 0.1 m/s (default 5 = -0.5 m/s)
+    pub vario_sink_mode: u8,  // 349: 0: Mute, 1: Pulse, 2: Continuous (default 1)
+    pub vario_motor_mute: u8, // 350: 0: Disabled, 1: Enabled (default 1)
+    pub _pad_end: [u8; 1],    // 351..352: Align struct to 4-byte word boundary
+    pub gvars: [i16; 5],      // 352..362: Global Variables GV1..GV5 (-1000..+1000)
+    pub _pad_gvar: [u8; 6],   // 362..368: Align to 4-byte word boundary
 }
 
 impl ModelConfig {
@@ -497,9 +502,14 @@ impl ModelConfig {
             rx_out_mode: 0,
             rx_serial_proto: 0,
             crsf_half_duplex: 0,
-            _pad_end: [0; 2],
+            vario_switch: 0,
+            vario_climb_deadband: 2,
+            vario_sink_deadband: 5,
+            vario_sink_mode: 1,
+            vario_motor_mute: 1,
+            _pad_end: [0; 1],
             gvars: [0; 5],
-            _pad_gvar: [0; 2],
+            _pad_gvar: [0; 6],
         }
     }
 
@@ -976,8 +986,8 @@ impl RadioStorage {
             }
         }
         for slot in self.radio.telem_slots.iter_mut() {
-            if *slot > 12 {
-                *slot = 12; // OFF
+            if *slot > 14 {
+                *slot = 14; // OFF
             }
         }
         if self.radio.trainer_config > 3 {
@@ -1072,13 +1082,39 @@ impl RadioStorage {
                 b'M', b'O', b'D', b'E', b'L', b' ', digit1, digit2, b' ', b' ',
             ];
         }
+        if m.vario_switch > 28 {
+            m.vario_switch = 0;
+        }
+        if m.vario_climb_deadband < 1 || m.vario_climb_deadband > 10 {
+            m.vario_climb_deadband = 2;
+        }
+        if m.vario_sink_deadband < 1 || m.vario_sink_deadband > 20 {
+            m.vario_sink_deadband = 5;
+        }
+        if m.vario_sink_mode > 2 {
+            m.vario_sink_mode = 1;
+        }
+        if m.vario_motor_mute > 1 {
+            m.vario_motor_mute = 1;
+        }
+    }
+
+    /// Extract vario configuration for the active model.
+    pub fn vario_config(&self) -> crate::vario::VarioConfig {
+        crate::vario::VarioConfig {
+            switch: self.active_model.vario_switch,
+            climb_deadband_dm_s: self.active_model.vario_climb_deadband,
+            sink_deadband_dm_s: self.active_model.vario_sink_deadband,
+            sink_mode: crate::vario::VarioSinkMode::from_u8(self.active_model.vario_sink_mode),
+            motor_mute: self.active_model.vario_motor_mute != 0,
+        }
     }
 }
 
 const _: () = assert!(core::mem::size_of::<RadioConfig>() == 148);
 const _: () = assert!(core::mem::size_of::<MixLine>() == 8);
-const _: () = assert!(core::mem::size_of::<ModelConfig>() == 360);
-const _: () = assert!(core::mem::size_of::<RadioStorage>() == 508);
+const _: () = assert!(core::mem::size_of::<ModelConfig>() == 368);
+const _: () = assert!(core::mem::size_of::<RadioStorage>() == 516);
 
 static mut GLOBAL_STORAGE: RadioStorage = RadioStorage::empty();
 
@@ -2136,17 +2172,32 @@ mod tests {
 
     #[test]
     fn test_model_config_size_and_rf_power() {
-        assert_eq!(core::mem::size_of::<ModelConfig>(), 360);
+        assert_eq!(core::mem::size_of::<ModelConfig>(), 368);
         assert_eq!(core::mem::size_of::<RadioConfig>(), 148);
-        assert_eq!(core::mem::size_of::<RadioStorage>(), 508);
+        assert_eq!(core::mem::size_of::<RadioStorage>(), 516);
 
         let default_m = ModelConfig::default_for_index(0);
         assert_eq!(default_m.rf_power, 0);
+        assert_eq!(default_m.vario_switch, 0);
+        assert_eq!(default_m.vario_climb_deadband, 2);
+        assert_eq!(default_m.vario_sink_deadband, 5);
+        assert_eq!(default_m.vario_sink_mode, 1);
+        assert_eq!(default_m.vario_motor_mute, 1);
 
         let mut storage = RadioStorage::default_factory();
         storage.active_model.rf_power = 99;
+        storage.active_model.vario_switch = 99;
+        storage.active_model.vario_climb_deadband = 99;
+        storage.active_model.vario_sink_deadband = 99;
+        storage.active_model.vario_sink_mode = 99;
+        storage.active_model.vario_motor_mute = 99;
         storage.sanitize();
         assert_eq!(storage.active_model.rf_power, 0);
+        assert_eq!(storage.active_model.vario_switch, 0);
+        assert_eq!(storage.active_model.vario_climb_deadband, 2);
+        assert_eq!(storage.active_model.vario_sink_deadband, 5);
+        assert_eq!(storage.active_model.vario_sink_mode, 1);
+        assert_eq!(storage.active_model.vario_motor_mute, 1);
     }
 
     #[test]
@@ -2223,9 +2274,9 @@ mod tests {
     #[test]
     fn test_telem_slots_sanitize() {
         let mut storage = RadioStorage::default_factory();
-        storage.radio.telem_slots = [0, 11, 12, 13];
+        storage.radio.telem_slots = [0, 11, 14, 15];
         storage.sanitize();
-        assert_eq!(storage.radio.telem_slots, [0, 11, 12, 12]);
+        assert_eq!(storage.radio.telem_slots, [0, 11, 14, 14]);
     }
 
     #[test]

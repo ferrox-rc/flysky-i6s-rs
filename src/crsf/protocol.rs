@@ -42,7 +42,9 @@ pub const CRSF_ADDRESS_CRSF_TRANSMITTER: u8 = 0xEE;
 
 // Frame types
 pub const CRSF_FRAMETYPE_GPS: u8 = 0x02;
+pub const CRSF_FRAMETYPE_VARIO: u8 = 0x07;
 pub const CRSF_FRAMETYPE_BATTERY_SENSOR: u8 = 0x08;
+pub const CRSF_FRAMETYPE_BARO_ALTITUDE: u8 = 0x09;
 pub const CRSF_FRAMETYPE_HEARTBEAT: u8 = 0x0B;
 pub const CRSF_FRAMETYPE_LINK_STATISTICS: u8 = 0x14;
 pub const CRSF_FRAMETYPE_RC_CHANNELS_PACKED: u8 = 0x16;
@@ -93,6 +95,8 @@ pub struct CrsfTelemetry {
     pub rx_current_ma: u16,      // Current in 100mA units
     pub rx_capacity_mah: u32,    // Capacity consumed in mAh
     pub rx_battery_pct: u8,      // Battery remaining percentage (0..100)
+    pub vspeed_cms: i16,         // Vertical speed in cm/s (+ climb, - sink)
+    pub baro_alt_m: i16,         // Barometric altitude in meters (relative or AMSL)
     pub last_telemetry_ms: u32,  // System tick when last valid frame was received
 }
 
@@ -117,6 +121,8 @@ impl CrsfTelemetry {
             rx_current_ma: 0,
             rx_capacity_mah: 0,
             rx_battery_pct: 0,
+            vspeed_cms: 0,
+            baro_alt_m: 0,
             last_telemetry_ms: 0,
         }
     }
@@ -270,6 +276,25 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
                 ((payload[4] as u32) << 16) | ((payload[5] as u32) << 8) | (payload[6] as u32);
             telem.rx_capacity_mah = cap;
             telem.rx_battery_pct = payload[7];
+            telem.connected = true;
+            telem.last_telemetry_ms = now_ms;
+            return true;
+        }
+        CRSF_FRAMETYPE_VARIO if payload.len() >= 2 => {
+            // Vertical speed in cm/s (big-endian signed 16-bit)
+            telem.vspeed_cms = i16::from_be_bytes([payload[0], payload[1]]);
+            telem.connected = true;
+            telem.last_telemetry_ms = now_ms;
+            return true;
+        }
+        CRSF_FRAMETYPE_BARO_ALTITUDE if payload.len() >= 2 => {
+            // Altitude with 10000m offset (big-endian unsigned 16-bit: 10000 = 0m)
+            let raw_alt = u16::from_be_bytes([payload[0], payload[1]]);
+            telem.baro_alt_m = (raw_alt as i32 - 10000) as i16;
+            if payload.len() >= 4 {
+                // Extended payload includes vertical speed (big-endian signed 16-bit in cm/s)
+                telem.vspeed_cms = i16::from_be_bytes([payload[2], payload[3]]);
+            }
             telem.connected = true;
             telem.last_telemetry_ms = now_ms;
             return true;
@@ -640,4 +665,56 @@ mod tests {
             "Payload destination must match target (0xC8)"
         );
     }
+
+    #[test]
+    fn test_parse_telemetry_vario() {
+        let mut telem = CrsfTelemetry::new();
+        // Frame: Sync (0xC8), Len (4 = Type + 2 payload + CRC), Type (0x07), vspeed (+250 cm/s = 0x00FA), CRC
+        let mut frame = [0xC8, 4, CRSF_FRAMETYPE_VARIO, 0x00, 0xFA, 0];
+        frame[5] = crc8(&frame[2..5]);
+
+        let success = parse_telemetry_frame(&frame, &mut telem, 3000);
+        assert!(success);
+        assert_eq!(telem.vspeed_cms, 250);
+        assert!(telem.connected);
+        assert_eq!(telem.last_telemetry_ms, 3000);
+
+        // Negative vspeed (-120 cm/s = 0xFF88)
+        let vspeed_neg: i16 = -120;
+        let bytes = vspeed_neg.to_be_bytes();
+        frame[3] = bytes[0];
+        frame[4] = bytes[1];
+        frame[5] = crc8(&frame[2..5]);
+        assert!(parse_telemetry_frame(&frame, &mut telem, 3050));
+        assert_eq!(telem.vspeed_cms, -120);
+    }
+
+    #[test]
+    fn test_parse_telemetry_baro_altitude() {
+        let mut telem = CrsfTelemetry::new();
+        // Frame: Sync (0xC8), Len (6 = Type + 4 payload + CRC), Type (0x09),
+        // Altitude (+150m -> 10150 = 0x27A6), vspeed (+80 cm/s = 0x0050), CRC
+        let alt_raw: u16 = 10150;
+        let alt_bytes = alt_raw.to_be_bytes();
+        let vspeed_bytes = (80i16).to_be_bytes();
+        let mut frame = [
+            0xC8,
+            6,
+            CRSF_FRAMETYPE_BARO_ALTITUDE,
+            alt_bytes[0],
+            alt_bytes[1],
+            vspeed_bytes[0],
+            vspeed_bytes[1],
+            0,
+        ];
+        frame[7] = crc8(&frame[2..7]);
+
+        let success = parse_telemetry_frame(&frame, &mut telem, 4000);
+        assert!(success);
+        assert_eq!(telem.baro_alt_m, 150);
+        assert_eq!(telem.vspeed_cms, 80);
+        assert!(telem.connected);
+        assert_eq!(telem.last_telemetry_ms, 4000);
+    }
 }
+

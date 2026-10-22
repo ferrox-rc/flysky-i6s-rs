@@ -60,6 +60,12 @@ pub struct Buzzer {
     seq_notes: [Note; MAX_SEQ_NOTES],
     seq_len: u8,
     seq_idx: u8,
+    // Vario background tone state
+    vario_freq: u16,
+    vario_pulse_ms: u16,
+    vario_pause_ms: u16,
+    vario_rem_ms: u16,
+    vario_is_pause: bool,
 }
 
 impl Default for Buzzer {
@@ -83,6 +89,11 @@ impl Buzzer {
             seq_notes: [Note::new(0, 0, 0); MAX_SEQ_NOTES],
             seq_len: 0,
             seq_idx: 0,
+            vario_freq: 0,
+            vario_pulse_ms: 0,
+            vario_pause_ms: 0,
+            vario_rem_ms: 0,
+            vario_is_pause: false,
         }
     }
 
@@ -225,7 +236,51 @@ impl Buzzer {
         self.repeat_count = 0;
         self.seq_len = 0;
         self.seq_idx = 0;
+        self.vario_freq = 0;
+        self.vario_pulse_ms = 0;
+        self.vario_pause_ms = 0;
+        self.vario_rem_ms = 0;
+        self.vario_is_pause = false;
         self.hardware_off();
+    }
+
+    /// Update continuous background vario tone parameters.
+    ///
+    /// Yields completely to priority event chimes and alarms without blocking.
+    /// When `freq_hz < 100` or `pulse_ms == 0`, vario is silenced.
+    pub fn set_vario(&mut self, freq_hz: u16, pulse_ms: u16, pause_ms: u16) {
+        if freq_hz < 100 || pulse_ms == 0 {
+            if self.vario_freq != 0 {
+                self.vario_freq = 0;
+                self.vario_rem_ms = 0;
+                self.vario_is_pause = false;
+                if self.remaining_ms == 0 && self.pause_ms == 0 && self.seq_len == 0 {
+                    self.hardware_off();
+                }
+            }
+            return;
+        }
+
+        let params_changed = self.vario_freq != freq_hz
+            || self.vario_pulse_ms != pulse_ms
+            || self.vario_pause_ms != pause_ms;
+
+        self.vario_freq = freq_hz;
+        self.vario_pulse_ms = pulse_ms;
+        self.vario_pause_ms = pause_ms;
+
+        if params_changed && self.vario_rem_ms == 0 {
+            self.vario_is_pause = false;
+            self.vario_rem_ms = pulse_ms;
+            if self.remaining_ms == 0 && self.pause_ms == 0 && self.seq_len == 0 {
+                self.hardware_on(freq_hz);
+            }
+        }
+    }
+
+    /// Check if background vario is currently configured with an audible tone.
+    pub fn is_vario_active(&self) -> bool {
+        self.vario_freq >= 100
     }
 
     /// Periodic update advancing active tone playback (called from main loop).
@@ -271,6 +326,34 @@ impl Buzzer {
                 }
             } else {
                 self.pause_ms -= elapsed_ms;
+            }
+        } else if self.vario_freq >= 100 {
+            // Foreground is completely idle: service background vario stream!
+            if !self.vario_is_pause {
+                self.hardware_on(self.vario_freq);
+                if self.vario_rem_ms <= elapsed_ms {
+                    let excess = elapsed_ms - self.vario_rem_ms;
+                    if self.vario_pause_ms > 0 {
+                        self.vario_is_pause = true;
+                        self.vario_rem_ms = self.vario_pause_ms.saturating_sub(excess);
+                        self.hardware_off();
+                    } else {
+                        // Continuous drone tone (pause_ms == 0)
+                        self.vario_rem_ms = self.vario_pulse_ms.max(100).saturating_sub(excess);
+                    }
+                } else {
+                    self.vario_rem_ms -= elapsed_ms;
+                }
+            } else {
+                self.hardware_off();
+                if self.vario_rem_ms <= elapsed_ms {
+                    let excess = elapsed_ms - self.vario_rem_ms;
+                    self.vario_is_pause = false;
+                    self.vario_rem_ms = self.vario_pulse_ms.saturating_sub(excess);
+                    self.hardware_on(self.vario_freq);
+                } else {
+                    self.vario_rem_ms -= elapsed_ms;
+                }
             }
         }
     }
@@ -503,3 +586,60 @@ impl Buzzer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_buzzer_vario_lifecycle() {
+        let mut buzzer = Buzzer::new();
+        assert!(!buzzer.is_vario_active());
+
+        // Configure vario lift tone: 1800 Hz, 100ms pulse, 100ms pause
+        buzzer.set_vario(1800, 100, 100);
+        assert!(buzzer.is_vario_active());
+        assert_eq!(buzzer.vario_freq, 1800);
+        assert!(!buzzer.vario_is_pause);
+
+        // Tick 60ms into pulse
+        buzzer.tick(60);
+        assert_eq!(buzzer.vario_rem_ms, 40);
+        assert!(!buzzer.vario_is_pause);
+
+        // Tick 50ms (crosses pulse boundary, enters pause)
+        buzzer.tick(50);
+        assert!(buzzer.vario_is_pause);
+        assert_eq!(buzzer.vario_rem_ms, 90);
+
+        // Tick 100ms (crosses pause boundary, enters next pulse)
+        buzzer.tick(100);
+        assert!(!buzzer.vario_is_pause);
+
+        // Mute vario
+        buzzer.set_vario(0, 0, 0);
+        assert!(!buzzer.is_vario_active());
+    }
+
+    #[test]
+    fn test_buzzer_foreground_tone_preempts_vario() {
+        let mut buzzer = Buzzer::new();
+        buzzer.set_vario(2000, 100, 100);
+        assert!(buzzer.is_vario_active());
+
+        // Pilot clicks a button or trim -> high priority click (15ms)
+        buzzer.click();
+        assert_eq!(buzzer.remaining_ms, 15);
+        assert_eq!(buzzer.active_freq, BEEP_DEFAULT_FREQ);
+
+        // Tick 10ms -> foreground click is still running
+        buzzer.tick(10);
+        assert_eq!(buzzer.remaining_ms, 5);
+
+        // Tick 10ms -> foreground click finishes, background vario smoothly resumes!
+        buzzer.tick(10);
+        assert_eq!(buzzer.remaining_ms, 0);
+        assert!(buzzer.is_vario_active());
+    }
+}
+

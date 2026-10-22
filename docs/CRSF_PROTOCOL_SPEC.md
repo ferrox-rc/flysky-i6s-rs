@@ -42,7 +42,7 @@ All serial communication over `USART1` (`PB6` TX / `PB7` RX on connector `J15`, 
 > Although both share the value `0xC8`, they are indexed and interpreted differently within a packet:
 > - **Wire Byte 0 (`frame[0]`)**: Operates as the physical frame delimiter / sync header (`CRSF_SYNC_BYTE`) for all telemetry and extended response frames arriving from the external module over `USART1` RX.
 > - **Extended Frame Headers (`frame[3]` / `payload[0]` and `frame[4]` / `payload[1]`)**: In extended frames (`0x28`, `0x29`, `0x2B`, `0x2C`, `0x2D`), `frame[3]` is the Destination Address and `frame[4]` is the Origin Address. A packet from or to a flight controller contains `0xC8` (`CRSF_ADDRESS_FLIGHT_CONTROLLER`) at `frame[4]` or `frame[3]`, whereas local module frames arrive with `frame[4] = 0xEE` and receiver frames with `frame[4] = 0xEC`, all starting with `frame[0] = 0xC8`.
-> - **Standard Telemetry Frames (`0x14`, `0x08`, `0x02`, `0x0B`)**: Start with `frame[0] = 0xC8` (`CRSF_SYNC_BYTE`), followed by length (`frame[1]`), type (`frame[2]`), and sensor payload directly at `frame[3..]` without destination or origin addresses.
+> - **Standard Telemetry Frames (`0x14`, `0x08`, `0x07`, `0x09`, `0x02`, `0x0B`)**: Start with `frame[0] = 0xC8` (`CRSF_SYNC_BYTE`), followed by length (`frame[1]`), type (`frame[2]`), and sensor payload directly at `frame[3..]` without destination or origin addresses.
 
 ### Checksum Calculation (`CRC8-DVB`)
 - **Polynomial**: `0xD5` ($x^8 + x^7 + x^6 + x^4 + x^2 + 1$)
@@ -296,6 +296,8 @@ Handset (FS-i6S)                                   ELRS Module
 | **`RC_CHANNELS_PACKED`** | `0x16` | 26 bytes | Radio &rarr; Module | 16-channel 11-bit packed RC stream at ~100 Hz |
 | **`LINK_STATISTICS`** | `0x14` | 14 bytes | Module &rarr; Radio | Downlink telemetry (RSSI 1/2, LQ, SNR, Power, Antenna) |
 | **`BATTERY_SENSOR`** | `0x08` | 12 bytes | Module &rarr; Radio | Flight pack voltage (0.1V), current (0.1A), capacity (mAh) |
+| **`VARIO`** | `0x07` | 4 bytes | Module &rarr; Radio | Vertical speed ($10\,\text{cm/s}$, signed 16-bit big-endian) |
+| **`BARO_ALTITUDE`** | `0x09` | 6 bytes | Module &rarr; Radio | Barometric altitude ($10{,}000\,\text{m}$ offset, unsigned 16-bit) |
 
 ---
 

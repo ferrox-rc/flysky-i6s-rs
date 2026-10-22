@@ -20,4 +20,5 @@ pub mod trim;
 pub mod ui;
 pub use ui::menu;
 pub mod usb;
+pub mod vario;
 pub mod watchdog;

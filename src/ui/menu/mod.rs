@@ -31,6 +31,7 @@ pub enum MenuState {
     RadioSetup,
     InputSetup,
     TelemSetup,
+    VarioSetup,
     RxSetup,
     CrsfSetup,
     ChannelMonitor,
@@ -367,6 +368,9 @@ impl MenuController {
             }
             MenuState::TelemSetup => {
                 screens::setup::update_telem_setup(self, lcd, &nav_keys, storage, buzzer);
+            }
+            MenuState::VarioSetup => {
+                screens::model::update_vario_setup(self, lcd, &nav_keys, storage, buzzer);
             }
             MenuState::RxSetup => {
                 screens::setup::update_rx_setup(self, lcd, &nav_keys, storage, buzzer);
@@ -852,14 +856,16 @@ mod tests {
             pot_change: None,
         };
 
-        // Cycle through all 13 sensor slots on slot 0: starts at 0
-        for expected in 1..=12 {
+        // Cycle through all 15 sensor slots on slot 0: starts at 0
+        for expected in 1..=14 {
             screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
             assert_eq!(storage.radio.telem_slots[0], expected);
         }
-        // Slot 11 is TIMER, Slot 12 is OFF
+        // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is OFF
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[11], "TIMER");
-        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[12], "OFF");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[12], "VSPD");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[13], "ALT");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[14], "OFF");
 
         // Next cycle wraps back to 0 (RX BAT)
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
@@ -971,4 +977,88 @@ mod tests {
         assert_eq!(storage.radio.gimbal_type, 0);
         assert!(!storage.radio.is_hall_gimbals());
     }
+
+    #[test]
+    fn test_vario_setup_navigation_and_cycling() {
+        let mut ctrl = MenuController::new();
+        let mut buzzer = Buzzer::new();
+        let mut lcd = St7567::new();
+        let mut storage = RadioStorage::default_factory();
+
+        // 1. Enter ModelSetup, select item 6 (Vario)
+        ctrl.state = MenuState::ModelSetup;
+        ctrl.selected_item = 6;
+        ctrl.scroll_offset = 3;
+
+        let mut nav = NavKeys {
+            ok: true,
+            cancel: false,
+            up: false,
+            down: false,
+            bind: false,
+            sw_change: None,
+            dr_change: None,
+            pot_change: None,
+        };
+
+        // Press OK on Vario: [SETUP] -> transitions to MenuState::VarioSetup
+        screens::model::update_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(ctrl.state, MenuState::VarioSetup);
+        assert_eq!(ctrl.selected_item, 0);
+
+        // 2. Move down to Climb Deadband (item 1)
+        nav.ok = false;
+        nav.down = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(ctrl.selected_item, 1);
+
+        // Press OK on Climb Deadband -> cycles from 2 (+0.2) to 3 (+0.3)
+        nav.down = false;
+        nav.ok = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(storage.active_model.vario_climb_deadband, 3);
+
+        // 3. Move down to Sink Deadband (item 2)
+        nav.ok = false;
+        nav.down = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(ctrl.selected_item, 2);
+
+        // Press OK on Sink Deadband -> cycles from 5 (-0.5) to 7 (-0.7)
+        nav.down = false;
+        nav.ok = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(storage.active_model.vario_sink_deadband, 7);
+
+        // 4. Move down to Sink Mode (item 3)
+        nav.ok = false;
+        nav.down = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(ctrl.selected_item, 3);
+
+        // Press OK on Sink Mode -> cycles from 1 (Pulse) to 2 (Continuous)
+        nav.down = false;
+        nav.ok = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(storage.active_model.vario_sink_mode, 2);
+
+        // 5. Move down to Motor Mute (item 4)
+        nav.ok = false;
+        nav.down = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(ctrl.selected_item, 4);
+
+        // Press OK on Motor Mute -> toggles from 1 (Enabled) to 0 (Disabled)
+        nav.down = false;
+        nav.ok = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(storage.active_model.vario_motor_mute, 0);
+
+        nav.ok = false;
+        nav.cancel = true;
+        screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+        assert_eq!(ctrl.state, MenuState::ModelSetup);
+        assert_eq!(ctrl.selected_item, 6);
+    }
 }
+

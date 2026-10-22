@@ -175,7 +175,7 @@ When any slot in `TELEM DASH SETUP` is customized from default, Page 5/5 automat
 +-------------------------------------------------------------+
 ```
 - **Grid Layout**: 4 dedicated quadrants (Top-Left: $x=4, y=14$, Top-Right: $x=68, y=14$, Bottom-Left: $x=4, y=33$, Bottom-Right: $x=68, y=33$) separated by vertical ($x=64$) and horizontal ($y=31$) divider lines.
-- **13 Selectable Sensors**: Each quadrant can be independently assigned to any of the 13 available sensors via **`Radio Setup` -> `Telem Page: [SETUP]`**:
+- **15 Selectable Sensors**: Each quadrant can be independently assigned to any of the 15 available sensors via **`Radio Setup` -> `Telem Page: [SETUP]`**:
   1. **`RX BAT`**: Flight battery / receiver BEC voltage (`X.XXV` or `----` when disconnected).
   2. **`LQ/RSSI`**: Link Quality (`100%` in CRSF) or RSSI percentage (`100%` in AFHDS 2A).
   3. **`TX BAT`**: Transmitter internal battery pack voltage (`X.XXV`).
@@ -188,7 +188,9 @@ When any slot in `TELEM DASH SETUP` is customized from default, Page 5/5 automat
   10. **`PKTS TX`**: Total over-the-air packet transmission counter.
   11. **`PKTS RX`**: Total telemetry acknowledgment frame counter.
   12. **`TIMER`**: Live synchronized flight timer (`MM:SS` countdown / count-up).
-  13. **`OFF`**: Blank quadrant (`SLOT OFF`) to reduce visual clutter.
+  13. **`VSPD`**: Vertical speed variometer climb/sink rate (`+X.Xm/s` or `-X.Xm/s`).
+  14. **`ALT`**: Barometric altitude relative to sea level or arming (`XXXXm` or `---m`).
+  15. **`OFF`**: Blank quadrant (`SLOT OFF`) to reduce visual clutter.
 
 ---
 
@@ -215,6 +217,19 @@ Configurable in `Radio Setup`:
 
 ### Non-Volatile Trim Auto-Save
 All trim adjustments are debounced (2000 ms) and automatically saved to the active model profile in Flash when the model is disarmed (`!pipeline.prev_armed`). Flight trim changes made while airborne are safely retained without requiring manual navigation into the Settings Menu. Flash writes are strictly inhibited while armed to protect flight control determinism.
+
+### Acoustic Variometer Subsystem
+Built-in acoustic soaring variometer providing real-time glider and thermal audio feedback directly from CRSF/ELRS (`0x07` Vario / `0x09` Baro Altitude) or AFHDS 2A/i-BUS (`0x09` Vspeed / `0x41`/`0x83`/`0xF9` Altitude) telemetry:
+
+- **Audio Characteristics**:
+  - **Lift / Climb**: High-frequency pulsing tones ($1000\,\text{Hz} \dots 2800\,\text{Hz}$). As thermal climb rate strengthens ($+0.2\,\text{m/s} \to +5.0\,\text{m/s}$), pitch rises and pulse cadence accelerates ($550\,\text{ms} \to 110\,\text{ms}$ cycle with 50% duty cycle) for intuitive spatial feedback without glancing at the screen.
+  - **Deadband**: Pure acoustic silence when vertical speed is between `-Sink DB` and `+Climb DB`, preventing nuisance beeping in calm, level air.
+  - **Sink / Sink Modes**: Low-frequency warning rumble ($400\,\text{Hz} \dots 200\,\text{Hz}$). Configurable in `VARIO SETUP` as periodic chirps (`BEEP`), continuous warning drone (`CONT`), or completely muted (`SILENT`).
+- **Smart Motor Mute**:
+  - Automatically suppresses vario audio whenever throttle stick exceeds 10% (when `Motor Mute` is `YES`), ensuring quiet motor climbs and instant vario resumption the moment throttle is cut for thermal searching.
+- **Zero-Latency Hardware Preemption**:
+  - Runs as an asynchronous background generator on hardware timer `TIM1_CH1`.
+  - Instantly preempted (zero latency) by higher-priority safety alarms (low transmitter battery, low RSSI, pre-flight warnings) and user feedback (trim clicks, button beeps).
 
 ---
 
@@ -269,9 +284,17 @@ Hold **`[OK]` for 1.2 seconds** from any flight screen to open the Settings Menu
   - **Switch Auto-Detection**: Flipping any physical switch while editing `T-Trig` automatically sets that switch as the trigger.
 - **Field 5: Model Copy / Duplicate (`Copy -> Mxx`)**:
   - Select a target model slot (`M01`..`M20`) and press **`[OK]`** to clone the current model's name, trims, curves, mixer lines, and protocol settings for safe experimentation.
-- **Field 6: Bind RX (`[OK Bind]`)**:
+- **Field 6: Variometer Setup (`Vario: [SETUP]`)**:
+  - Press **`[OK]`** to open the dedicated **Variometer Setup Screen (`VARIO SETUP`)** for acoustic soaring and thermal hunting feedback:
+    - **`Switch:`**: Assigns an activation switch (`NONE`, `SA^`..`SFv`). Includes **Switch Auto-Detection** (simply flip the physical switch to assign).
+    - **`Climb DB:`**: Climb deadband threshold in 0.1 m/s increments (`0.1m/s` to `1.5m/s`, default `0.2m/s`). Climb audio is muted below this vertical speed to eliminate atmospheric noise.
+    - **`Sink DB:`**: Sink deadband threshold in 0.1 m/s increments (`0.5m/s` to `5.0m/s`, default `1.5m/s`).
+    - **`Sink Mode:`**: Acoustic sink behavior (`BEEP` for periodic sink chirps, `CONT` for continuous low drone, or `SILENT` for lift-only soaring).
+    - **`Motor Mute:`**: Automatically mutes vario audio whenever throttle stick exceeds 10% (`YES`/`NO`, default `YES`), ensuring quiet power climbs.
+    - **`[Test Tone]`**: Interactive live acoustic preview of climb pulses, deadband silence, and sink tones while in the setup menu.
+- **Field 7: Bind RX (`[OK Bind]`)**:
   - Displays currently bound receiver ID (`Rx: XXXXXXXX`). Press **`[OK]`** to initiate receiver binding directly from Model Setup.
-- **Field 7: Reset Defaults (`[OK Defaults]`)**:
+- **Field 8: Reset Defaults (`[OK Defaults]`)**:
   - Press **`[OK]`** to restore default trims, standard channel directions, linear curves, and mixer parameters for this model slot.
 
 ### Submenu 3: Dual Rate & Expo (`DUAL RATE/EXPO`)
@@ -477,7 +500,7 @@ Calibration ensures gimbals reach full travel without clipping or deadzones:
 The firmware provides 4 convenient ways to initiate AFHDS 2A binding with clean separation logic:
 1. **Hold `[BIND]` during Power-On**: Boots directly into RF bind mode.
 2. **Hold `[BIND]` (>= 1.0s) on Flight Screen**: Initiates binding from any flight dashboard page.
-3. **`MODEL SETUP` Menu**: Select Field 6 (`Bind RX`) and press **`[OK]`**.
+3. **`MODEL SETUP` Menu**: Select Field 7 (`Bind RX`) and press **`[OK]`**.
 4. **`RX SETUP & BIND` Menu**: Press **`[OK]`**.
 
 ### Method A: Two-Way Telemetry Receivers (FS-iA6B, FS-iA10B)

@@ -258,7 +258,7 @@ pub fn update_input_setup(
     widgets::draw_footer(lcd, "[OK] Cycle Mode    [ESC] Back");
 }
 
-pub const TELEM_SENSOR_NAMES: [&str; 13] = [
+pub const TELEM_SENSOR_NAMES: [&str; 15] = [
     "RX BAT",
     "LQ/RSSI",
     "TX BAT",
@@ -271,6 +271,8 @@ pub const TELEM_SENSOR_NAMES: [&str; 13] = [
     "PKTS TX",
     "PKTS RX",
     "TIMER",
+    "VSPD",
+    "ALT",
     "OFF",
 ];
 

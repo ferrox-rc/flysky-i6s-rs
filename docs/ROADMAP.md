@@ -6,8 +6,13 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ## Current Firmware Footprint
 
+<<<<<<< HEAD
 - **Firmware Footprint (v0.2.0)**: **~113.6 KB Flash ROM** (`.text` 108,248B + `.data` 8,060B = 116,308B, leaving ~6.4 KB / ~5.4% headroom out of 120 KB partition) and **~8.9 KB static RAM** (`.data` 8,060B + `.bss` 1,056B = 9,116B, leaving >7.0 KB stack safety margin in 16 KB SRAM).
 - **Authoritative Budget & Breakdown**: For exact section sizes, partition layouts, and stack guarantees, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).
+=======
+- **Firmware Footprint (v0.25.0)**: **~106.5 KB Flash ROM** (.vector = 192, .text = 89,092, .rodata = 11,328, .data = 5,876; leaving ~13.5 KB / ~11.3% headroom out of 120 KB partition) and **~6.9 KB static RAM** (.data = 5,876, .bss = 1,032; leaving >9.0 KB stack safety margin in 16 KB SRAM). Unit tests: **143 passed**.
+- **Authoritative Budget & Breakdown**: For exact section sizes (`.text`, `.rodata`, `.data`, `.bss`), partition layouts, and stack guarantees, see [ARCHITECTURE.md (Memory Footprint)](ARCHITECTURE.md#4-memory-footprint).
+>>>>>>> 213c36d (feat(vario): add variometer telemetry decoding, acoustic tone synthesis, and UI setup)
 
 ---
 
@@ -125,6 +130,27 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Configurable AFHDS 2A transmitter RF output power (`100mW (HI)`, `10mW (MID)`, `1mW (LOW)`, `100uW (TST)`).
 - [x] Automatic deep sleep power-down (`0x0F`) for the internal A7105 transceiver when operating in CRSF mode.
 
-### Phase 24: Unified `ferrox` Core & Hardware Abstraction Layer (COMPLETED)
-- [x] Unified crate name (`ferrox`) and 100% byte-for-byte identical core shared between `flysky-i6s-rs` and `flysky-i6x-rs`.
-- [x] Strictly isolated board-specific hardware drivers inside `src/hw/` (`mod.rs`, `adc.rs`, `keys.rs`, `uart.rs`, `power.rs`, `touch/`) with zero dead-code stubs.
+### Phase 24: Core Unification & Hardware Abstraction Layer Isolation (COMPLETED)
+- [x] Unified core crate name `ferrox` across both FlySky FS-i6X and FS-i6S codebases.
+- [x] Complete hardware-agnostic core extraction: 100% byte-for-byte identical core modules outside `src/hw/` (`diff -rq -x hw src/` reports 0 differences).
+- [x] Hardware Abstraction Layer (`src/hw/`) isolating board identities, battery voltage divider formulas, setup menu extensions, key scanning, and board peripherals.
+- [x] Unified `TIM15` trainer subsystem supporting 8-channel CPPM Output on `PF10` and Student Input Capture on `PF9` with `SD` Down handover.
+- [x] Universal `AdcInputMode` supporting 7 modes (`0..=6`: Default, 2-Pos, 3-Pos, 6-Pos, Pot, PotDetent, InstantTrim).
+- [x] Standardized 5 ascending CRSF baud rates (`115.2k`..`1.875M`) and per-model half-duplex `HDSEL` routing on `PD5`.
+- [x] Single-threaded test harness (`-- --test-threads=1`) with automated host unit tests.
+
+### Phase 25: 32 Matrix Mixers, 7/9-Point Curves, & Active-Model Cache (COMPLETED / BRANCH: `feat/32-mixers-17pt-curves`)
+- [x] Expanded freeform matrix mixer from 8 to 32 lines (`M01`..`M32`) per model with 8-byte packed `MixLine`.
+- [x] Dynamic weight modulation: select channels/knobs (`weight_src`) to modulate mix line gain (Bipolar `CH1`..`CH18`, Unipolar `CH1+`..`CH18+`, or `Fixed`).
+- [x] 5, 7, and 9-point throttle and collective pitch curves with switchable piecewise linear and Catmull-Rom cubic Hermite spline interpolation.
+- [x] Active-model SRAM cache architecture: `RadioStorage` holds only `RadioConfig` and active `ModelConfig` in RAM.
+- [x] Transparent in-place EEPROM migration: detects 128-byte v1 model slots, verifies CRC, migrates to v2 schema, and re-saves with fresh CRC envelope.
+- [x] UI updates: `WING/MIXER` 34-item viewport (`M01`..`M32`), `EDIT MIX 01`..`32` with `Wt Src:` field, and `THR CURVE` 5-PT/7-PT/9-PT mode cycling with `P01:`..`P09:` formatting.
+
+### Phase 26: Variometer Telemetry & Acoustic Audio Feedback (COMPLETED / BRANCH: `feat/vario-telemetry-audio`)
+- [x] Telemetry frame decoding: CRSF `0x07` (`CRSF_FRAMETYPE_VARIO`) & `0x09` (`CRSF_FRAMETYPE_BARO_ALTITUDE`), and AFHDS 2A/i-BUS sensor `0x09` (vspeed) and `0x41`/`0x83`/`0xF9` (altitude).
+- [x] Core variometer engine (`src/vario.rs`) featuring 4-tap EMA noise filtering, fallback altitude differentiator ($\Delta h / \Delta t$), configurable climb/sink deadbands, pitch scaling ($1000\dots 2800\,\text{Hz}$), cadence scaling ($550\dots 110\,\text{ms}$), sink modes (`BEEP`, `CONT`, `SILENT`), and automatic motor lockout ($> 10\%$ throttle).
+- [x] Non-blocking background audio synthesis on hardware PWM piezo (`TIM1_CH1`, `PA8`) with zero-latency preemption by higher-priority alarms (battery, RSSI, timer, clicks) and phase-preserved cadence tracking.
+- [x] Model storage integration: persistent `vario_switch`, `vario_climb_deadband`, `vario_sink_deadband`, `vario_sink_mode`, and `vario_motor_mute` in `ModelConfig` with automatic flash sanitization.
+- [x] Dedicated UI editors: `VARIO SETUP` under `MODEL SETUP` with switch auto-detection and live acoustic tone preview.
+- [x] Multi-tile telemetry dashboard integration: `VSPD` (`+X.Xm/s`) and `ALT` (`XXXXm`) tiles added to custom telemetry dashboard slot assignments.

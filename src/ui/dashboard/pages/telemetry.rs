@@ -193,6 +193,54 @@ fn render_sensor_tile(
             lcd.draw_str_4x6(x, y, "TIMER", false);
             lcd.draw_str_6x10(x, y + 7, timer_str.unwrap_or("00:00"), false);
         }
+        12 => {
+            // VSPD
+            lcd.draw_str_4x6(x, y, "VSPD", false);
+            if telem.connected {
+                let mut buf = *b"+0.0m/s";
+                let vspeed = telem.vspeed_cms;
+                let sign = if vspeed >= 0 { b'+' } else { b'-' };
+                let mag = (vspeed.unsigned_abs()).min(999);
+                let whole = mag / 100;
+                let frac = (mag % 100) / 10;
+                buf[0] = sign;
+                buf[1] = b'0' + (whole as u8);
+                buf[2] = b'.';
+                buf[3] = b'0' + (frac as u8);
+                lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf[..7]), false);
+            } else {
+                lcd.draw_str_6x10(x, y + 7, "---m/s", false);
+            }
+        }
+        13 => {
+            // ALT
+            lcd.draw_str_4x6(x, y, "ALT", false);
+            if telem.connected {
+                let mut buf = [b' '; 6];
+                let mut pos = 0;
+                let alt = telem.alt_m;
+                if alt < 0 {
+                    buf[pos] = b'-';
+                    pos += 1;
+                }
+                let mag = alt.unsigned_abs() as u32;
+                let mut num_buf = [b' '; 5];
+                u32_to_dec_5(mag, &mut num_buf);
+                for &b in &num_buf {
+                    if b != b' ' && pos < 5 {
+                        buf[pos] = b;
+                        pos += 1;
+                    }
+                }
+                if pos < 5 {
+                    buf[pos] = b'm';
+                    pos += 1;
+                }
+                lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf[..pos]), false);
+            } else {
+                lcd.draw_str_6x10(x, y + 7, "---m", false);
+            }
+        }
         _ => {
             // OFF
             lcd.draw_str_4x6(x, y, "SLOT OFF", false);

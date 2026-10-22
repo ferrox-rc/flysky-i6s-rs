@@ -44,7 +44,7 @@ use cortex_m_rt::entry;
 
 use ferrox::{
     adc, boot, buzzer, calib, chip, crsf, curve, display, hw, input, mixer, rf, safety, storage,
-    time, trainer, trim, ui, usb, watchdog,
+    time, trainer, trim, ui, usb, vario, watchdog,
 };
 pub use ui::menu;
 
@@ -68,6 +68,7 @@ struct FlightPipeline {
     prev_armed: bool,
     prev_active_model: u8,
     telem_reading_idx: u8,
+    vario: vario::Vario,
 }
 
 impl FlightPipeline {
@@ -78,6 +79,7 @@ impl FlightPipeline {
             prev_armed,
             prev_active_model: storage.radio.active_model,
             telem_reading_idx: 1,
+            vario: vario::Vario::new(),
         }
     }
 
@@ -103,6 +105,7 @@ impl FlightPipeline {
         if storage.radio.active_model != self.prev_active_model {
             self.prev_active_model = storage.radio.active_model;
             self.prev_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
+            self.vario.reset();
         }
 
         // 3. Check configured Arm Switch condition and play Armed/Disarmed chimes
@@ -198,6 +201,8 @@ impl FlightPipeline {
                 connected: ct.connected,
                 rssi: ct.uplink_link_quality,
                 rx_voltage_mv: ct.rx_battery_mv,
+                alt_m: ct.baro_alt_m,
+                vspeed_cms: ct.vspeed_cms,
                 packets_sent: 0,
                 packets_received: 0,
             }
@@ -208,6 +213,29 @@ impl FlightPipeline {
 
         // 8. Poll USB subsystem (Joystick HID @ 100Hz, Serial CLI / Telemetry)
         usb::poll(now, &rf_chs, &state.switches, &telem, state.battery_mv);
+
+        // 9. Variometer Acoustic Evaluation & Background Audio Generation
+        if !menu_active {
+            let vario_cfg = storage.vario_config();
+            let sw_active = if vario_cfg.switch > 0 && vario_cfg.switch <= 14 {
+                mixer::eval_arm_switch(vario_cfg.switch, &state.switches)
+            } else {
+                false
+            };
+            let thr_ch = rf_chs[2]; // CH3 Throttle in µs (1000..2000)
+            let tone = self.vario.update(
+                now,
+                telem.alt_m,
+                telem.vspeed_cms,
+                telem.connected,
+                sw_active,
+                thr_ch,
+                &vario_cfg,
+            );
+            buzzer.set_vario(tone.freq_hz, tone.pulse_ms, tone.pause_ms);
+        } else {
+            buzzer.set_vario(0, 0, 0);
+        }
 
         FlightSnapshot {
             state,
