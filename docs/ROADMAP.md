@@ -154,3 +154,38 @@ This document tracks the phased implementation, historical milestones, and ongoi
 - [x] Model storage integration: persistent `vario_switch`, `vario_climb_deadband`, `vario_sink_deadband`, `vario_sink_mode`, and `vario_motor_mute` in `ModelConfig` with automatic flash sanitization.
 - [x] Dedicated UI editors: `VARIO SETUP` under `MODEL SETUP` with switch auto-detection and live acoustic tone preview.
 - [x] Multi-tile telemetry dashboard integration: `VSPD` (`+X.Xm/s`) and `ALT` (`XXXXm`) tiles added to custom telemetry dashboard slot assignments.
+### Phase 27: Aftermarket Hall Effect Gimbal Calibration (COMPLETED)
+- [x] Support for aftermarket Hall effect gimbals alongside stock potentiometers.
+- [x] Non-volatile `Gimbal Type` toggle (`POT` / `HALL`) in `Radio Setup` utilizing reserved radio configuration byte (`RadioConfig` remains 148 bytes on FS-i6S).
+- [x] Inverted Hall ADC normalization, calibrated center detent deadband, and full stick throw travel without endpoint clipping.
+- [x] Dedicated documentation guide: [`docs/HALL_GIMBALS.md`](HALL_GIMBALS.md).
+
+### Phase 28: I2C EEPROM Diagnostics, Status Reporting, & Bus Recovery (COMPLETED)
+- [x] Hardware I2C2 EEPROM driver for FT24C128A on `PB10`/`PB11` at ~1000 kHz Fast Mode Plus (Fm+).
+- [x] Runtime adaptive bus probing (`0x50`..`0x57`), automatic peripheral APB1 reset & STOP bit recovery on bus lockup.
+- [x] Dedicated on-radio `STORAGE (EEPROM)` Diagnostics screen (Page 4 in `Analog Diag`) displaying bus, address, device status, and slot metrics.
+- [x] USB Serial interactive CLI command `storage` / `eeprom` reporting live I2C bus counters and slot integrity.
+
+### Phase 29: Global Variables (GV1..GV5) in Mixer & Storage (COMPLETED)
+- [x] Dedicated `GV1`..`GV5` variables (range `-1000..+1000`) per model with persistent EEPROM storage.
+- [x] Mix line integration: use global variables as direct mix sources or dynamic weight modulation sources.
+- [x] Dedicated UI editor under `WING / MIXER -> Global Variables`.
+- [x] Zero-loss in-place EEPROM schema migration.
+
+### Phase 30: Spektrum Protocol & Multi-Module Integration (PROPOSED / LOOSE PLAN)
+> **Flash Space Feasibility Re-Evaluation (v0.26.0 Baseline)**:
+> - **Total MCU Flash**: 131,072 bytes (128 KB).
+> - **Current Flash footprint**: **106.8 KB** (109,340 bytes: `.text` = 103,392, `.data` = 5,948).
+> - **Available Flash headroom**: **21.2 KB** (21,732 bytes / 16.6% margin).
+> - **Estimated Spektrum footprint**: **~2.5 KB – 5.0 KB** across parsers and menu selections.
+> - **Headroom after Spektrum**: **~16.2 KB – 18.7 KB** (>12% margin retained for Phase 21 SBUS trainer, Servo Slow, and diagnostics).
+> - **Conclusion**: Fully viable within single-bank 128 KB flash without requiring banking or flash paging.
+
+- [ ] **Spektrum Satellite Remote Receiver (DSM2 / DSMX) Wireless Trainer Input**:
+  - Serial stream parser on `USART2` (`PA15` RX) decoding standard 16-byte frames (10-bit 1024/22ms and 11-bit 2048/11ms) at 115,200 baud.
+  - Integration with existing `TIM15` instructor handover engine (`SD` Down safety switch) alongside CPPM and SBUS.
+- [ ] **MULTI-Module Serial Protocol for External Spektrum DSM2 / DSMX (iRangeX iRX6)**:
+  - Multi-Protocol serial output telemetry stream at 100,000 baud (8E2) on rear module bay / trainer connector.
+  - Model Setup protocol options: `DSM` with sub-protocol modes (`DSM2-22`, `DSM2-11`, `DSMX-22`, `DSMX-11`) and software auto-bind triggering.
+- [ ] **Spektrum Telemetry & Link Quality Parsing**:
+  - Basic Spektrum flight log frame decoding: Antenna A/B fades, Frame Losses (`FLoss`), and Receiver Holds (`Hold`).
