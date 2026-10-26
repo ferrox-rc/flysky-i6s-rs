@@ -284,6 +284,7 @@ impl RadioConfig {
             rear_right_func: 0,
             touch_disabled: 0,
             j4_sg_sh_en: 0,
+            switch_beep: 1,
             gimbal_type: 0,
             stick_invert_mask: 0x03, // RH (bit 0) and RV (bit 1) inverted by default for factory pot gimbals
             _pad_align: [0; 2],

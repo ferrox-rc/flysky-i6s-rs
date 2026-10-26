@@ -944,7 +944,7 @@ mod tests {
         let mut trims = crate::trim::TrimController::new();
 
         ctrl.state = MenuState::RadioSetup;
-        ctrl.selected_item = 12; // Gimbals row
+        ctrl.selected_item = 14; // Gimbals row
         ctrl.scroll_offset = 10;
 
         assert_eq!(storage.radio.gimbal_type, 0);
