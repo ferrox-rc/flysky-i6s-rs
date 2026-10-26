@@ -39,6 +39,10 @@ In the radio menu:
    - **`POT`** (Standard potentiometers: 0 count deadband, optimized for resistive sweeps)
    - **`HALL`** (Hall effect sensors: 3-count central magnetic ripple suppression deadband, adapted calibration limits)
 
+> [!TIP]
+> **Can you use `HALL` mode on standard potentiometer gimbals?**
+> Yes. The setting is purely a software processing toggle on the ADC readings and causes no hardware or electrical issues. Running `HALL` on stock potentiometers simply adds the small $\pm 3$-count ($\sim 0.2\%$) center deadband, which can actually be helpful on older or worn potentiometers to eliminate resting stick jitter around center. Both `POT` and `HALL` modes retain full $-1000..+1000$ throw.
+
 ### Calibration Routine
 After installing Hall effect gimbals:
 1. Navigate to **`CALIBRATION`** in the main menu.
