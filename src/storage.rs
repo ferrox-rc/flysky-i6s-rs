@@ -1819,7 +1819,7 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
     {
         let _ = addr;
         let _ = dst;
-        return Err(StorageError::EmptySlot);
+        Err(StorageError::EmptySlot)
     }
 
     #[cfg(not(test))]
@@ -1890,7 +1890,7 @@ pub fn save_slot<T: Copy>(addr: u16, src: &T) -> Result<(), StorageError> {
     {
         let _ = addr;
         let _ = src;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(test))]
@@ -1986,7 +1986,6 @@ pub fn load_storage_into(storage: &mut RadioStorage) {
     #[cfg(test)]
     {
         storage.init_default();
-        return;
     }
 
     #[cfg(not(test))]
@@ -2076,7 +2075,7 @@ pub fn save_active_model(storage: &RadioStorage) -> bool {
     #[cfg(test)]
     {
         let _ = storage;
-        return true;
+        true
     }
     #[cfg(not(test))]
     {
@@ -2090,7 +2089,7 @@ pub fn save_radio_config(storage: &RadioStorage) -> bool {
     #[cfg(test)]
     {
         let _ = storage;
-        return true;
+        true
     }
     #[cfg(not(test))]
     {

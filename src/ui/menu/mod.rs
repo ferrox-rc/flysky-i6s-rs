@@ -666,9 +666,10 @@ mod tests {
         ctrl.state = MenuState::InputSetup;
         ctrl.selected_item = 4; // VRA
 
-        let mut pots = crate::input::Pots::default();
-        // Even if VRA outputs full +1000 deflection (as happens when switched to 2-POS or Pot-D)
-        pots.vr1 = 1000;
+        let pots = crate::input::Pots {
+            vr1: 1000,
+            ..Default::default()
+        };
 
         ctrl.update(
             &mut lcd,
@@ -706,9 +707,10 @@ mod tests {
         ctrl.open(&mut buzzer);
         assert_eq!(ctrl.selected_item, 0);
 
-        let mut pots = crate::input::Pots::default();
-        // In flight/main menu, switch is toggled ON (+1000)
-        pots.vr1 = 1000;
+        let pots = crate::input::Pots {
+            vr1: 1000,
+            ..Default::default()
+        };
 
         ctrl.update(
             &mut lcd,
