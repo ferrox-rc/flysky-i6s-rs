@@ -7,7 +7,6 @@ use crate::ui::widgets;
 
 #[inline(never)]
 pub fn render(lcd: &mut St7567, rf_chs: &[u16; NUM_CHANNELS], is_binding: bool, page_part: usize) {
-
     // page_part 0: CH 1..10 (Col 0: 1..5, Col 1: 6..10)
     // page_part 1: CH 11..18 (Col 0: 11..14, Col 1: 15..18)
     let (footer_page, footer_title, base_ch, rows_per_col) = if page_part == 0 {

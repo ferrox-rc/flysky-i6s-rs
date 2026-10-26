@@ -179,15 +179,25 @@ impl SerialHandler {
                 ];
                 write_all(serial, &hex);
                 write_all(serial, b"\r\n  Read:     ");
-                write_all(serial, if status.read_ok { b"OK\r\n" } else { b"FAIL\r\n" });
+                write_all(
+                    serial,
+                    if status.read_ok {
+                        b"OK\r\n"
+                    } else {
+                        b"FAIL\r\n"
+                    },
+                );
                 write_all(serial, b"  Write:    ");
-                write_all(serial, if status.write_err {
-                    b"FAIL\r\n"
-                } else if status.write_ok {
-                    b"OK\r\n"
-                } else {
-                    b"OK (READY)\r\n"
-                });
+                write_all(
+                    serial,
+                    if status.write_err {
+                        b"FAIL\r\n"
+                    } else if status.write_ok {
+                        b"OK\r\n"
+                    } else {
+                        b"OK (READY)\r\n"
+                    },
+                );
             } else {
                 write_all(serial, b"  Detected: NO (No external I2C EEPROM found)\r\n");
             }

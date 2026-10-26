@@ -45,10 +45,18 @@ fn evaluate_5pt(x: i32, smooth: bool, curve: &[u8]) -> u16 {
     }
 
     // Catmull-Rom spline interpolation with boundary tangent extrapolation
-    let p0 = if i > 0 { pts[i - 1] } else { 2 * pts[0] - pts[1] };
+    let p0 = if i > 0 {
+        pts[i - 1]
+    } else {
+        2 * pts[0] - pts[1]
+    };
     let p1 = pts[i];
     let p2 = pts[i + 1];
-    let p3 = if i + 2 < 5 { pts[i + 2] } else { 2 * pts[4] - pts[3] };
+    let p3 = if i + 2 < 5 {
+        pts[i + 2]
+    } else {
+        2 * pts[4] - pts[3]
+    };
     let t = (dx * 256) / 250;
 
     catmull_rom(p0, p1, p2, p3, t)
@@ -77,10 +85,18 @@ fn evaluate_9pt(x: i32, smooth: bool, curve: &[u8]) -> u16 {
         return y.clamp(0, 1000) as u16;
     }
 
-    let p0 = if i > 0 { pts[i - 1] } else { 2 * pts[0] - pts[1] };
+    let p0 = if i > 0 {
+        pts[i - 1]
+    } else {
+        2 * pts[0] - pts[1]
+    };
     let p1 = pts[i];
     let p2 = pts[i + 1];
-    let p3 = if i + 2 < 9 { pts[i + 2] } else { 2 * pts[8] - pts[7] };
+    let p3 = if i + 2 < 9 {
+        pts[i + 2]
+    } else {
+        2 * pts[8] - pts[7]
+    };
     let t = (dx * 256) / 125;
 
     catmull_rom(p0, p1, p2, p3, t)
@@ -112,10 +128,18 @@ fn evaluate_7pt(x: i32, smooth: bool, curve: &[u8]) -> u16 {
         return y.clamp(0, 1000) as u16;
     }
 
-    let p0 = if i > 0 { pts[i - 1] } else { 2 * pts[0] - pts[1] };
+    let p0 = if i > 0 {
+        pts[i - 1]
+    } else {
+        2 * pts[0] - pts[1]
+    };
     let p1 = pts[i];
     let p2 = pts[i + 1];
-    let p3 = if i + 2 < 7 { pts[i + 2] } else { 2 * pts[6] - pts[5] };
+    let p3 = if i + 2 < 7 {
+        pts[i + 2]
+    } else {
+        2 * pts[6] - pts[5]
+    };
     let t = (dx * 256) / span;
 
     catmull_rom(p0, p1, p2, p3, t)
@@ -181,7 +205,11 @@ mod tests {
         let mut prev = 0;
         for x in (50..=1000).step_by(50) {
             let val = evaluate_curve(x, 5, true, &curve);
-            assert!(val >= prev, "Spline must be monotonically non-decreasing at {}", x);
+            assert!(
+                val >= prev,
+                "Spline must be monotonically non-decreasing at {}",
+                x
+            );
             prev = val;
         }
     }
@@ -202,7 +230,11 @@ mod tests {
         let mut prev = 0;
         for x in (25..=1000).step_by(25) {
             let val = evaluate_curve(x, 7, true, &curve);
-            assert!(val >= prev, "7-point spline must be non-decreasing at {}", x);
+            assert!(
+                val >= prev,
+                "7-point spline must be non-decreasing at {}",
+                x
+            );
             prev = val;
         }
     }

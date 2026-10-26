@@ -331,10 +331,10 @@ use crate::adc::{ADC_CENTER, ADC_MAX, ADC_MIN};
 
 #[derive(Copy, Clone, Debug)]
 pub struct InputCalibration {
-    pub rh: AxisCalib, // PA0: Right Horizontal
-    pub rv: AxisCalib, // PA1: Right Vertical
-    pub lv: AxisCalib, // PA2: Left Vertical
-    pub lh: AxisCalib, // PA3: Left Horizontal
+    pub rh: AxisCalib,        // PA0: Right Horizontal
+    pub rv: AxisCalib,        // PA1: Right Vertical
+    pub lv: AxisCalib,        // PA2: Left Vertical
+    pub lh: AxisCalib,        // PA3: Left Horizontal
     pub aux: [AxisCalib; 11], // 0..3: SA..SD, 4..5: VRA..VRB, 6..10: VRC..VRG
     pub adc_modes: [u8; 11],
     pub filtered_battery_mv: u32,
@@ -712,12 +712,12 @@ mod tests {
 
     #[test]
     fn test_aux_index_to_raw_adc_mapping() {
-        assert_eq!(aux_index_to_raw_adc(0), 4);  // SA: PA4
-        assert_eq!(aux_index_to_raw_adc(1), 5);  // SB: PA5
-        assert_eq!(aux_index_to_raw_adc(2), 8);  // SC: PB0
-        assert_eq!(aux_index_to_raw_adc(3), 9);  // SD: PB1
-        assert_eq!(aux_index_to_raw_adc(4), 6);  // VRA: PA6
-        assert_eq!(aux_index_to_raw_adc(5), 7);  // VRB: PA7
+        assert_eq!(aux_index_to_raw_adc(0), 4); // SA: PA4
+        assert_eq!(aux_index_to_raw_adc(1), 5); // SB: PA5
+        assert_eq!(aux_index_to_raw_adc(2), 8); // SC: PB0
+        assert_eq!(aux_index_to_raw_adc(3), 9); // SD: PB1
+        assert_eq!(aux_index_to_raw_adc(4), 6); // VRA: PA6
+        assert_eq!(aux_index_to_raw_adc(5), 7); // VRB: PA7
         assert_eq!(aux_index_to_raw_adc(6), 11); // VRC
         assert_eq!(aux_index_to_raw_adc(7), 12); // VRD
         assert_eq!(aux_index_to_raw_adc(8), 13); // VRE

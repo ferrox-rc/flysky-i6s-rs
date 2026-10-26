@@ -61,29 +61,29 @@ impl St7567 {
             });
 
             // Configure PE0..PE7 as outputs (MODER = 01)
-            gpioe.moder.modify(|r, w| {
-                w.bits((r.bits() & !0x0000_FFFF) | 0x0000_5555)
-            });
+            gpioe
+                .moder
+                .modify(|r, w| w.bits((r.bits() & !0x0000_FFFF) | 0x0000_5555));
 
             // Configure Control pins as outputs (MODER = 01):
             // PB3 (RS), PB4 (RST), PB5 (RW)
             let b_mask = (3 << 6) | (3 << 8) | (3 << 10);
             let b_val = (1 << 6) | (1 << 8) | (1 << 10);
-            gpiob.moder.modify(|r, w| {
-                w.bits((r.bits() & !b_mask) | b_val)
-            });
+            gpiob
+                .moder
+                .modify(|r, w| w.bits((r.bits() & !b_mask) | b_val));
 
             // PD2 (CS), PD7 (RD / Strobe)
             let d_mask = (3 << 4) | (3 << 14);
             let d_val = (1 << 4) | (1 << 14);
-            gpiod.moder.modify(|r, w| {
-                w.bits((r.bits() & !d_mask) | d_val)
-            });
+            gpiod
+                .moder
+                .modify(|r, w| w.bits((r.bits() & !d_mask) | d_val));
 
             // Standard Backlight is on PF3 (Active HIGH). Configure PF3 as output.
-            gpiof.moder.modify(|r, w| {
-                w.bits((r.bits() & !(3 << 6)) | (1 << 6))
-            });
+            gpiof
+                .moder
+                .modify(|r, w| w.bits((r.bits() & !(3 << 6)) | (1 << 6)));
 
             // Default LCD states matching OpenI6X:
             // CS (PD2) = Low (chip enabled)
@@ -92,7 +92,9 @@ impl St7567 {
             // RST (PB4) = High
             // RS (PB3) = High
             gpiod.bsrr.write(|w| w.bits((1 << (2 + 16)) | (1 << 7))); // PD2=0 (CS Low), PD7=1 (RD High)
-            gpiob.bsrr.write(|w| w.bits((1 << (5 + 16)) | (1 << 4) | (1 << 3))); // PB5=0 (RW Low), PB4=1 (RST High), PB3=1 (RS High)
+            gpiob
+                .bsrr
+                .write(|w| w.bits((1 << (5 + 16)) | (1 << 4) | (1 << 3))); // PB5=0 (RW Low), PB4=1 (RST High), PB3=1 (RS High)
         }
     }
 
@@ -108,14 +110,12 @@ impl St7567 {
             rcc.apb1enr.modify(|r, w| w.bits(r.bits() | (1 << 1)));
 
             // Configure PC9 as Alternate Function (MODER = 10, AF0 = TIM3_CH4)
-            gpioc.moder.modify(|r, w| {
-                w.bits((r.bits() & !(3 << 18)) | (2 << 18))
-            });
+            gpioc
+                .moder
+                .modify(|r, w| w.bits((r.bits() & !(3 << 18)) | (2 << 18)));
 
             // AFRH: PC9 is pin 9 -> bits 7:4. AF0 is 0b0000
-            gpioc.afrh.modify(|r, w| {
-                w.bits(r.bits() & !(0xF << 4))
-            });
+            gpioc.afrh.modify(|r, w| w.bits(r.bits() & !(0xF << 4)));
 
             // Configure TIM3 for 1 kHz PWM on Channel 4:
             // 48 MHz clock: PSC = 47 -> 1 MHz tick. ARR = 999 -> 1000 ticks = 1 kHz.
@@ -124,9 +124,8 @@ impl St7567 {
             tim3.ccr4.write(|w| w.bits(999)); // Start at 100% duty
 
             // CCMR2: OC4M = 0b110 (PWM Mode 1), OC4PE = 1 (Preload enable)
-            tim3.ccmr2_output().modify(|r, w| {
-                w.bits((r.bits() & !(0x7F << 8)) | (6 << 12) | (1 << 11))
-            });
+            tim3.ccmr2_output()
+                .modify(|r, w| w.bits((r.bits() & !(0x7F << 8)) | (6 << 12) | (1 << 11)));
 
             // CCER: CC4E = 1 (Enable CH4 output)
             tim3.ccer.modify(|r, w| w.bits(r.bits() | (1 << 12)));
@@ -135,7 +134,8 @@ impl St7567 {
             tim3.egr.write(|w| w.bits(1));
 
             // CR1: ARPE = 1, CEN = 1 (Enable counter)
-            tim3.cr1.modify(|r, w| w.bits(r.bits() | (1 << 7) | (1 << 0)));
+            tim3.cr1
+                .modify(|r, w| w.bits(r.bits() | (1 << 7) | (1 << 0)));
         }
     }
 
@@ -197,9 +197,9 @@ impl St7567 {
                 }
 
                 // Put byte on PE0..PE7 (low 8 bits of GPIOE_ODR)
-                gpioe.odr.modify(|r, w| {
-                    w.bits((r.bits() & !0xFF) | (byte as u32))
-                });
+                gpioe
+                    .odr
+                    .modify(|r, w| w.bits((r.bits() & !0xFF) | (byte as u32)));
 
                 // Strobe RD (PD7): High then Low latches data (OpenI6X timing)
                 gpiod.bsrr.write(|w| w.bits(1 << 7)); // RD High
@@ -240,7 +240,7 @@ impl St7567 {
             // Hardware reset: PB4 Low for ~50us, then High (OpenI6X delay_us(20))
             gpiob.bsrr.write(|w| w.bits(1 << (4 + 16))); // RST Low
             self.delay_cycles(500);
-            gpiob.bsrr.write(|w| w.bits(1 << 4));         // RST High
+            gpiob.bsrr.write(|w| w.bits(1 << 4)); // RST High
             self.delay_cycles(500);
         }
 
@@ -379,7 +379,11 @@ impl St7567 {
             let page_y_start = page * 8;
             let page_y_end = page_y_start + 7;
             let bit_start = y_start.saturating_sub(page_y_start);
-            let bit_end = if y_end - 1 < page_y_end { (y_end - 1) - page_y_start } else { 7 };
+            let bit_end = if y_end - 1 < page_y_end {
+                (y_end - 1) - page_y_start
+            } else {
+                7
+            };
 
             let mut mask = 0u8;
             for b in bit_start..=bit_end {
@@ -417,7 +421,11 @@ impl St7567 {
             let page_y_start = page * 8;
             let page_y_end = page_y_start + 7;
             let bit_start = y_start.saturating_sub(page_y_start);
-            let bit_end = if y_end - 1 < page_y_end { (y_end - 1) - page_y_start } else { 7 };
+            let bit_end = if y_end - 1 < page_y_end {
+                (y_end - 1) - page_y_start
+            } else {
+                7
+            };
 
             let mask = if bit_start == 0 && bit_end == 7 {
                 0xFFu8
@@ -700,7 +708,8 @@ mod tests {
 
             let buf = [c];
             let s = core::str::from_utf8(&buf).unwrap();
-            let style = embedded_graphics::mono_font::MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
+            let style =
+                embedded_graphics::mono_font::MonoTextStyle::new(&FONT_4X6, BinaryColor::On);
             Text::with_baseline(s, Point::new(10, 15), style, Baseline::Top)
                 .draw(&mut d2)
                 .unwrap();
@@ -723,7 +732,8 @@ mod tests {
 
             let buf = [c];
             let s = core::str::from_utf8(&buf).unwrap();
-            let style = embedded_graphics::mono_font::MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+            let style =
+                embedded_graphics::mono_font::MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
             Text::with_baseline(s, Point::new(10, 15), style, Baseline::Top)
                 .draw(&mut d2)
                 .unwrap();
@@ -738,4 +748,3 @@ mod tests {
         }
     }
 }
-

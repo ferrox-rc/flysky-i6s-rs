@@ -196,10 +196,12 @@ impl TrimController {
         match mode {
             1 => {
                 let max_offset = trim as i32 * TRIM_STEP_US as i32; // -100..+100 µs
-                let stick_travel = (base_us as i32 - CHANNEL_MIN_US as i32).clamp(0, CHANNEL_SPAN_US as i32);
+                let stick_travel =
+                    (base_us as i32 - CHANNEL_MIN_US as i32).clamp(0, CHANNEL_SPAN_US as i32);
                 // At stick_travel = 0 (CHANNEL_MIN_US), factor is 1024 / 1024 = 1.0 -> full offset
                 // At stick_travel = CHANNEL_SPAN_US (CHANNEL_MAX_US), factor is 0 / 1024 = 0.0 -> zero offset
-                let effective_offset = (max_offset * (CHANNEL_SPAN_US as i32 - stick_travel)) / CHANNEL_SPAN_US as i32;
+                let effective_offset =
+                    (max_offset * (CHANNEL_SPAN_US as i32 - stick_travel)) / CHANNEL_SPAN_US as i32;
                 let min_clamp = (CHANNEL_MIN_US as i32) - (TRIM_MAX_OFFSET_US as i32);
                 let max_clamp = (CHANNEL_MAX_US as i32) + (TRIM_MAX_OFFSET_US as i32);
                 (base_us as i32 + effective_offset).clamp(min_clamp, max_clamp) as u16
@@ -232,13 +234,23 @@ mod tests {
         assert_eq!(TrimController::apply_throttle(1500, 25, 0), 1500);
 
         // Mode 1: IDLE trim (tapers from full authority at 988 to 0 at 2012)
-        assert_eq!(TrimController::apply_throttle(CHANNEL_MIN_US, 25, 1), CHANNEL_MIN_US + 100);
-        assert_eq!(TrimController::apply_throttle(CHANNEL_MAX_US, 25, 1), CHANNEL_MAX_US);
+        assert_eq!(
+            TrimController::apply_throttle(CHANNEL_MIN_US, 25, 1),
+            CHANNEL_MIN_US + 100
+        );
+        assert_eq!(
+            TrimController::apply_throttle(CHANNEL_MAX_US, 25, 1),
+            CHANNEL_MAX_US
+        );
 
         // Mid-stick: roughly 50% authority
         let mid = (CHANNEL_MIN_US + CHANNEL_MAX_US) / 2; // 1500
         let mid_val = TrimController::apply_throttle(mid, 25, 1);
-        assert!((1545..=1555).contains(&mid_val), "Mid-stick idle trim should be ~50 µs offset, got {}", mid_val);
+        assert!(
+            (1545..=1555).contains(&mid_val),
+            "Mid-stick idle trim should be ~50 µs offset, got {}",
+            mid_val
+        );
 
         // Mode 2: LINEAR
         assert_eq!(TrimController::apply_throttle(1500, 10, 2), 1540);

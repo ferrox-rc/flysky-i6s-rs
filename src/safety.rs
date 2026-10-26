@@ -275,13 +275,25 @@ mod tests {
     #[test]
     fn test_stick_mode_channel_mapping() {
         // Mode 2 and Mode 4 have Throttle on LeftVertical (PA2 / index 2)
-        assert_eq!(StickMode::Mode2.throttle_channel(), AnalogChannel::LeftVertical);
-        assert_eq!(StickMode::Mode4.throttle_channel(), AnalogChannel::LeftVertical);
+        assert_eq!(
+            StickMode::Mode2.throttle_channel(),
+            AnalogChannel::LeftVertical
+        );
+        assert_eq!(
+            StickMode::Mode4.throttle_channel(),
+            AnalogChannel::LeftVertical
+        );
         assert_eq!(AnalogChannel::LeftVertical.raw_adc_index(), 2);
 
         // Mode 1 and Mode 3 have Throttle on RightVertical (PA1 / index 1)
-        assert_eq!(StickMode::Mode1.throttle_channel(), AnalogChannel::RightVertical);
-        assert_eq!(StickMode::Mode3.throttle_channel(), AnalogChannel::RightVertical);
+        assert_eq!(
+            StickMode::Mode1.throttle_channel(),
+            AnalogChannel::RightVertical
+        );
+        assert_eq!(
+            StickMode::Mode3.throttle_channel(),
+            AnalogChannel::RightVertical
+        );
         assert_eq!(AnalogChannel::RightVertical.raw_adc_index(), 1);
     }
 
@@ -324,21 +336,39 @@ mod tests {
         // Raw ADC at 1020 (1% unipolar throttle = 10 permille <= 20) -> Safe
         let raw = [2048, 2048, 1020, 2048];
         assert_eq!(
-            check_preflight_throttle(&raw, Some(&cal), StickMode::Mode2, ModelType::Airplane, false),
+            check_preflight_throttle(
+                &raw,
+                Some(&cal),
+                StickMode::Mode2,
+                ModelType::Airplane,
+                false
+            ),
             Ok(())
         );
 
         // Raw ADC at 1040 (2% unipolar throttle = 20 permille <= 20) -> Safe
         let raw = [2048, 2048, 1040, 2048];
         assert_eq!(
-            check_preflight_throttle(&raw, Some(&cal), StickMode::Mode2, ModelType::Airplane, false),
+            check_preflight_throttle(
+                &raw,
+                Some(&cal),
+                StickMode::Mode2,
+                ModelType::Airplane,
+                false
+            ),
             Ok(())
         );
 
         // Raw ADC at 1060 (3% unipolar throttle = 30 permille > 20) -> Error ThrottleHigh
         let raw = [2048, 2048, 1060, 2048];
         assert_eq!(
-            check_preflight_throttle(&raw, Some(&cal), StickMode::Mode2, ModelType::Airplane, false),
+            check_preflight_throttle(
+                &raw,
+                Some(&cal),
+                StickMode::Mode2,
+                ModelType::Airplane,
+                false
+            ),
             Err(PreflightError::ThrottleHigh {
                 current_pct: 3,
                 threshold_pct: 2,
@@ -394,28 +424,52 @@ mod tests {
         // Centered (raw=2000, offset=0 permille) -> Safe
         let raw = [2048, 2048, 2000, 2048];
         assert_eq!(
-            check_preflight_throttle(&raw, Some(&cal), StickMode::Mode2, ModelType::General, false),
+            check_preflight_throttle(
+                &raw,
+                Some(&cal),
+                StickMode::Mode2,
+                ModelType::General,
+                false
+            ),
             Ok(())
         );
 
         // Within ±2% (raw=2015, offset=15 permille) -> Safe
         let raw = [2048, 2048, 2015, 2048];
         assert_eq!(
-            check_preflight_throttle(&raw, Some(&cal), StickMode::Mode2, ModelType::General, false),
+            check_preflight_throttle(
+                &raw,
+                Some(&cal),
+                StickMode::Mode2,
+                ModelType::General,
+                false
+            ),
             Ok(())
         );
 
         // Outside neutral (raw=2050, offset=50 permille / 5%) -> Error ThrottleNotCentered
         let raw = [2048, 2048, 2050, 2048];
         assert_eq!(
-            check_preflight_throttle(&raw, Some(&cal), StickMode::Mode2, ModelType::General, false),
+            check_preflight_throttle(
+                &raw,
+                Some(&cal),
+                StickMode::Mode2,
+                ModelType::General,
+                false
+            ),
             Err(PreflightError::ThrottleNotCentered { offset_pct: 5 })
         );
 
         // Full reverse / bottom (raw=1000, offset=-1000 permille) -> Error ThrottleNotCentered
         let raw = [2048, 2048, 1000, 2048];
         assert_eq!(
-            check_preflight_throttle(&raw, Some(&cal), StickMode::Mode2, ModelType::General, false),
+            check_preflight_throttle(
+                &raw,
+                Some(&cal),
+                StickMode::Mode2,
+                ModelType::General,
+                false
+            ),
             Err(PreflightError::ThrottleNotCentered { offset_pct: -100 })
         );
     }

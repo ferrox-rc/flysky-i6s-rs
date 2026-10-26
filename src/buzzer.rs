@@ -153,24 +153,25 @@ impl Buzzer {
             {
                 let tim1 = unsafe { &*pac::TIM1::ptr() };
 
-            unsafe {
-                // Period in 1 µs ticks = 1_000_000 / freq_hz
-                let period = (1_000_000u32 / (freq_hz as u32)).clamp(10, 65535);
-                let arr = period.saturating_sub(1);
-                let ccr = period / 2; // 50% duty cycle
+                unsafe {
+                    // Period in 1 µs ticks = 1_000_000 / freq_hz
+                    let period = (1_000_000u32 / (freq_hz as u32)).clamp(10, 65535);
+                    let arr = period.saturating_sub(1);
+                    let ccr = period / 2; // 50% duty cycle
 
-                tim1.arr.write(|w| w.bits(arr));
-                tim1.ccr1.write(|w| w.bits(ccr));
-                if tim1.cnt.read().bits() > arr {
-                    tim1.cnt.write(|w| w.bits(0));
+                    tim1.arr.write(|w| w.bits(arr));
+                    tim1.ccr1.write(|w| w.bits(ccr));
+                    if tim1.cnt.read().bits() > arr {
+                        tim1.cnt.write(|w| w.bits(0));
+                    }
+
+                    // Start counter: CEN (bit 0) | ARPE (bit 7)
+                    tim1.cr1
+                        .modify(|r, w| w.bits(r.bits() | (1 << 7) | (1 << 0)));
                 }
-
-                // Start counter: CEN (bit 0) | ARPE (bit 7)
-                tim1.cr1.modify(|r, w| w.bits(r.bits() | (1 << 7) | (1 << 0)));
             }
         }
     }
-}
 
     /// Turn off the hardware PWM generator.
     fn hardware_off(&self) {
@@ -194,7 +195,13 @@ impl Buzzer {
     }
 
     /// Play a repeating pattern of `freq_hz` for `duration_ms` with `pause_ms` between repeats.
-    pub fn play_tone_pattern(&mut self, freq_hz: u16, duration_ms: u16, pause_ms: u16, repeats: u8) {
+    pub fn play_tone_pattern(
+        &mut self,
+        freq_hz: u16,
+        duration_ms: u16,
+        pause_ms: u16,
+        repeats: u8,
+    ) {
         self.seq_len = 0;
         self.seq_idx = 0;
         self.active_freq = freq_hz;
@@ -383,10 +390,7 @@ impl Buzzer {
     /// Arming confirmation: crisp 2-note rising chirp.
     pub fn chime_armed(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            static MELODY: [Note; 2] = [
-                Note::new(1800, 45, 10),
-                Note::new(2600, 75, 0),
-            ];
+            static MELODY: [Note; 2] = [Note::new(1800, 45, 10), Note::new(2600, 75, 0)];
             self.play_sequence(&MELODY);
         } else {
             self.play_tone(2400, 80);
@@ -396,10 +400,7 @@ impl Buzzer {
     /// Disarming confirmation: crisp 2-note falling chirp.
     pub fn chime_disarmed(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            static MELODY: [Note; 2] = [
-                Note::new(2600, 45, 10),
-                Note::new(1800, 75, 0),
-            ];
+            static MELODY: [Note; 2] = [Note::new(2600, 45, 10), Note::new(1800, 75, 0)];
             self.play_sequence(&MELODY);
         } else {
             self.play_tone(1800, 80);
@@ -415,10 +416,7 @@ impl Buzzer {
     /// Trim center reference confirmed. Higher pitch distinct tone.
     pub fn trim_center(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            static MELODY: [Note; 2] = [
-                Note::new(2400, 30, 10),
-                Note::new(3000, 50, 0),
-            ];
+            static MELODY: [Note; 2] = [Note::new(2400, 30, 10), Note::new(3000, 50, 0)];
             self.play_sequence(&MELODY);
         } else {
             self.play_tone(BEEP_CENTER_FREQ, 60);
@@ -428,10 +426,7 @@ impl Buzzer {
     /// Trim limit reached (cannot increment/decrement further).
     pub fn trim_limit(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            static MELODY: [Note; 2] = [
-                Note::new(1100, 40, 15),
-                Note::new(900, 60, 0),
-            ];
+            static MELODY: [Note; 2] = [Note::new(1100, 40, 15), Note::new(900, 60, 0)];
             self.play_sequence(&MELODY);
         } else {
             self.play_tone(BEEP_LIMIT_FREQ, 45);
@@ -484,10 +479,7 @@ impl Buzzer {
     /// Radio inactivity idle alarm (gentle reminder chirp).
     pub fn warn_inactivity(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            static MELODY: [Note; 2] = [
-                Note::new(1600, 70, 30),
-                Note::new(2000, 100, 0),
-            ];
+            static MELODY: [Note; 2] = [Note::new(1600, 70, 30), Note::new(2000, 100, 0)];
             self.play_sequence(&MELODY);
         } else {
             self.play_tone(1800, 250);
@@ -497,10 +489,7 @@ impl Buzzer {
     /// Telemetry RSSI low warning alert (range warning < 40%).
     pub fn warn_rssi_low(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            static MELODY: [Note; 2] = [
-                Note::new(1900, 50, 20),
-                Note::new(1700, 70, 0),
-            ];
+            static MELODY: [Note; 2] = [Note::new(1900, 50, 20), Note::new(1700, 70, 0)];
             self.play_sequence(&MELODY);
         } else {
             self.play_tone(2000, 80);
@@ -525,10 +514,7 @@ impl Buzzer {
     /// Calibration wizard start confirmation chirp.
     pub fn chime_calib_start(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            static MELODY: [Note; 2] = [
-                Note::new(2000, 50, 15),
-                Note::new(2500, 80, 0),
-            ];
+            static MELODY: [Note; 2] = [Note::new(2000, 50, 15), Note::new(2500, 80, 0)];
             self.play_sequence(&MELODY);
         } else {
             self.play_tone(2200, 100);
@@ -557,10 +543,7 @@ impl Buzzer {
     /// Flight timer 1-minute alert: distinctive dual-tone chirp.
     pub fn timer_minute_beep(&mut self) {
         if self.tone_style == ToneStyle::Rich {
-            static MELODY: [Note; 2] = [
-                Note::new(2200, 40, 15),
-                Note::new(2800, 60, 0),
-            ];
+            static MELODY: [Note; 2] = [Note::new(2200, 40, 15), Note::new(2800, 60, 0)];
             self.play_sequence(&MELODY);
         } else {
             self.play_tone(2400, 60);
@@ -642,4 +625,3 @@ mod tests {
         assert!(buzzer.is_vario_active());
     }
 }
-

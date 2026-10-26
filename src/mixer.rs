@@ -262,10 +262,10 @@ pub fn evaluate_source(
 ) -> i32 {
     match src {
         0 => MIXER_CENTER as i32,
-        1 => cond_sticks[0] as i32, // Roll
-        2 => cond_sticks[1] as i32, // Pitch
-        3 => cond_sticks[2] as i32, // Throttle
-        4 => cond_sticks[3] as i32, // Yaw
+        1 => cond_sticks[0] as i32,                     // Roll
+        2 => cond_sticks[1] as i32,                     // Pitch
+        3 => cond_sticks[2] as i32,                     // Throttle
+        4 => cond_sticks[3] as i32,                     // Yaw
         5 => pots.first().copied().unwrap_or(0) as i32, // VRA
         6 => pots.get(1).copied().unwrap_or(0) as i32,  // VRB
         7 => match switches.sa {
@@ -452,7 +452,8 @@ pub fn compute_channels(
             if template == WingTailTemplate::Flaperon && ch_idx == 5 {
                 continue;
             }
-            ch_vals[ch_idx] = evaluate_source(src, &cond_sticks, pots, switches, &ch_vals, &model.gvars);
+            ch_vals[ch_idx] =
+                evaluate_source(src, &cond_sticks, pots, switches, &ch_vals, &model.gvars);
         }
     }
 
@@ -466,7 +467,14 @@ pub fn compute_channels(
         }
 
         let target_idx = (mix.target_ch - 1) as usize;
-        let src_val = evaluate_source(mix.source, &cond_sticks, pots, switches, &ch_vals, &model.gvars);
+        let src_val = evaluate_source(
+            mix.source,
+            &cond_sticks,
+            pots,
+            switches,
+            &ch_vals,
+            &model.gvars,
+        );
 
         let effective_weight: i32 = match mix.weight_src {
             0 => mix.weight as i32,
@@ -476,7 +484,8 @@ pub fn compute_channels(
             }
             19..=36 => {
                 let mod_ch = (mix.weight_src - 19) as usize;
-                let ch_unipolar = ((ch_vals[mod_ch] + MIXER_MAX as i32) / 2).clamp(0, MIXER_MAX as i32);
+                let ch_unipolar =
+                    ((ch_vals[mod_ch] + MIXER_MAX as i32) / 2).clamp(0, MIXER_MAX as i32);
                 ((mix.weight as i32) * ch_unipolar) / MIXER_MAX as i32
             }
             37..=41 => {
@@ -526,8 +535,8 @@ pub fn compute_channels(
     // 1. Helicopter Throttle Hold: SA Down forces throttle channel to absolute idle (CHANNEL_MIN_US)
     //    while collective pitch and cyclic controls remain fully responsive.
     // 2. Configured Arm Switch: if an arm switch is configured (1..14) and disarmed, clamp throttle to idle.
-    let is_heli_hold = model.model_type() == crate::safety::ModelType::Heli
-        && switches.sa == SwitchPos::Down;
+    let is_heli_hold =
+        model.model_type() == crate::safety::ModelType::Heli && switches.sa == SwitchPos::Down;
     let is_disarmed = model.arm_switch > 0
         && model.arm_switch <= 14
         && !eval_arm_switch(model.arm_switch, switches);
@@ -662,25 +671,55 @@ mod tests {
         let gvars = [0i16; 5];
 
         // Source 31 (SE): Up -> MIXER_MIN (-1000)
-        assert_eq!(evaluate_source(31, &cond_sticks, &pots, &switches, &channels, &gvars), MIXER_MIN as i32);
+        assert_eq!(
+            evaluate_source(31, &cond_sticks, &pots, &switches, &channels, &gvars),
+            MIXER_MIN as i32
+        );
         // Source 32 (SF): Down -> MIXER_MAX (1000)
-        assert_eq!(evaluate_source(32, &cond_sticks, &pots, &switches, &channels, &gvars), MIXER_MAX as i32);
+        assert_eq!(
+            evaluate_source(32, &cond_sticks, &pots, &switches, &channels, &gvars),
+            MIXER_MAX as i32
+        );
 
         // Sources 37..41: VRC..VRG (pots[2..7])
-        assert_eq!(evaluate_source(37, &cond_sticks, &pots, &switches, &channels, &gvars), -500);
-        assert_eq!(evaluate_source(38, &cond_sticks, &pots, &switches, &channels, &gvars), 750);
-        assert_eq!(evaluate_source(39, &cond_sticks, &pots, &switches, &channels, &gvars), -1000);
-        assert_eq!(evaluate_source(40, &cond_sticks, &pots, &switches, &channels, &gvars), 1000);
-        assert_eq!(evaluate_source(41, &cond_sticks, &pots, &switches, &channels, &gvars), 333);
+        assert_eq!(
+            evaluate_source(37, &cond_sticks, &pots, &switches, &channels, &gvars),
+            -500
+        );
+        assert_eq!(
+            evaluate_source(38, &cond_sticks, &pots, &switches, &channels, &gvars),
+            750
+        );
+        assert_eq!(
+            evaluate_source(39, &cond_sticks, &pots, &switches, &channels, &gvars),
+            -1000
+        );
+        assert_eq!(
+            evaluate_source(40, &cond_sticks, &pots, &switches, &channels, &gvars),
+            1000
+        );
+        assert_eq!(
+            evaluate_source(41, &cond_sticks, &pots, &switches, &channels, &gvars),
+            333
+        );
 
         switches.se = SwitchPos::Down;
         switches.sf = SwitchPos::Up;
 
         assert!(eval_arm_switch(12, &switches), "SE Down arms when sw=12");
-        assert!(!eval_arm_switch(11, &switches), "SE Up does not arm when sw=11");
+        assert!(
+            !eval_arm_switch(11, &switches),
+            "SE Up does not arm when sw=11"
+        );
         assert!(eval_arm_switch(13, &switches), "SF Up arms when sw=13");
-        assert!(!eval_arm_switch(14, &switches), "SF Down does not arm when sw=14");
-        assert!(!eval_arm_switch(15, &switches), "Out of range arm switch does not arm");
+        assert!(
+            !eval_arm_switch(14, &switches),
+            "SF Down does not arm when sw=14"
+        );
+        assert!(
+            !eval_arm_switch(15, &switches),
+            "Out of range arm switch does not arm"
+        );
 
         assert!(!is_dr_high(5, &switches), "SE Down -> Low rates");
         assert!(is_dr_high(6, &switches), "SF Up -> High rates");
@@ -943,9 +982,9 @@ mod tests {
         // Mix line 1: Modulate CH6 from Roll (1), weight = 100%, weight_src = CH5 (1 + 4 = 5, Bipolar)
         model.mixes[0] = MixLine {
             target_ch: 6,
-            source: 1, // Roll (+1000)
+            source: 1,     // Roll (+1000)
             weight_src: 5, // Modulated by CH5
-            weight: 100, // Master scale 100%
+            weight: 100,   // Master scale 100%
             offset: 0,
             mode: 0, // ADD
             switch: 0,
@@ -958,18 +997,27 @@ mod tests {
         // 1. When VRA (pots[0]) is full positive (+1000): effective weight = 100% -> CH6 gets full +1000
         let pots_full = [1000i16, 0i16];
         let chs = compute_channels(1000, 0, 0, 0, &pots_full, &switches, &model, &trims, 0);
-        assert_eq!(chs[5], CHANNEL_MAX_US, "CH6 should reach MAX when VRA is full +1000");
+        assert_eq!(
+            chs[5], CHANNEL_MAX_US,
+            "CH6 should reach MAX when VRA is full +1000"
+        );
 
         // 2. When VRA is centered (0): effective weight = 0% -> CH6 receives 0 compensation
         let pots_zero = [0i16, 0i16];
         let chs_zero = compute_channels(1000, 0, 0, 0, &pots_zero, &switches, &model, &trims, 0);
-        assert_eq!(chs_zero[5], CHANNEL_CENTER_US, "CH6 should stay neutral when VRA is 0");
+        assert_eq!(
+            chs_zero[5], CHANNEL_CENTER_US,
+            "CH6 should stay neutral when VRA is 0"
+        );
 
         // 3. When VRA is negative (-500): effective weight = -50% -> CH6 inverts by 50%
         let pots_neg = [-500i16, 0i16];
         let chs_neg = compute_channels(1000, 0, 0, 0, &pots_neg, &switches, &model, &trims, 0);
         // Base CH6 is 0. term = (1000 * -50) / 100 = -500. Output = 1500 - 256 = 1244
-        assert_eq!(chs_neg[5], 1244, "CH6 should invert with negative modulation");
+        assert_eq!(
+            chs_neg[5], 1244,
+            "CH6 should invert with negative modulation"
+        );
     }
 
     #[test]
@@ -1002,9 +1050,9 @@ mod tests {
         // 2. Test GVar as weight_src: Roll (1000) modulated by GV2 (weight_src 38 = GV2)
         model.mixes[0] = MixLine {
             target_ch: 6,
-            source: 1, // Roll (1000)
+            source: 1,      // Roll (1000)
             weight_src: 38, // GV2 (-800 / -80%)
-            weight: 100, // 100% * -80% = -80%
+            weight: 100,    // 100% * -80% = -80%
             offset: 0,
             mode: 2, // REPLACE
             switch: 0,
@@ -1014,7 +1062,10 @@ mod tests {
         let chs_mod = compute_channels(1000, 0, 0, 0, &pots, &switches, &model, &trims, 0);
         // effective weight = (100 * -800) / 1000 = -80
         // term = (1000 * -80) / 100 = -800 -> 1500 + (-800 * 512 / 1000) = 1500 - 409 = 1091 us
-        assert_eq!(chs_mod[5], 1091, "CH6 should reflect Roll scaled by GV2 (-80%)");
+        assert_eq!(
+            chs_mod[5], 1091,
+            "CH6 should reflect Roll scaled by GV2 (-80%)"
+        );
     }
 
     #[test]
@@ -1253,19 +1304,37 @@ mod tests {
         };
 
         // SA (source 7)
-        assert_eq!(evaluate_source(7, &cond_sticks, &pots, &switches, &channels, &gvars), MIXER_MIN as i32);
+        assert_eq!(
+            evaluate_source(7, &cond_sticks, &pots, &switches, &channels, &gvars),
+            MIXER_MIN as i32
+        );
         switches.sa = SwitchPos::Mid;
-        assert_eq!(evaluate_source(7, &cond_sticks, &pots, &switches, &channels, &gvars), MIXER_CENTER as i32);
+        assert_eq!(
+            evaluate_source(7, &cond_sticks, &pots, &switches, &channels, &gvars),
+            MIXER_CENTER as i32
+        );
         switches.sa = SwitchPos::Down;
-        assert_eq!(evaluate_source(7, &cond_sticks, &pots, &switches, &channels, &gvars), MIXER_MAX as i32);
+        assert_eq!(
+            evaluate_source(7, &cond_sticks, &pots, &switches, &channels, &gvars),
+            MIXER_MAX as i32
+        );
 
         // SD (source 10)
         switches.sd = SwitchPos::Up;
-        assert_eq!(evaluate_source(10, &cond_sticks, &pots, &switches, &channels, &gvars), MIXER_MIN as i32);
+        assert_eq!(
+            evaluate_source(10, &cond_sticks, &pots, &switches, &channels, &gvars),
+            MIXER_MIN as i32
+        );
         switches.sd = SwitchPos::Mid;
-        assert_eq!(evaluate_source(10, &cond_sticks, &pots, &switches, &channels, &gvars), MIXER_CENTER as i32);
+        assert_eq!(
+            evaluate_source(10, &cond_sticks, &pots, &switches, &channels, &gvars),
+            MIXER_CENTER as i32
+        );
         switches.sd = SwitchPos::Down;
-        assert_eq!(evaluate_source(10, &cond_sticks, &pots, &switches, &channels, &gvars), MIXER_MAX as i32);
+        assert_eq!(
+            evaluate_source(10, &cond_sticks, &pots, &switches, &channels, &gvars),
+            MIXER_MAX as i32
+        );
 
         // Verify end-to-end through compute_channels with SA mapped to CH5 (aux_channels[0] = 7)
         let mut model = ModelConfig::default_for_index(0);
@@ -1282,7 +1351,9 @@ mod tests {
 
         switches.sa = SwitchPos::Down;
         let chs_down = compute_channels(0, 0, 500, 0, &pots, &switches, &model, &trims, 0);
-        assert_eq!(chs_down[4], CHANNEL_MAX_US, "CH5 SA Down -> 2012 µs (+100%)");
+        assert_eq!(
+            chs_down[4], CHANNEL_MAX_US,
+            "CH5 SA Down -> 2012 µs (+100%)"
+        );
     }
 }
-

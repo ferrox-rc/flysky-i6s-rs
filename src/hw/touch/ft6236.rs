@@ -135,7 +135,8 @@ pub fn init() {
         unsafe {
             // 1. Enable clocks for GPIOA, GPIOB, GPIOC, and I2C1
             // AHBENR: IOPAEN (bit 17), IOPBEN (bit 18), IOPCEN (bit 19)
-            rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 17) | (1 << 18) | (1 << 19)));
+            rcc.ahbenr
+                .modify(|r, w| w.bits(r.bits() | (1 << 17) | (1 << 18) | (1 << 19)));
             // APB1ENR: I2C1EN (bit 21)
             rcc.apb1enr.modify(|r, w| w.bits(r.bits() | (1 << 21)));
 
@@ -166,7 +167,9 @@ pub fn init() {
                 let val = r.bits();
                 w.bits((val & !(0x0F << 16)) | (0x0A << 16))
             });
-            gpiob.otyper.modify(|r, w| w.bits(r.bits() | (1 << 8) | (1 << 9)));
+            gpiob
+                .otyper
+                .modify(|r, w| w.bits(r.bits() | (1 << 8) | (1 << 9)));
             gpiob.ospeedr.modify(|r, w| w.bits(r.bits() | (0x0F << 16)));
             gpiob.pupdr.modify(|r, w| {
                 let val = r.bits();
@@ -422,7 +425,8 @@ pub fn read_touch() -> Option<TouchSample> {
 
             // 2. Repeated START to read 7 bytes (0x00..0x06)
             // SADD = 0x38 << 1, NBYTES = 7, RD_WRN = 1 (read), START = 1, AUTOEND = 1
-            let cr2_read = ((FT6236_I2C_ADDR as u32) << 1) | (7 << 16) | (1 << 10) | (1 << 13) | (1 << 25);
+            let cr2_read =
+                ((FT6236_I2C_ADDR as u32) << 1) | (7 << 16) | (1 << 10) | (1 << 13) | (1 << 25);
             i2c1.cr2.write(|w| w.bits(cr2_read));
 
             let mut buf = [0u8; 7];
@@ -430,7 +434,8 @@ pub fn read_touch() -> Option<TouchSample> {
                 timeout = 10_000;
                 while !i2c1.isr.read().rxne().bit() && timeout > 0 {
                     let isr = i2c1.isr.read();
-                    if isr.nackf().bit() || isr.berr().bit() || isr.arlo().bit() || isr.ovr().bit() {
+                    if isr.nackf().bit() || isr.berr().bit() || isr.arlo().bit() || isr.ovr().bit()
+                    {
                         record_i2c_failure();
                         return None;
                     }
@@ -528,7 +533,7 @@ mod tests {
         let sample = parse_packet(&buf);
         let pt = sample.point.expect("Expected point");
         assert_eq!(pt.y, 63); // Clamped to LCD height
-        assert_eq!(pt.x, 0);  // Saturated to 0
+        assert_eq!(pt.x, 0); // Saturated to 0
         assert_eq!(pt.event, TouchEventKind::Contact);
     }
 }

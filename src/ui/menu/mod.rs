@@ -246,7 +246,8 @@ impl MenuController {
         // - Must return to the neutral middle deadband ([-300, 300]) to re-arm for the next line change.
         // - Active for Default (spring wheels), Pot, and PotDetent (detented pots).
         // - Switch modes (TwoPos, ThreePos, etc.) and InputSetup screen are excluded to prevent runaway scrolling.
-        if crate::hw::HAS_JOG_WHEELS && !is_source_selection && self.state != MenuState::InputSetup {
+        if crate::hw::HAS_JOG_WHEELS && !is_source_selection && self.state != MenuState::InputSetup
+        {
             let mut current_dir: i8 = 0;
 
             // Check VRA (Channel 4)
@@ -860,7 +861,13 @@ mod tests {
 
         // Cycle through all 15 sensor slots on slot 0: starts at 0
         for expected in 1..=14 {
-            screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
+            screens::setup::update_telem_setup(
+                &mut ctrl,
+                &mut lcd,
+                &nav,
+                &mut storage,
+                &mut buzzer,
+            );
             assert_eq!(storage.radio.telem_slots[0], expected);
         }
         // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is OFF
@@ -920,25 +927,53 @@ mod tests {
         };
 
         // Press OK on PPM Out -> Toggle PPM Out ON
-        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        screens::setup::update_radio_setup(
+            &mut ctrl,
+            &mut lcd,
+            &nav,
+            &mut storage,
+            &mut trims,
+            &mut buzzer,
+        );
         assert!(storage.radio.is_ppm_out_enabled());
         assert!(!storage.radio.is_ppm_in_enabled());
 
         // Move to Trainer In
         nav.ok = false;
         nav.down = true;
-        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        screens::setup::update_radio_setup(
+            &mut ctrl,
+            &mut lcd,
+            &nav,
+            &mut storage,
+            &mut trims,
+            &mut buzzer,
+        );
         assert_eq!(ctrl.selected_item, crate::hw::PPM_OUT_SETUP_IDX + 1);
 
         // Press OK on Trainer In -> Toggle Trainer In ON
         nav.down = false;
         nav.ok = true;
-        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        screens::setup::update_radio_setup(
+            &mut ctrl,
+            &mut lcd,
+            &nav,
+            &mut storage,
+            &mut trims,
+            &mut buzzer,
+        );
         assert!(storage.radio.is_ppm_out_enabled());
         assert!(storage.radio.is_ppm_in_enabled());
 
         // Press OK again on Trainer In -> Toggle Trainer In OFF
-        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        screens::setup::update_radio_setup(
+            &mut ctrl,
+            &mut lcd,
+            &nav,
+            &mut storage,
+            &mut trims,
+            &mut buzzer,
+        );
         assert!(storage.radio.is_ppm_out_enabled());
         assert!(!storage.radio.is_ppm_in_enabled());
     }
@@ -970,12 +1005,26 @@ mod tests {
         };
 
         // Press OK on Gimbals -> Toggle to Hall Effect
-        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        screens::setup::update_radio_setup(
+            &mut ctrl,
+            &mut lcd,
+            &nav,
+            &mut storage,
+            &mut trims,
+            &mut buzzer,
+        );
         assert_eq!(storage.radio.gimbal_type, 1);
         assert!(storage.radio.is_hall_gimbals());
 
         // Press OK again -> Toggle back to Potentiometers
-        screens::setup::update_radio_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut trims, &mut buzzer);
+        screens::setup::update_radio_setup(
+            &mut ctrl,
+            &mut lcd,
+            &nav,
+            &mut storage,
+            &mut trims,
+            &mut buzzer,
+        );
         assert_eq!(storage.radio.gimbal_type, 0);
         assert!(!storage.radio.is_hall_gimbals());
     }
@@ -1063,4 +1112,3 @@ mod tests {
         assert_eq!(ctrl.selected_item, 6);
     }
 }
-

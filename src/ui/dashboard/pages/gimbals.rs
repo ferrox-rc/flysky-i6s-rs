@@ -215,7 +215,13 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
     } else {
         let min_pot_w: i32 = match pot_count {
             1 => 24,
-            2 => if sw_count >= 12 { 24 } else { 28 },
+            2 => {
+                if sw_count >= 12 {
+                    24
+                } else {
+                    28
+                }
+            }
             _ => 36,
         };
 
@@ -225,7 +231,9 @@ pub fn render_adaptive_layout(lcd: &mut St7567, state: &InputState, storage: &Ra
 
         let max_sw_w = 124 - min_pot_w - 3;
         let natural_sw_w = sw_count as i32 * (if compact { 8 } else { 11 });
-        let actual_sw_w = natural_sw_w.min(max_sw_w).max(sw_count as i32 * (slot_w - 1));
+        let actual_sw_w = natural_sw_w
+            .min(max_sw_w)
+            .max(sw_count as i32 * (slot_w - 1));
 
         let spacing = if sw_count <= 1 {
             actual_sw_w
@@ -348,7 +356,10 @@ mod tests {
         let mut lcd1 = St7567::new();
         render_adaptive_layout(&mut lcd1, &state, &storage);
         let div1 = find_divider(&lcd1);
-        assert!(div1.is_some(), "Divider must separate 6 switches and 7 pots");
+        assert!(
+            div1.is_some(),
+            "Divider must separate 6 switches and 7 pots"
+        );
 
         // 2. Extended channels as switches (2 pots, 11 switches)
         for ch in 6..11 {
@@ -357,7 +368,10 @@ mod tests {
         let mut lcd2 = St7567::new();
         render_adaptive_layout(&mut lcd2, &state, &storage);
         let div2 = find_divider(&lcd2);
-        assert!(div2.is_some(), "Divider must separate 11 switches and 2 pots");
+        assert!(
+            div2.is_some(),
+            "Divider must separate 11 switches and 2 pots"
+        );
 
         // 3. Extended switches + SG/SH (2 pots, up to 13 switches)
         storage.radio.j4_sg_sh_en = 1;
@@ -387,6 +401,9 @@ mod tests {
         let mut lcd5 = St7567::new();
         render_adaptive_layout(&mut lcd5, &state, &storage5);
         let div5 = find_divider(&lcd5);
-        assert!(div5.is_some(), "Divider must separate 6 switches and 4 active pots");
+        assert!(
+            div5.is_some(),
+            "Divider must separate 6 switches and 4 active pots"
+        );
     }
 }

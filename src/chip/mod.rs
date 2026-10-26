@@ -85,7 +85,8 @@ pub fn init_system_clock() {
             // PLLSRC = HSE PREDIV (bit 16), PLLMUL = 6 (0b0100 << 18)
             let cfgr = rcc.cfgr.read().bits();
             let cfgr_clean = cfgr & !(0x003F_0000 | 0x0000_0003);
-            rcc.cfgr.write(|w| w.bits(cfgr_clean | (1 << 16) | 0x0010_0000));
+            rcc.cfgr
+                .write(|w| w.bits(cfgr_clean | (1 << 16) | 0x0010_0000));
 
             // 5. Enable PLL (PLLON = bit 24)
             rcc.cr.modify(|_, w| w.pllon().set_bit());
@@ -152,7 +153,14 @@ unsafe fn rcc_deinit() {
     rcc.cfgr.write(|w| w.bits(0x0000_0000));
 
     // Reset HSEON, CSSON, PLLON
-    rcc.cr.modify(|_, w| w.hseon().clear_bit().csson().clear_bit().pllon().clear_bit());
+    rcc.cr.modify(|_, w| {
+        w.hseon()
+            .clear_bit()
+            .csson()
+            .clear_bit()
+            .pllon()
+            .clear_bit()
+    });
 
     // Reset CIR interrupts
     rcc.cir.write(|w| w.bits(0x0000_0000));
@@ -197,7 +205,9 @@ pub fn enter_dfu_bootloader(profile: &McuProfile) -> ! {
 
         // 4. Remap System Memory to 0x0000_0000 via SYSCFG
         let syscfg = &*stm32f0xx_hal::pac::SYSCFG::ptr();
-        syscfg.cfgr1.modify(|r, w| w.bits((r.bits() & !0x03) | 0x01));
+        syscfg
+            .cfgr1
+            .modify(|r, w| w.bits((r.bits() & !0x03) | 0x01));
 
         cortex_m::asm::dsb();
         cortex_m::asm::isb();

@@ -259,7 +259,15 @@ mod tests {
         // Strong lift: converge to +500 cm/s over multiple updates
         let mut tone_strong = tone_weak;
         for i in 1..=16 {
-            tone_strong = vario.update(1000 + i * 50, 100 + i as i16, 500, true, true, 1000, &config);
+            tone_strong = vario.update(
+                1000 + i * 50,
+                100 + i as i16,
+                500,
+                true,
+                true,
+                1000,
+                &config,
+            );
         }
         assert!(!tone_strong.is_silent());
         assert!(tone_strong.freq_hz >= 2500);

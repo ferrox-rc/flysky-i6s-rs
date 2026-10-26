@@ -11,11 +11,11 @@ pub mod uart;
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-use crate::input::{ InputState, SwitchPos };
-use crate::storage::{ AdcInputMode, RadioConfig, RadioStorage };
+use crate::input::{InputState, SwitchPos};
+use crate::storage::{AdcInputMode, RadioConfig, RadioStorage};
 use crate::trim::TrimController;
 use crate::ui::glyphs::draw_switch_arrow;
-use crate::ui::menu::{ MenuController, MenuState };
+use crate::ui::menu::{MenuController, MenuState};
 use crate::ui::widgets;
 
 pub const FIRMWARE_ID: &str = "flysky-i6s-rs";
@@ -87,11 +87,12 @@ pub fn init_board_keys(radio: &RadioConfig) {
 /// Poll navigation keys (combines physical buttons and FT6236 touch gestures on FS-i6S).
 #[inline]
 pub fn poll_keys(storage: &RadioStorage, menu_active: bool) -> u16 {
-    let touch_sample = if storage.radio.touch_disabled == 0 && touch::ft6236::is_touch_int_asserted() {
-        touch::ft6236::read_touch()
-    } else {
-        None
-    };
+    let touch_sample =
+        if storage.radio.touch_disabled == 0 && touch::ft6236::is_touch_int_asserted() {
+            touch::ft6236::read_touch()
+        } else {
+            None
+        };
     let current_sticks = crate::input::read().gimbals;
     touch::nav::update_inputs(
         touch_sample.as_ref(),
@@ -105,11 +106,7 @@ pub fn poll_keys(storage: &RadioStorage, menu_active: bool) -> u16 {
 
 /// Update dynamic flight switches (rear buttons SWE/SWF and J4 SG/SH on FS-i6S).
 #[inline]
-pub fn update_flight_switches(
-    state: &mut InputState,
-    storage: &RadioStorage,
-    menu_active: bool,
-) {
+pub fn update_flight_switches(state: &mut InputState, storage: &RadioStorage, menu_active: bool) {
     let (left_btn, right_btn) = keys::read_front_buttons();
     if !menu_active && storage.radio.rear_left_func == 0 && left_btn {
         state.switches.se = SwitchPos::Down;
@@ -124,8 +121,16 @@ pub fn update_flight_switches(
 
     if storage.radio.j4_sg_sh_en != 0 {
         let (sg_pressed, sh_pressed) = keys::read_j4_buttons();
-        state.switches.sg = if sg_pressed { SwitchPos::Down } else { SwitchPos::Up };
-        state.switches.sh = if sh_pressed { SwitchPos::Down } else { SwitchPos::Up };
+        state.switches.sg = if sg_pressed {
+            SwitchPos::Down
+        } else {
+            SwitchPos::Up
+        };
+        state.switches.sh = if sh_pressed {
+            SwitchPos::Down
+        } else {
+            SwitchPos::Up
+        };
     } else {
         state.switches.sg = SwitchPos::Up;
         state.switches.sh = SwitchPos::Up;
@@ -230,7 +235,11 @@ pub fn handle_board_setup_ok(
     match idx {
         8 => {
             buzzer.click();
-            storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 { 1 } else { 0 };
+            storage.radio.ext_module_pwr = if storage.radio.ext_module_pwr == 0 {
+                1
+            } else {
+                0
+            };
             crate::crsf::set_power_polarity(storage.radio.ext_module_pwr == 0);
             crate::storage::save_radio_config(storage);
         }
@@ -252,7 +261,11 @@ pub fn handle_board_setup_ok(
         }
         12 => {
             buzzer.click();
-            storage.radio.touch_disabled = if storage.radio.touch_disabled == 0 { 1 } else { 0 };
+            storage.radio.touch_disabled = if storage.radio.touch_disabled == 0 {
+                1
+            } else {
+                0
+            };
             crate::storage::save_radio_config(storage);
         }
         13 => {
@@ -507,7 +520,7 @@ pub fn draw_diag_ext_page(
     raw_adc: &[u16; adc::NUM_CHANNELS],
     switches: &crate::input::Switches,
 ) {
-    use crate::ui::format::{ ascii_as_str, u16_to_dec_4 };
+    use crate::ui::format::{ascii_as_str, u16_to_dec_4};
 
     if page_idx == 2 {
         let items = [
@@ -663,8 +676,8 @@ impl BoardIdleState {
             if center_touch {
                 self.last_center_touch_ms = now;
             }
-            let touch_active = self.last_center_touch_ms != 0
-                && now.wrapping_sub(self.last_center_touch_ms) < 150;
+            let touch_active =
+                self.last_center_touch_ms != 0 && now.wrapping_sub(self.last_center_touch_ms) < 150;
             touch_active || right_btn
         } else {
             self.last_center_touch_ms = 0;

@@ -97,9 +97,7 @@ pub fn request_init(mode: u8) {
 
 /// Retrieve and clear any pending USB re-initialization request.
 pub fn take_pending_init() -> Option<u8> {
-    cortex_m::interrupt::free(|_| unsafe {
-        PENDING_INIT_MODE.take()
-    })
+    cortex_m::interrupt::free(|_| unsafe { PENDING_INIT_MODE.take() })
 }
 
 #[inline(never)]
@@ -192,7 +190,9 @@ pub fn init(mode: u8) {
         gpioa.moder.modify(|r, w| {
             w.bits((r.bits() & !((0b11 << 22) | (0b11 << 24))) | ((0b01 << 22) | (0b01 << 24)))
         });
-        gpioa.bsrr.write(|w| w.bits((1 << (11 + 16)) | (1 << (12 + 16))));
+        gpioa
+            .bsrr
+            .write(|w| w.bits((1 << (11 + 16)) | (1 << (12 + 16))));
 
         // ~250 ms delay to guarantee host root hub detects physical disconnect, feeding watchdog throughout
         for _ in 0..25 {
@@ -209,7 +209,9 @@ pub fn init(mode: u8) {
             // Disable USB peripheral clock
             rcc.apb1enr.modify(|_, w| w.usben().clear_bit());
             // Set PA11 and PA12 as analog inputs to float pins and conserve battery
-            gpioa.moder.modify(|r, w| w.bits(r.bits() | (0b11 << 22) | (0b11 << 24)));
+            gpioa
+                .moder
+                .modify(|r, w| w.bits(r.bits() | (0b11 << 22) | (0b11 << 24)));
             return;
         }
 
@@ -217,7 +219,9 @@ pub fn init(mode: u8) {
         gpioa.moder.modify(|r, w| {
             w.bits((r.bits() & !((0b11 << 22) | (0b11 << 24))) | ((0b10 << 22) | (0b10 << 24)))
         });
-        gpioa.afrh.modify(|r, w| w.bits(r.bits() & !((0xF << 12) | (0xF << 16))));
+        gpioa
+            .afrh
+            .modify(|r, w| w.bits(r.bits() & !((0xF << 12) | (0xF << 16))));
 
         // Stabilization delay
         cortex_m::asm::delay(48_000);
@@ -239,7 +243,8 @@ pub fn init(mode: u8) {
         // 7. Configure NVIC for USB Interrupt (IRQ 31)
         // Priority 0xC0 (level 3, lowest) so RF interrupts (EXTI2_3 & TIM16 at 0x80) strictly preempt USB
         let mut cp = cortex_m::peripheral::Peripherals::steal();
-        cp.NVIC.set_priority(stm32f0xx_hal::pac::Interrupt::USB, 0xC0);
+        cp.NVIC
+            .set_priority(stm32f0xx_hal::pac::Interrupt::USB, 0xC0);
         cortex_m::peripheral::NVIC::unpend(stm32f0xx_hal::pac::Interrupt::USB);
 
         // 8. Commit active mode and unmask USB interrupt in NVIC

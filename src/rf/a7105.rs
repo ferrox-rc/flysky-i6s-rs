@@ -50,8 +50,8 @@ pub const REG_TX_TEST: u8 = 0x28;
 
 // Power levels (PAC << 3 | TBG)
 pub const POWER_100UW: u8 = 0x00; // -23 dBm
-pub const POWER_1MW: u8 = 0x02;   // -16 dBm
-pub const POWER_10MW: u8 = 0x0D;  //  -6 dBm
+pub const POWER_1MW: u8 = 0x02; // -16 dBm
+pub const POWER_10MW: u8 = 0x0D; //  -6 dBm
 pub const POWER_100MW: u8 = 0x1F; //  +1 dBm into PA (Stock High Power)
 
 pub const BIND_POWER: u8 = POWER_100UW;
@@ -160,7 +160,9 @@ pub static LAST_CHIP_ID: AtomicU8 = AtomicU8::new(0);
 pub fn reset() -> bool {
     for _ in 0..5 {
         strobe(STROBE_STANDBY);
-        for _ in 0..2000 { cortex_m::asm::nop(); }
+        for _ in 0..2000 {
+            cortex_m::asm::nop();
+        }
 
         // Reset digital core
         write_reg(REG_MODE, 0x00);

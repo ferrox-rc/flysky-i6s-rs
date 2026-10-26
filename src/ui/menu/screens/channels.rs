@@ -342,4 +342,3 @@ mod tests {
         assert_eq!(format_channel_label(5, &model, &mut buf), "6:R.AIL");
     }
 }
-

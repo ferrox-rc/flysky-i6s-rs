@@ -77,7 +77,11 @@ pub fn wait_first_conversion() {
     #[cfg(not(test))]
     unsafe {
         let ext_enabled = EXT_ADC_ENABLED.load(Ordering::Relaxed);
-        let ch_count = if ext_enabled { NUM_EXT_CHANNELS } else { NUM_STD_CHANNELS };
+        let ch_count = if ext_enabled {
+            NUM_EXT_CHANNELS
+        } else {
+            NUM_STD_CHANNELS
+        };
         let dma = &*pac::DMA1::ptr();
         let adc = &*pac::ADC::ptr();
 
@@ -149,7 +153,11 @@ unsafe fn reconfigure_scan(enabled: bool) {
     adc.chselr.write(|w| w.bits(chselr));
 
     // 5. Update CNDTR and re-enable DMA
-    let ch_count = if enabled { NUM_EXT_CHANNELS } else { NUM_STD_CHANNELS };
+    let ch_count = if enabled {
+        NUM_EXT_CHANNELS
+    } else {
+        NUM_STD_CHANNELS
+    };
     dma.ch1.ndtr.write(|w| w.ndt().bits(ch_count as u16));
     dma.ch1.cr.write(|w| w.bits(DMA_CCR_VAL));
 
@@ -171,10 +179,14 @@ pub fn init(ext_adc_en: bool) {
 
         // 1. Enable GPIOA, GPIOB, GPIOC, DMA1 in RCC_AHBENR
         rcc.ahbenr.modify(|_, w| {
-            w.dmaen().set_bit()
-             .iopaen().set_bit()
-             .iopben().set_bit()
-             .iopcen().set_bit()
+            w.dmaen()
+                .set_bit()
+                .iopaen()
+                .set_bit()
+                .iopben()
+                .set_bit()
+                .iopcen()
+                .set_bit()
         });
 
         // 2. Enable ADC1 clock in RCC_APB2ENR
@@ -182,15 +194,21 @@ pub fn init(ext_adc_en: bool) {
 
         // 3. Configure Pins as Analog Mode (MODER = 11, PUPDR = 00):
         // PA0..PA7: (only touch bits [15:0] so USB, UART, Buzzer on PA8..PA15 are untouched)
-        gpioa.moder.modify(|r, w| w.bits((r.bits() & !0x0000_FFFF) | 0x0000_FFFF));
+        gpioa
+            .moder
+            .modify(|r, w| w.bits((r.bits() & !0x0000_FFFF) | 0x0000_FFFF));
         gpioa.pupdr.modify(|r, w| w.bits(r.bits() & !0x0000_FFFF));
 
         // PB0, PB1: (pins 0 and 1, bits [3:0])
-        gpiob.moder.modify(|r, w| w.bits((r.bits() & !0x0000_000F) | 0x0000_000F));
+        gpiob
+            .moder
+            .modify(|r, w| w.bits((r.bits() & !0x0000_000F) | 0x0000_000F));
         gpiob.pupdr.modify(|r, w| w.bits(r.bits() & !0x0000_000F));
 
         // PC0..PC5: (pins 0 through 5, bits [11:0], keeping PC12 touch int and PC13 untouched)
-        gpioc.moder.modify(|r, w| w.bits((r.bits() & !0x0000_0FFF) | 0x0000_0FFF));
+        gpioc
+            .moder
+            .modify(|r, w| w.bits((r.bits() & !0x0000_0FFF) | 0x0000_0FFF));
         gpioc.pupdr.modify(|r, w| w.bits(r.bits() & !0x0000_0FFF));
 
         // 4. ADC Clock Selection: Synchronous PCLK/4 (CKMODE = 10 in CFGR2)
@@ -219,10 +237,15 @@ pub fn init(ext_adc_en: bool) {
         adc.cfgr1.write(|w| w.dmaen().set_bit());
 
         // 9. Configure DMA1 Channel 1:
-        let ch_count = if ext_adc_en { NUM_EXT_CHANNELS } else { NUM_STD_CHANNELS };
+        let ch_count = if ext_adc_en {
+            NUM_EXT_CHANNELS
+        } else {
+            NUM_STD_CHANNELS
+        };
         let ch1 = &dma.ch1;
         ch1.cr.write(|w| w.bits(0));
-        ch1.par.write(|w| w.bits(core::ptr::addr_of!((*pac::ADC::ptr()).dr) as u32));
+        ch1.par
+            .write(|w| w.bits(core::ptr::addr_of!((*pac::ADC::ptr()).dr) as u32));
         ch1.mar.write(|w| w.bits(ADC_RAW_BUFFER.0.get() as u32));
         ch1.ndtr.write(|w| w.ndt().bits(ch_count as u16));
         ch1.cr.write(|w| w.bits(DMA_CCR_VAL));
@@ -238,7 +261,11 @@ pub fn read_raw() -> [u16; NUM_CHANNELS] {
     #[cfg(not(test))]
     unsafe {
         let ext_enabled = EXT_ADC_ENABLED.load(Ordering::Relaxed);
-        let ch_count = if ext_enabled { NUM_EXT_CHANNELS } else { NUM_STD_CHANNELS };
+        let ch_count = if ext_enabled {
+            NUM_EXT_CHANNELS
+        } else {
+            NUM_STD_CHANNELS
+        };
 
         let raw_ptr = ADC_RAW_BUFFER.0.get();
         let snap_ptr = LATEST_ADC_SNAPSHOT.0.get();

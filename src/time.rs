@@ -13,12 +13,14 @@ pub fn init() {
     unsafe {
         let mut p = cortex_m::peripheral::Peripherals::steal();
         // Set SysTick interrupt priority to lowest (0xC0) in SHPR3
-        p.SCB.set_priority(cortex_m::peripheral::scb::SystemHandler::SysTick, 0xC0);
+        p.SCB
+            .set_priority(cortex_m::peripheral::scb::SystemHandler::SysTick, 0xC0);
 
         // 48 MHz clock -> 48,000 ticks per 1 ms
         p.SYST.set_reload(48_000 - 1);
         p.SYST.clear_current();
-        p.SYST.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
+        p.SYST
+            .set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
         p.SYST.enable_interrupt();
         p.SYST.enable_counter();
     }
@@ -47,4 +49,3 @@ pub fn advance_millis(ms: u32) {
     let cur = SYSTEM_MILLIS.load(Ordering::Relaxed);
     SYSTEM_MILLIS.store(cur.wrapping_add(ms), Ordering::Relaxed);
 }
-

@@ -259,29 +259,11 @@ pub fn update_input_setup(
 }
 
 pub const TELEM_SENSOR_NAMES: [&str; 15] = [
-    "RX BAT",
-    "LQ/RSSI",
-    "TX BAT",
-    "CURRENT",
-    "CAP mAh",
-    "TX PWR",
-    "SNR",
-    "PKT RATE",
-    "ANTENNA",
-    "PKTS TX",
-    "PKTS RX",
-    "TIMER",
-    "VSPD",
-    "ALT",
-    "OFF",
+    "RX BAT", "LQ/RSSI", "TX BAT", "CURRENT", "CAP mAh", "TX PWR", "SNR", "PKT RATE", "ANTENNA",
+    "PKTS TX", "PKTS RX", "TIMER", "VSPD", "ALT", "OFF",
 ];
 
-pub const SLOT_NAMES: [&str; 4] = [
-    "Top-L:",
-    "Top-R:",
-    "Btm-L:",
-    "Btm-R:",
-];
+pub const SLOT_NAMES: [&str; 4] = ["Top-L:", "Top-R:", "Btm-L:", "Btm-R:"];
 
 #[inline(never)]
 pub fn update_telem_setup(
@@ -328,7 +310,8 @@ pub fn update_telem_setup(
             break;
         }
         let is_sel = idx == ctrl.selected_item;
-        let sensor_idx = (storage.radio.telem_slots[idx] as usize).min(TELEM_SENSOR_NAMES.len() - 1);
+        let sensor_idx =
+            (storage.radio.telem_slots[idx] as usize).min(TELEM_SENSOR_NAMES.len() - 1);
         widgets::draw_list_row_right(
             lcd,
             slot,
@@ -420,26 +403,24 @@ pub fn update_rx_setup(
                 (0, 2) => {
                     // AFHDS 2A: Cycle RF Power (0: 100mW, 1: 10mW, 2: 1mW, 3: 100uW)
                     buzzer.click();
-                    storage.active_model.rf_power =
-                        (storage.active_model.rf_power + 1) % 4;
+                    storage.active_model.rf_power = (storage.active_model.rf_power + 1) % 4;
                     crate::rf::set_rf_power(storage.active_model.rf_power);
                     storage::save_storage(storage);
                 }
                 (0, 3) => {
                     // AFHDS 2A: Cycle Servo Hz
                     buzzer.click();
-                    storage.active_model.servo_rate_hz =
-                        match storage.active_model.servo_rate_hz {
-                            50 => 60,
-                            60 => 100,
-                            100 => 150,
-                            150 => 200,
-                            200 => 250,
-                            250 => 300,
-                            300 => 350,
-                            350 => 400,
-                            _ => 50,
-                        };
+                    storage.active_model.servo_rate_hz = match storage.active_model.servo_rate_hz {
+                        50 => 60,
+                        60 => 100,
+                        100 => 150,
+                        150 => 200,
+                        200 => 250,
+                        250 => 300,
+                        300 => 350,
+                        350 => 400,
+                        _ => 50,
+                    };
                     crate::rf::set_rx_settings(
                         storage.active_model.servo_rate_hz,
                         storage.active_model.rx_out_mode,
@@ -450,12 +431,11 @@ pub fn update_rx_setup(
                 (0, 4) => {
                     // AFHDS 2A: Toggle RX Out (PWM/PPM)
                     buzzer.click();
-                    storage.active_model.rx_out_mode =
-                        if storage.active_model.rx_out_mode == 0 {
-                            1
-                        } else {
-                            0
-                        };
+                    storage.active_model.rx_out_mode = if storage.active_model.rx_out_mode == 0 {
+                        1
+                    } else {
+                        0
+                    };
                     crate::rf::set_rx_settings(
                         storage.active_model.servo_rate_hz,
                         storage.active_model.rx_out_mode,
@@ -496,16 +476,14 @@ pub fn update_rx_setup(
             1 => {
                 // Baud Rate (CRSF only): 0 = 115.2k, 1 = 416.6k, 2 = 420k, 3 = 921.6k, 4 = 1.875M
                 if keys.up {
-                    storage.active_model.crsf_baud =
-                        (storage.active_model.crsf_baud + 1) % 5;
+                    storage.active_model.crsf_baud = (storage.active_model.crsf_baud + 1) % 5;
                     buzzer.play_tone(2200, 30);
                 } else if keys.down {
-                    storage.active_model.crsf_baud =
-                        if storage.active_model.crsf_baud > 0 {
-                            storage.active_model.crsf_baud - 1
-                        } else {
-                            4
-                        };
+                    storage.active_model.crsf_baud = if storage.active_model.crsf_baud > 0 {
+                        storage.active_model.crsf_baud - 1
+                    } else {
+                        4
+                    };
                     buzzer.play_tone(2200, 30);
                 }
             }
@@ -565,8 +543,7 @@ pub fn update_rx_setup(
                 }
                 3 => {
                     let mut hz_buf = [0u8; 8];
-                    let hz_str =
-                        format_servo_hz(storage.active_model.servo_rate_hz, &mut hz_buf);
+                    let hz_str = format_servo_hz(storage.active_model.servo_rate_hz, &mut hz_buf);
                     widgets::draw_list_row_right(lcd, slot, is_sel, "Servo Hz:", Some(hz_str));
                 }
                 4 => {
@@ -613,10 +590,7 @@ pub fn update_rx_setup(
         };
         widgets::draw_list_row_right(lcd, 0, sel_proto, "Proto:", Some(proto_val));
 
-        let baud_val = match (
-            storage.active_model.crsf_baud,
-            ctrl.editing && sel_baud,
-        ) {
+        let baud_val = match (storage.active_model.crsf_baud, ctrl.editing && sel_baud) {
             (0, false) => "115.2k (Low)",
             (0, true) => "[115.2k (Low)]",
             (1, false) => "416.6k (TBS)",

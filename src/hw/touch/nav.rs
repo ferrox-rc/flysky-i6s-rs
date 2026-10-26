@@ -16,11 +16,11 @@
 //!      hold Right Front (`PA10`) + Right Stick deflection adjusts Roll / Pitch trims.
 //!    - **Virtual Touch Targets**: Perimeter taps on the flight dashboard directly nudge trim axes.
 
-use crate::boot;
-use crate::input::Sticks;
-use super::ft6236::{Gesture, TouchEventKind, TouchSample};
 #[cfg(test)]
 use super::ft6236::TouchPoint;
+use super::ft6236::{Gesture, TouchEventKind, TouchSample};
+use crate::boot;
+use crate::input::Sticks;
 
 /// Stick deflection threshold required to engage modifier trim mode.
 pub const TRIM_MODIFIER_STICK_THRESHOLD: i16 = 350;
@@ -162,7 +162,9 @@ pub fn touch_to_nav_keys_with_tracker(
                     // finger off the screen cannot cause accidental scroll overshoot!
                     if (pt.y as i16 - tracker.last_y as i16).abs() >= 2 {
                         tracker.last_move_ms = now.max(1);
-                    } else if tracker.last_move_ms != 0 && now.wrapping_sub(tracker.last_move_ms) >= 100 {
+                    } else if tracker.last_move_ms != 0
+                        && now.wrapping_sub(tracker.last_move_ms) >= 100
+                    {
                         tracker.anchor_y = pt.y;
                         tracker.max_y = pt.y;
                         tracker.min_y = pt.y;
@@ -545,7 +547,7 @@ mod tests {
     fn test_menu_tap_zones() {
         assert_ne!(evaluate_tap_zones(64, 10, true) & KEY_NAV_UP, 0);
         assert_eq!(evaluate_tap_zones(80, 55, true), KEY_NAV_CANCEL); // [ESC] Back
-        assert_eq!(evaluate_tap_zones(40, 55, true), KEY_NAV_OK);     // [OK] Select
+        assert_eq!(evaluate_tap_zones(40, 55, true), KEY_NAV_OK); // [OK] Select
     }
 
     #[test]
@@ -565,7 +567,10 @@ mod tests {
             point: Some(pt_press),
         };
         // During initial press down, keys are 0 while tracker awaits drag vs tap
-        assert_eq!(touch_to_nav_keys_with_tracker(&sample_press, true, &mut tracker), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&sample_press, true, &mut tracker),
+            0
+        );
         assert!(tracker.active);
 
         // 2. LiftUp event (release / quick tap) emits KEY_NAV_CANCEL
@@ -580,7 +585,10 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_lift),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&sample_lift, true, &mut tracker), KEY_NAV_CANCEL);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&sample_lift, true, &mut tracker),
+            KEY_NAV_CANCEL
+        );
         assert!(!tracker.active);
 
         // 3. NoEvent should NOT trigger any keys
@@ -595,7 +603,10 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_none),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&sample_none, true, &mut SwipeTracker::default()), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&sample_none, true, &mut SwipeTracker::default()),
+            0
+        );
     }
 
     #[test]
@@ -614,7 +625,10 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_start),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_start, true, &mut tracker), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_start, true, &mut tracker),
+            0
+        );
 
         // Drag down by 20 pixels (y: 35 -> 55)
         let pt_drag = TouchPoint {
@@ -628,7 +642,10 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_drag),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_drag, true, &mut tracker), KEY_NAV_DOWN);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_drag, true, &mut tracker),
+            KEY_NAV_DOWN
+        );
         assert!(tracker.swiped);
 
         // Release after swipe should NOT emit a tap
@@ -643,7 +660,10 @@ mod tests {
             gesture: Gesture::None,
             point: Some(pt_end),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_end, true, &mut tracker), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_end, true, &mut tracker),
+            0
+        );
     }
 
     #[test]
@@ -726,7 +746,10 @@ mod tests {
                 event: TouchEventKind::PressDown,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_press, true, &mut tracker), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_press, true, &mut tracker),
+            0
+        );
 
         // 2. Drag down by 12 px (to y = 42) -> fires KEY_NAV_DOWN
         let s_drag_down = TouchSample {
@@ -739,7 +762,10 @@ mod tests {
                 event: TouchEventKind::Contact,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_drag_down, true, &mut tracker), KEY_NAV_DOWN);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_drag_down, true, &mut tracker),
+            KEY_NAV_DOWN
+        );
         assert_eq!(tracker.scroll_dir, 1);
 
         // 3. Move further down to y = 46 (peak at 46)
@@ -754,7 +780,10 @@ mod tests {
             }),
         };
         // Should not trigger (only 4px past 42, and elapsed time < 200 ms in test)
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_drag_down2, true, &mut tracker), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_drag_down2, true, &mut tracker),
+            0
+        );
         assert_eq!(tracker.max_y, 46);
 
         // 4. Reverse direction! Move up to y = 42 (4px up from peak 46 -> reversal detected!)
@@ -768,7 +797,10 @@ mod tests {
                 event: TouchEventKind::Contact,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_rev, true, &mut tracker), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_rev, true, &mut tracker),
+            0
+        );
         assert_eq!(tracker.anchor_y, 46); // Anchor reset to peak 46!
 
         // 5. Move up to y = 34 (46 - 34 = 12 px up from peak!) -> fires KEY_NAV_UP immediately!
@@ -782,7 +814,10 @@ mod tests {
                 event: TouchEventKind::Contact,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_up, true, &mut tracker), KEY_NAV_UP);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_up, true, &mut tracker),
+            KEY_NAV_UP
+        );
         assert_eq!(tracker.scroll_dir, -1);
     }
 
@@ -801,7 +836,10 @@ mod tests {
                 event: TouchEventKind::Contact,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_center, false, &mut tracker), KEY_MENU_OPEN);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_center, false, &mut tracker),
+            KEY_MENU_OPEN
+        );
 
         // 2. Minor tremor in place (x=66, y=32) -> still emits KEY_MENU_OPEN
         let s_tremor = TouchSample {
@@ -814,7 +852,10 @@ mod tests {
                 event: TouchEventKind::Contact,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_tremor, false, &mut tracker), KEY_MENU_OPEN);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_tremor, false, &mut tracker),
+            KEY_MENU_OPEN
+        );
 
         // 3. Deliberate horizontal swipe left (x=45, dx = -19) -> emits KEY_NAV_DOWN (next dashboard page)
         let s_swipe_left = TouchSample {
@@ -827,7 +868,10 @@ mod tests {
                 event: TouchEventKind::Contact,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_swipe_left, false, &mut tracker), KEY_NAV_DOWN);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_swipe_left, false, &mut tracker),
+            KEY_NAV_DOWN
+        );
         assert!(tracker.swiped);
     }
 
@@ -846,7 +890,10 @@ mod tests {
                 event: TouchEventKind::PressDown,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_press, true, &mut tracker), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_press, true, &mut tracker),
+            0
+        );
 
         // 2. Drag down by 12 px (to y = 42) -> fires KEY_NAV_DOWN
         let s_drag = TouchSample {
@@ -859,7 +906,10 @@ mod tests {
                 event: TouchEventKind::Contact,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_drag, true, &mut tracker), KEY_NAV_DOWN);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_drag, true, &mut tracker),
+            KEY_NAV_DOWN
+        );
         assert_eq!(tracker.anchor_y, 42);
 
         // 3. User settles on line at y = 44 (2px drift) and lifts finger
@@ -874,7 +924,10 @@ mod tests {
                 event: TouchEventKind::LiftUp,
             }),
         };
-        assert_eq!(touch_to_nav_keys_with_tracker(&s_lift, true, &mut tracker), 0);
+        assert_eq!(
+            touch_to_nav_keys_with_tracker(&s_lift, true, &mut tracker),
+            0
+        );
         assert!(!tracker.active);
     }
 }

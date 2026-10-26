@@ -126,8 +126,7 @@ impl<T: Copy> TripleBuffer<T> {
     }
 }
 
-static CHANNEL_BUFFER: TripleBuffer<[u16; NUM_CHANNELS]> =
-    TripleBuffer::new(SAFE_IDLE_CHANNELS);
+static CHANNEL_BUFFER: TripleBuffer<[u16; NUM_CHANNELS]> = TripleBuffer::new(SAFE_IDLE_CHANNELS);
 static TELEMETRY_BUFFER: TripleBuffer<TelemetryData> = TripleBuffer::new(TelemetryData::new());
 static RF_SILENCED: AtomicBool = AtomicBool::new(false);
 static PUBLISHED: AtomicBool = AtomicBool::new(false);

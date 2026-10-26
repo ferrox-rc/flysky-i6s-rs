@@ -13,35 +13,35 @@ pub const AUX_BUTTON_THRESHOLD_US: u16 = 1750; // Threshold for high-channel log
 /// USB HID Report Descriptor for an 8-Axis, 16-Button Joystick (18 bytes input report).
 /// Matches OpenI6X and EdgeTX 11-bit simulator conventions.
 pub const GAMEPAD_REPORT_DESC: &[u8] = &[
-    0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
-    0x09, 0x04,        // Usage (Joystick)
-    0xA1, 0x01,        // Collection (Application)
-    0xA1, 0x00,        //   Collection (Physical)
-    0x05, 0x09,        //     Usage Page (Button)
-    0x19, 0x01,        //     Usage Minimum (Button 1)
-    0x29, 0x10,        //     Usage Maximum (Button 16)
-    0x15, 0x00,        //     Logical Minimum (0)
-    0x25, 0x01,        //     Logical Maximum (1)
-    0x95, 0x10,        //     Report Count (16)
-    0x75, 0x01,        //     Report Size (1)
-    0x81, 0x02,        //     Input (Data,Var,Abs) - 2 bytes buttons
-    0x05, 0x01,        //     Usage Page (Generic Desktop Ctrls)
+    0x05, 0x01, // Usage Page (Generic Desktop Ctrls)
+    0x09, 0x04, // Usage (Joystick)
+    0xA1, 0x01, // Collection (Application)
+    0xA1, 0x00, //   Collection (Physical)
+    0x05, 0x09, //     Usage Page (Button)
+    0x19, 0x01, //     Usage Minimum (Button 1)
+    0x29, 0x10, //     Usage Maximum (Button 16)
+    0x15, 0x00, //     Logical Minimum (0)
+    0x25, 0x01, //     Logical Maximum (1)
+    0x95, 0x10, //     Report Count (16)
+    0x75, 0x01, //     Report Size (1)
+    0x81, 0x02, //     Input (Data,Var,Abs) - 2 bytes buttons
+    0x05, 0x01, //     Usage Page (Generic Desktop Ctrls)
     // EdgeTX Classic 8-Axis Standard:
-    0x09, 0x30,        //     Usage (X)      - CH1 Roll / Aileron
-    0x09, 0x31,        //     Usage (Y)      - CH2 Pitch / Elevator
-    0x09, 0x32,        //     Usage (Z)      - CH3 Throttle
-    0x09, 0x33,        //     Usage (Rx)     - CH4 Yaw / Rudder
-    0x09, 0x34,        //     Usage (Ry)     - CH5 Aux 1 (SA)
-    0x09, 0x35,        //     Usage (Rz)     - CH6 Aux 2 (SB)
-    0x09, 0x37,        //     Usage (Dial)   - CH7 Pot VRA
-    0x09, 0x36,        //     Usage (Slider) - CH8 Pot VRB
-    0x16, 0x00, 0x00,  //     Logical Minimum (0)
-    0x26, 0xFF, 0x07,  //     Logical Maximum (2047) - 11-bit resolution
-    0x75, 0x10,        //     Report Size (16)
-    0x95, 0x08,        //     Report Count (8)
-    0x81, 0x02,        //     Input (Data,Var,Abs) - 8 x 16-bit axes = 16 bytes
-    0xC0,              //   End Collection
-    0xC0,              // End Collection
+    0x09, 0x30, //     Usage (X)      - CH1 Roll / Aileron
+    0x09, 0x31, //     Usage (Y)      - CH2 Pitch / Elevator
+    0x09, 0x32, //     Usage (Z)      - CH3 Throttle
+    0x09, 0x33, //     Usage (Rx)     - CH4 Yaw / Rudder
+    0x09, 0x34, //     Usage (Ry)     - CH5 Aux 1 (SA)
+    0x09, 0x35, //     Usage (Rz)     - CH6 Aux 2 (SB)
+    0x09, 0x37, //     Usage (Dial)   - CH7 Pot VRA
+    0x09, 0x36, //     Usage (Slider) - CH8 Pot VRB
+    0x16, 0x00, 0x00, //     Logical Minimum (0)
+    0x26, 0xFF, 0x07, //     Logical Maximum (2047) - 11-bit resolution
+    0x75, 0x10, //     Report Size (16)
+    0x95, 0x08, //     Report Count (8)
+    0x81, 0x02, //     Input (Data,Var,Abs) - 8 x 16-bit axes = 16 bytes
+    0xC0, //   End Collection
+    0xC0, // End Collection
 ];
 
 pub const REPORT_SIZE: usize = 18;
@@ -51,7 +51,10 @@ pub const REPORT_SIZE: usize = 18;
 fn us_to_axis(us: u16) -> u16 {
     let clamped = us.clamp(CHANNEL_MIN_US, CHANNEL_MAX_US) as u32;
     let span = CHANNEL_SPAN_US;
-    let axis = (((clamped - CHANNEL_MIN_US as u32) * (USB_AXIS_MAX - USB_AXIS_MIN) as u32 + (span / 2)) / span) as u16 + USB_AXIS_MIN;
+    let axis = (((clamped - CHANNEL_MIN_US as u32) * (USB_AXIS_MAX - USB_AXIS_MIN) as u32
+        + (span / 2))
+        / span) as u16
+        + USB_AXIS_MIN;
     axis.clamp(USB_AXIS_MIN, USB_AXIS_MAX)
 }
 
@@ -206,6 +209,10 @@ mod tests {
         switches.sf = SwitchPos::Down;
         build_gamepad_report(&chs, &switches, &mut report);
         let btns = (report[0] as u16) | ((report[1] as u16) << 8);
-        assert_eq!(btns, (1 << 10) | (1 << 11), "Both SE and SF Down should set buttons 11 & 12");
+        assert_eq!(
+            btns,
+            (1 << 10) | (1 << 11),
+            "Both SE and SF Down should set buttons 11 & 12"
+        );
     }
 }

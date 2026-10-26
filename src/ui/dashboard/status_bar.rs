@@ -36,7 +36,11 @@ pub fn render(
     let mut m_buf = *b"M00";
     write_dec2((act_idx + 1) as u8, &mut m_buf[1..3]);
     let m_fallback = ascii_as_str(&m_buf);
-    let m_display = if raw_name.is_empty() { m_fallback } else { raw_name };
+    let m_display = if raw_name.is_empty() {
+        m_fallback
+    } else {
+        raw_name
+    };
     lcd.draw_str_6x10(2, 2, m_display, false);
 
     // --- RF / Telemetry / Link Status (x = 64..84, y = 3) ---
@@ -91,7 +95,14 @@ pub fn render(
             lcd.fill_rect(92, 1, 22, 8, true);
             lcd.draw_str_4x6(93, 3, vbat_str, true);
         } else {
-            draw_battery_gauge(lcd, 116, 2, battery_mv, vbat_warn_mv, vbat_warn_mv.max(6000));
+            draw_battery_gauge(
+                lcd,
+                116,
+                2,
+                battery_mv,
+                vbat_warn_mv,
+                vbat_warn_mv.max(6000),
+            );
             lcd.draw_str_4x6(93, 3, vbat_str, false);
         }
     } else {

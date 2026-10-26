@@ -45,7 +45,8 @@ pub fn init() {
 
         unsafe {
             // Enable GPIOB (bit 18) and GPIOD (bit 20) in RCC_AHBENR
-            rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 18) | (1 << 20)));
+            rcc.ahbenr
+                .modify(|r, w| w.bits(r.bits() | (1 << 18) | (1 << 20)));
 
             // Configure PB15 as push-pull output (MODER bits 31:30 = 01)
             gpiob.moder.modify(|r, w| {
@@ -223,12 +224,7 @@ impl PowerManager {
     /// - Flushes active model and radio configuration to flash
     /// - Turns off LEDs
     /// - Drives PB15 LOW to cut power
-    pub fn update(
-        &mut self,
-        dt_ms: u16,
-        storage: &mut RadioStorage,
-        buzzer: &mut Buzzer,
-    ) {
+    pub fn update(&mut self, dt_ms: u16, storage: &mut RadioStorage, buzzer: &mut Buzzer) {
         if self.is_shutting_down {
             return;
         }

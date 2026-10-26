@@ -188,12 +188,16 @@ pub fn init_ext_switches(pb6_en: bool, pb7_en: bool, pf10_en: bool) {
             if pb6_en {
                 // PB6: Input (MODER bits 13:12 = 00), Pull-up (PUPDR bits 13:12 = 01)
                 gpiob.moder.modify(|r, w| w.bits(r.bits() & !(3 << 12)));
-                gpiob.pupdr.modify(|r, w| w.bits((r.bits() & !(3 << 12)) | (1 << 12)));
+                gpiob
+                    .pupdr
+                    .modify(|r, w| w.bits((r.bits() & !(3 << 12)) | (1 << 12)));
             }
             if pb7_en {
                 // PB7: Input (MODER bits 15:14 = 00), Pull-up (PUPDR bits 15:14 = 01)
                 gpiob.moder.modify(|r, w| w.bits(r.bits() & !(3 << 14)));
-                gpiob.pupdr.modify(|r, w| w.bits((r.bits() & !(3 << 14)) | (1 << 14)));
+                gpiob
+                    .pupdr
+                    .modify(|r, w| w.bits((r.bits() & !(3 << 14)) | (1 << 14)));
             }
         }
 
@@ -202,7 +206,9 @@ pub fn init_ext_switches(pb6_en: bool, pb7_en: bool, pf10_en: bool) {
             rcc.ahbenr.modify(|r, w| w.bits(r.bits() | (1 << 22)));
             // PF10: Input (MODER bits 21:20 = 00), Pull-up (PUPDR bits 21:20 = 01)
             gpiof.moder.modify(|r, w| w.bits(r.bits() & !(3 << 20)));
-            gpiof.pupdr.modify(|r, w| w.bits((r.bits() & !(3 << 20)) | (1 << 20)));
+            gpiof
+                .pupdr
+                .modify(|r, w| w.bits((r.bits() & !(3 << 20)) | (1 << 20)));
         }
     }
     #[cfg(test)]

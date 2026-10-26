@@ -168,7 +168,11 @@ fn render_sensor_tile(
             // ANTENNA
             lcd.draw_str_4x6(x, y, "ANTENNA", false);
             let ant = if is_crsf && ct.connected {
-                if ct.active_antenna == 0 { "ANT 1" } else { "ANT 2" }
+                if ct.active_antenna == 0 {
+                    "ANT 1"
+                } else {
+                    "ANT 2"
+                }
             } else {
                 "ANT -"
             };
@@ -306,7 +310,11 @@ pub fn render(
             lq_buf[4] = b' ';
             lq_buf[5] = b'0' + lq;
         }
-        let lq_str = if ct.connected { ascii_as_str(&lq_buf) } else { "LQ: ---%" };
+        let lq_str = if ct.connected {
+            ascii_as_str(&lq_buf)
+        } else {
+            "LQ: ---%"
+        };
         lcd.draw_str_6x10(2, 14, lq_str, false);
 
         // Row 2 (y = 24): Uplink RSSI 1 (dBm)
@@ -315,7 +323,11 @@ pub fn render(
         rssi_buf[5] = b'0' + (rssi_val / 100);
         rssi_buf[6] = b'0' + ((rssi_val / 10) % 10);
         rssi_buf[7] = b'0' + (rssi_val % 10);
-        let rssi_str = if ct.connected { ascii_as_str(&rssi_buf) } else { "RS: ---dB" };
+        let rssi_str = if ct.connected {
+            ascii_as_str(&rssi_buf)
+        } else {
+            "RS: ---dB"
+        };
         lcd.draw_str_6x10(2, 24, rssi_str, false);
 
         // Row 3 (y = 34): Uplink SNR (dB)
@@ -325,12 +337,20 @@ pub fn render(
         snr_buf[4] = snr_sign;
         snr_buf[5] = b'0' + ((snr_mag / 10) % 10);
         snr_buf[6] = b'0' + (snr_mag % 10);
-        let snr_str = if ct.connected { ascii_as_str(&snr_buf) } else { "SNR: --dB" };
+        let snr_str = if ct.connected {
+            ascii_as_str(&snr_buf)
+        } else {
+            "SNR: --dB"
+        };
         lcd.draw_str_6x10(2, 34, snr_str, false);
 
         // Row 4 (y = 44): Active Antenna
         let ant_str = if ct.connected {
-            if ct.active_antenna == 0 { "ANT: 1" } else { "ANT: 2" }
+            if ct.active_antenna == 0 {
+                "ANT: 1"
+            } else {
+                "ANT: 2"
+            }
         } else {
             "ANT: -"
         };
@@ -359,11 +379,19 @@ pub fn render(
             pwr_buf[6] = b'0' + ((p / 10) as u8);
             pwr_buf[7] = b'0' + ((p % 10) as u8);
         }
-        let pwr_str = if ct.connected && ct.tx_power_mw > 0 { ascii_as_str(&pwr_buf) } else { "PWR: ---" };
+        let pwr_str = if ct.connected && ct.tx_power_mw > 0 {
+            ascii_as_str(&pwr_buf)
+        } else {
+            "PWR: ---"
+        };
         lcd.draw_str_6x10(66, 14, pwr_str, false);
 
         // Row 2 (y = 24): RF Mode / Packet Rate
-        let rate_name = if ct.connected { crsf::protocol::rf_mode_to_str(ct.rf_mode) } else { "---" };
+        let rate_name = if ct.connected {
+            crsf::protocol::rf_mode_to_str(ct.rf_mode)
+        } else {
+            "---"
+        };
         lcd.draw_str_6x10(66, 24, "RATE:", false);
         lcd.draw_str_6x10(98, 24, rate_name, false);
 
@@ -410,7 +438,11 @@ pub fn render(
         }
 
         // Row 2 (y = 24): Link Status
-        let link_str = if telem.connected { "LINK: OK" } else { "LINK: DISC" };
+        let link_str = if telem.connected {
+            "LINK: OK"
+        } else {
+            "LINK: DISC"
+        };
         lcd.draw_str_6x10(2, 24, link_str, false);
 
         // Row 3 (y = 34): Packets Sent

@@ -368,8 +368,7 @@ impl BackgroundIdleManager {
         // 1. Resynchronize arm tracking when exiting settings menu
         if self.menu_was_active && !menu_active {
             let active = storage.active_model();
-            pipeline.prev_armed =
-                mixer::eval_arm_switch(active.arm_switch, &flight.state.switches);
+            pipeline.prev_armed = mixer::eval_arm_switch(active.arm_switch, &flight.state.switches);
         }
         self.menu_was_active = menu_active;
 
@@ -964,8 +963,12 @@ fn run_preflight_check(
 
             lcd.draw_hline(0, 55, 128, true);
             let footer = match thr_result {
-                Err(safety::PreflightError::ThrottleNotCentered { .. }) => "Center Thr/Safe SW [ESC]Skip",
-                Err(safety::PreflightError::ThrottleHoldDisengaged) => "Hold Thr/Safe SW   [ESC]Skip",
+                Err(safety::PreflightError::ThrottleNotCentered { .. }) => {
+                    "Center Thr/Safe SW [ESC]Skip"
+                }
+                Err(safety::PreflightError::ThrottleHoldDisengaged) => {
+                    "Hold Thr/Safe SW   [ESC]Skip"
+                }
                 _ => "Lower Thr/Safe SW  [ESC]Skip",
             };
             lcd.draw_str_4x6(2, 57, footer, false);

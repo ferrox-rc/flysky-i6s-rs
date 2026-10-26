@@ -37,10 +37,18 @@ pub fn init() {
 
         // 1. Enable peripheral clocks
         // GPIOB, GPIOE
-        rcc.ahbenr.modify(|_, w| w.iopben().set_bit().iopeen().set_bit());
+        rcc.ahbenr
+            .modify(|_, w| w.iopben().set_bit().iopeen().set_bit());
 
         // SYSCFG, SPI1, TIM16
-        rcc.apb2enr.modify(|_, w| w.syscfgen().set_bit().spi1en().set_bit().tim16en().set_bit());
+        rcc.apb2enr.modify(|_, w| {
+            w.syscfgen()
+                .set_bit()
+                .spi1en()
+                .set_bit()
+                .tim16en()
+                .set_bit()
+        });
 
         // 2. Configure GPIOE pins:
         // PE13 (SCK), PE14 (MISO), PE15 (MOSI) -> Alternate Function (0b10)
@@ -48,16 +56,18 @@ pub fn init() {
         // PE8 (RX_EN), PE9 (TX_EN) -> Output (0b01)
         // PE10 (RF0), PE11 (RF1) -> Output (0b01)
         let moder = gpioe.moder.read().bits();
-        let moder_cleared = moder & !(
-            (0b11 << 16) | // PE8
+        let moder_cleared = moder
+            & !(
+                (0b11 << 16) | // PE8
             (0b11 << 18) | // PE9
             (0b11 << 20) | // PE10
             (0b11 << 22) | // PE11
             (0b11 << 24) | // PE12
             (0b11 << 26) | // PE13
             (0b11 << 28) | // PE14
-            (0b11 << 30)   // PE15
-        );
+            (0b11 << 30)
+                // PE15
+            );
         let moder_set = (0b01 << 16)   // PE8 Output
             | (0b01 << 18)             // PE9 Output
             | (0b01 << 20)             // PE10 Output
@@ -65,11 +75,13 @@ pub fn init() {
             | (0b01 << 24)             // PE12 Output (CSN)
             | (0b10 << 26)             // PE13 AF (SCK)
             | (0b10 << 28)             // PE14 AF (MISO)
-            | (0b10 << 30);            // PE15 AF (MOSI)
+            | (0b10 << 30); // PE15 AF (MOSI)
         gpioe.moder.write(|w| w.bits(moder_cleared | moder_set));
 
         // High speed for SPI pins PE13, PE14, PE15
-        gpioe.ospeedr.modify(|r, w| w.bits(r.bits() | (0b11 << 26) | (0b11 << 28) | (0b11 << 30)));
+        gpioe
+            .ospeedr
+            .modify(|r, w| w.bits(r.bits() | (0b11 << 26) | (0b11 << 28) | (0b11 << 30)));
 
         // Set AF1 (SPI1) for PE13, PE14, PE15 in AFRH
         let afrh = gpioe.afrh.read().bits();
@@ -88,10 +100,14 @@ pub fn init() {
 
         // 3. Configure PB2 (GIO2 / WTR) as input with pull-up
         gpiob.moder.modify(|r, w| w.bits(r.bits() & !(0b11 << 4)));
-        gpiob.pupdr.modify(|r, w| w.bits((r.bits() & !(0b11 << 4)) | (0b01 << 4)));
+        gpiob
+            .pupdr
+            .modify(|r, w| w.bits((r.bits() & !(0b11 << 4)) | (0b01 << 4)));
 
         // Route EXTI2 to PB2 in SYSCFG_EXTICR1
-        syscfg.exticr1.modify(|r, w| w.bits((r.bits() & !(0x0F << 8)) | (0x01 << 8)));
+        syscfg
+            .exticr1
+            .modify(|r, w| w.bits((r.bits() & !(0x0F << 8)) | (0x01 << 8)));
 
         // Falling edge trigger for EXTI2
         exti.ftsr.modify(|_, w| w.tr2().set_bit());
@@ -117,7 +133,8 @@ pub fn init() {
         let mut drain = 16;
         while spi1.sr.read().rxne().bit_is_set() && drain > 0 {
             drain -= 1;
-            let _ = core::ptr::read_volatile(core::ptr::addr_of!((*pac::SPI1::ptr()).dr) as *const u8);
+            let _ =
+                core::ptr::read_volatile(core::ptr::addr_of!((*pac::SPI1::ptr()).dr) as *const u8);
         }
     }
 }
@@ -266,7 +283,9 @@ pub fn init_tim16(period_us: u16) {
         // PSC = 47 -> 48 MHz / (47 + 1) = 1 MHz = 1.0 µs per tick
         tim16.psc.write(|w| w.psc().bits(47));
         // ARR = period_us - 1 (e.g. 3850 - 1 = 3849 for 3.850 ms period)
-        tim16.arr.write(|w| w.arr().bits(period_us.saturating_sub(1)));
+        tim16
+            .arr
+            .write(|w| w.arr().bits(period_us.saturating_sub(1)));
 
         // Clear update interrupt flag
         tim16.sr.write(|w| w.bits(0));

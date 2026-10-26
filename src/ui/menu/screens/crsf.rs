@@ -573,12 +573,15 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                                 offset += 1;
                                 let u_bytes = unit_str.as_bytes();
                                 let u_len = u_bytes.len().min(full_val_buf.len() - offset);
-                                full_val_buf[offset..offset + u_len].copy_from_slice(&u_bytes[..u_len]);
+                                full_val_buf[offset..offset + u_len]
+                                    .copy_from_slice(&u_bytes[..u_len]);
                                 offset += u_len;
                             }
-                            let full_val_str = crate::ui::format::ascii_as_str(&full_val_buf[..offset]);
+                            let full_val_str =
+                                crate::ui::format::ascii_as_str(&full_val_buf[..offset]);
                             let val_x = 124i32.saturating_sub((full_val_str.len() as i32) * 6);
-                            let max_name_chars = 20usize.saturating_sub(full_val_str.len() + 1).max(5);
+                            let max_name_chars =
+                                20usize.saturating_sub(full_val_str.len() + 1).max(5);
                             let name_disp = &name[..name.len().min(max_name_chars)];
                             lcd.draw_str_6x10(4, y, name_disp, is_sel);
                             lcd.draw_str_6x10(val_x, y, full_val_str, is_sel);

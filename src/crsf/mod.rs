@@ -1002,12 +1002,11 @@ unsafe fn crsf_tick(now_ms: u32) {
         CrsfConfigState::LoadingParam(id)
             if now_ms.wrapping_sub(CONFIG_ENGINE.next_req_ms) < 0x8000_0000 =>
         {
-            let timeout: u32 =
-                if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
-                    1000
-                } else {
-                    500
-                };
+            let timeout: u32 = if CONFIG_ENGINE.device_id == protocol::CRSF_ADDRESS_CRSF_RECEIVER {
+                1000
+            } else {
+                500
+            };
 
             let max_retries = if id == 0 { 2 } else { 4 };
             if CONFIG_ENGINE.retry_count < max_retries {
@@ -1333,8 +1332,7 @@ pub fn set_param_value(param_idx: usize, value: i32) {
                 | protocol::CRSF_TYPE_INT8 => {
                     send_param_write(CONFIG_ENGINE.device_id, p.id, clamped as u8);
                 }
-                protocol::CRSF_TYPE_UINT16
-                | protocol::CRSF_TYPE_INT16 => {
+                protocol::CRSF_TYPE_UINT16 | protocol::CRSF_TYPE_INT16 => {
                     let bytes = (clamped as u16).to_be_bytes();
                     send_param_write_buf(CONFIG_ENGINE.device_id, p.id, &bytes);
                 }
@@ -2937,7 +2935,11 @@ mod tests {
         unsafe {
             for i in 1..=MAX_PARAMS {
                 let id = i as u8;
-                let opt = if id.is_multiple_of(2) { "Low;Med;High" } else { "" };
+                let opt = if id.is_multiple_of(2) {
+                    "Low;Med;High"
+                } else {
+                    ""
+                };
                 add_test_param(id, 0, protocol::CRSF_TYPE_SELECT, "Param", 1, 2, opt);
             }
         }
@@ -3837,8 +3839,8 @@ mod tests {
         assert_eq!(uart::get_brr_for_baud(0), 417); // 115.2k
         assert_eq!(uart::get_brr_for_baud(1), 115); // 416.6k
         assert_eq!(uart::get_brr_for_baud(2), 114); // 420k
-        assert_eq!(uart::get_brr_for_baud(3), 52);  // 921.6k
-        assert_eq!(uart::get_brr_for_baud(4), 26);  // 1.875M
+        assert_eq!(uart::get_brr_for_baud(3), 52); // 921.6k
+        assert_eq!(uart::get_brr_for_baud(4), 26); // 1.875M
 
         // Test enabling CRSF with half-duplex and 1.8M baud
         set_enabled(true, 4, true);
@@ -3858,4 +3860,3 @@ mod tests {
         set_enabled(false, 2, false);
     }
 }
-

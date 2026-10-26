@@ -133,12 +133,10 @@ pub const DR_SWITCH_NAMES: [&str; 7] = ["None", "SA", "SB", "SC", "SD", "SE", "S
 pub const AXIS_NAMES: [&str; 3] = ["Roll", "Pitch", "Yaw"];
 
 pub const WEIGHT_SRC_NAMES: [&str; 42] = [
-    "Fixed",
-    "CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7", "CH8", "CH9",
-    "CH10", "CH11", "CH12", "CH13", "CH14", "CH15", "CH16", "CH17", "CH18",
-    "CH1+", "CH2+", "CH3+", "CH4+", "CH5+", "CH6+", "CH7+", "CH8+", "CH9+",
-    "CH10+", "CH11+", "CH12+", "CH13+", "CH14+", "CH15+", "CH16+", "CH17+", "CH18+",
-    "GV1", "GV2", "GV3", "GV4", "GV5",
+    "Fixed", "CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7", "CH8", "CH9", "CH10", "CH11", "CH12",
+    "CH13", "CH14", "CH15", "CH16", "CH17", "CH18", "CH1+", "CH2+", "CH3+", "CH4+", "CH5+", "CH6+",
+    "CH7+", "CH8+", "CH9+", "CH10+", "CH11+", "CH12+", "CH13+", "CH14+", "CH15+", "CH16+", "CH17+",
+    "CH18+", "GV1", "GV2", "GV3", "GV4", "GV5",
 ];
 
 pub fn i8_to_dec(val: i8, buf: &mut [u8; 6]) -> &str {

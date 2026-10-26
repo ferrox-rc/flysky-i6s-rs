@@ -290,7 +290,11 @@ pub fn update_setup(
                     ctrl.sub_idx = (ctrl.sub_idx + 1) % NUM_MODELS;
                     buzzer.play_tone(2200, 20);
                 } else if keys.down {
-                    ctrl.sub_idx = if ctrl.sub_idx == 0 { NUM_MODELS - 1 } else { ctrl.sub_idx - 1 };
+                    ctrl.sub_idx = if ctrl.sub_idx == 0 {
+                        NUM_MODELS - 1
+                    } else {
+                        ctrl.sub_idx - 1
+                    };
                     buzzer.play_tone(2200, 20);
                 }
                 if keys.cancel {
@@ -347,13 +351,21 @@ pub fn update_setup(
             }
             2 => {
                 let arm_idx = (storage.active_model.arm_switch as usize).min(14);
-                let arm_str = if arm_idx == 0 { "NONE" } else { crate::ui::format::SWITCH_COND_NAMES[arm_idx] };
+                let arm_str = if arm_idx == 0 {
+                    "NONE"
+                } else {
+                    crate::ui::format::SWITCH_COND_NAMES[arm_idx]
+                };
                 lcd.draw_str_6x10(4, y, "Arm Sw:", inverted);
                 lcd.draw_str_6x10(52, y, arm_str, inverted);
             }
             3 => {
                 let t_secs = storage.active_model.timer_secs;
-                let t_str = if t_secs == 0 { "OFF" } else { format_timer(t_secs, false, &mut t_buf) };
+                let t_str = if t_secs == 0 {
+                    "OFF"
+                } else {
+                    format_timer(t_secs, false, &mut t_buf)
+                };
                 lcd.draw_str_6x10(4, y, "Timer:", inverted);
                 lcd.draw_str_6x10(52, y, t_str, inverted);
             }
@@ -363,7 +375,9 @@ pub fn update_setup(
                     1 => "THs (RUN)",
                     2 => "THt (LTCH)",
                     3 => "ALWAYS ON",
-                    s if (4..=17).contains(&s) => crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize],
+                    s if (4..=17).contains(&s) => {
+                        crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize]
+                    }
                     _ => "OFF",
                 };
                 lcd.draw_str_6x10(4, y, "T-Trig:", inverted);
@@ -471,7 +485,11 @@ pub fn update_vario_setup(
                 4 => {
                     // Motor mute toggle
                     storage.active_model.vario_motor_mute =
-                        if storage.active_model.vario_motor_mute == 0 { 1 } else { 0 };
+                        if storage.active_model.vario_motor_mute == 0 {
+                            1
+                        } else {
+                            0
+                        };
                     storage::save_active_model(storage);
                     buzzer.click();
                 }
@@ -515,8 +533,13 @@ pub fn update_vario_setup(
 
         match idx {
             0 => {
-                let sw_idx = (storage.active_model.vario_switch as usize).min(crate::ui::format::SWITCH_COND_NAMES.len() - 1);
-                let sw_str = if sw_idx == 0 { "OFF" } else { crate::ui::format::SWITCH_COND_NAMES[sw_idx] };
+                let sw_idx = (storage.active_model.vario_switch as usize)
+                    .min(crate::ui::format::SWITCH_COND_NAMES.len() - 1);
+                let sw_str = if sw_idx == 0 {
+                    "OFF"
+                } else {
+                    crate::ui::format::SWITCH_COND_NAMES[sw_idx]
+                };
                 let is_sel = idx == ctrl.selected_item;
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Switch:", Some(sw_str));
             }
@@ -548,7 +571,11 @@ pub fn update_vario_setup(
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Sink Mode:", Some(mode_str));
             }
             4 => {
-                let mute_str = if storage.active_model.vario_motor_mute != 0 { "ENABLED" } else { "DISABLED" };
+                let mute_str = if storage.active_model.vario_motor_mute != 0 {
+                    "ENABLED"
+                } else {
+                    "DISABLED"
+                };
                 let is_sel = idx == ctrl.selected_item;
                 widgets::draw_list_row_right(lcd, slot, is_sel, "Motor Mute:", Some(mute_str));
             }
@@ -566,4 +593,3 @@ pub fn update_vario_setup(
         widgets::draw_footer(lcd, "[OK] Edit/Cycle    [ESC] Back");
     }
 }
-

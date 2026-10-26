@@ -54,7 +54,8 @@ pub fn init(active_high: bool) {
 
         // Enable GPIOB, GPIOF clocks in RCC_AHBENR
         let rcc = &*pac::RCC::ptr();
-        rcc.ahbenr.modify(|_, w| w.iopben().set_bit().iopfen().set_bit());
+        rcc.ahbenr
+            .modify(|_, w| w.iopben().set_bit().iopfen().set_bit());
 
         // Configure PF6 as general purpose output
         let gpiof = &*pac::GPIOF::ptr();
@@ -175,10 +176,14 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8, half_duplex: bool) {
 
             // 6. Enable UE, TE, RE, and RXNEIE
             usart1.cr1.write(|w| {
-                w.ue().enabled()
-                 .te().enabled()
-                 .re().enabled()
-                 .rxneie().enabled()
+                w.ue()
+                    .enabled()
+                    .te()
+                    .enabled()
+                    .re()
+                    .enabled()
+                    .rxneie()
+                    .enabled()
             });
         } else {
             // Mask USART1 in NVIC
@@ -195,7 +200,9 @@ pub fn set_uart_enabled(enabled: bool, baud_idx: u8, half_duplex: bool) {
             rcc.apb2enr.modify(|_, w| w.usart1en().clear_bit());
 
             // Set PB6 and PB7 back to inputs
-            gpiob.moder.modify(|_, w| w.moder6().input().moder7().input());
+            gpiob
+                .moder
+                .modify(|_, w| w.moder6().input().moder7().input());
             gpiob.otyper.modify(|_, w| w.ot6().push_pull());
         }
     }

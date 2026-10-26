@@ -129,7 +129,8 @@ pub fn draw_calib_gauge(
     // Current live position cursor
     let delta = current as i32 - center as i32;
     let cur_x = if delta < 0 {
-        center_x - (((delta.unsigned_abs() * (half_w as u32)) / target_span).min(half_w as u32) as i32)
+        center_x
+            - (((delta.unsigned_abs() * (half_w as u32)) / target_span).min(half_w as u32) as i32)
     } else {
         center_x + (((delta as u32 * (half_w as u32)) / target_span).min(half_w as u32) as i32)
     };

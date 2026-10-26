@@ -40,6 +40,8 @@ fn main() {
     };
 
     println!("cargo:rustc-env=GIT_HASH={}", git_hash);
-    println!("cargo:rustc-env=FIRMWARE_VERSION=v{}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "cargo:rustc-env=FIRMWARE_VERSION=v{}",
+        env!("CARGO_PKG_VERSION")
+    );
 }
-

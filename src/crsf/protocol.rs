@@ -717,4 +717,3 @@ mod tests {
         assert_eq!(telem.last_telemetry_ms, 4000);
     }
 }
-
