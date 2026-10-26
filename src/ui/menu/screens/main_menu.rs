@@ -115,6 +115,7 @@ pub fn update(
             }
             11 => {
                 ctrl.state = MenuState::DiagAnas;
+                ctrl.page_idx = 0;
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
             }

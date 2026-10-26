@@ -489,17 +489,18 @@ pub fn append_extra_switches(
     }
 }
 
-/// Title for Analog Diagnostics pages 2 and 3.
+/// Diagnostics page header title for page index 0..4.
 pub fn diag_page_title(page_idx: usize) -> &'static str {
     match page_idx {
         0 => "ANALOG (1-6)",
         1 => "ANALOG (7-11)",
         2 => "SWITCHES (E/F/G/H)",
-        _ => "EXT ANALOG (PC1-5)",
+        3 => "EXT ANALOG (PC1-5)",
+        _ => "STORAGE (EEPROM)",
     }
 }
 
-/// Render Analog Diagnostics pages 2 and 3 on FS-i6S.
+/// Render board-specific Diagnostics pages (pages 2, 3, and 4) on FS-i6S.
 pub fn draw_diag_ext_page(
     lcd: &mut St7567,
     page_idx: usize,
@@ -527,7 +528,7 @@ pub fn draw_diag_ext_page(
             widgets::draw_bar_gauge(lcd, 32, y, 30, 6, fill);
             lcd.draw_str_4x6(66, y, state_str, false);
         }
-    } else {
+    } else if page_idx == 3 {
         let ext_active = crate::input::is_ext_adc_enabled();
         let cfg_label = if ext_active {
             "PC ADC: ENABLED (16-CH)"
@@ -559,6 +560,37 @@ pub fn draw_diag_ext_page(
             }
             let val_str = ascii_as_str(&val_buf);
             lcd.draw_str_4x6(90, y, val_str, false);
+        }
+    } else {
+        let status = crate::storage::get_eeprom_status();
+        if status.detected {
+            let bus_str = match status.bus {
+                2 => "BUS: I2C2 (PB10/PB11 Fm+)",
+                1 => "BUS: I2C1 (PB8/PB9)",
+                _ => "BUS: Unknown",
+            };
+            lcd.draw_str_4x6(2, 13, bus_str, false);
+
+            let mut addr_buf = *b"ADDR: 0x50 (FT24C128A 16KB)";
+            addr_buf[8] = b"0123456789ABCDEF"[(status.addr >> 4) as usize];
+            addr_buf[9] = b"0123456789ABCDEF"[(status.addr & 0x0F) as usize];
+            lcd.draw_str_4x6(2, 23, ascii_as_str(&addr_buf), false);
+
+            let state_str = if status.write_err {
+                "STATUS: WRITE ERR (FAIL)"
+            } else if status.read_ok {
+                "STATUS: READY (HEALTHY)"
+            } else {
+                "STATUS: READ ERR (FAIL)"
+            };
+            lcd.draw_str_4x6(2, 33, state_str, false);
+
+            lcd.draw_str_4x6(2, 43, "SLOTS: 2xRadio  20xModels", false);
+        } else {
+            lcd.draw_str_4x6(2, 13, "BUS: I2C2 (PB10/PB11)", false);
+            lcd.draw_str_4x6(2, 23, "STATUS: NOT DETECTED", false);
+            lcd.draw_str_4x6(2, 33, "CHECK: Pull-ups / Wiring", false);
+            lcd.draw_str_4x6(2, 43, "FALLBACK: Factory Defaults", false);
         }
     }
 }

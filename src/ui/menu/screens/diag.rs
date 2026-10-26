@@ -25,13 +25,13 @@ pub fn update_diag_anas(
 
     if keys.up {
         ctrl.page_idx = if ctrl.page_idx == 0 {
-            3
+            4
         } else {
             ctrl.page_idx - 1
         };
         buzzer.play_tone(2200, 30);
-    } else if keys.down {
-        ctrl.page_idx = (ctrl.page_idx + 1) % 4;
+    } else if keys.down || keys.ok {
+        ctrl.page_idx = (ctrl.page_idx + 1) % 5;
         buzzer.play_tone(2200, 30);
     }
 
@@ -64,7 +64,7 @@ pub fn update_diag_anas(
         crate::hw::draw_diag_ext_page(lcd, ctrl.page_idx, raw_adc, switches);
     }
 
-    widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");
+    widgets::draw_footer(lcd, "[UP/DN/OK] Page  [ESC] Back");
 }
 
 #[inline(never)]
