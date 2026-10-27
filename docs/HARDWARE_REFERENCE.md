@@ -56,13 +56,15 @@ The FlySky FS-i6S eliminates the mechanical 3×4 key matrix of older transmitter
   - A 7-byte burst read from register `0x00` extracts:
     - Byte 1: Gesture ID (`0x10` Swipe Up, `0x14` Swipe Right, `0x18` Swipe Down, `0x1C` Swipe Left).
     - Byte 2: Touch point count (`TD_STATUS`, 0..2).
-    - Bytes 3..4: $X$ coordinate (12-bit, MSB + LSB) and Event Flag (0 = Press Down, 1 = Lift Up, 2 = Contact, 3 = No Event).
-    - Bytes 5..6: $Y$ coordinate (12-bit, MSB + LSB).
+    - Bytes 3..4: X coordinate (12-bit, MSB + LSB) and Event Flag (0 = Press Down, 1 = Lift Up, 2 = Contact, 3 = No Event).
+    - Bytes 5..6: Y coordinate (12-bit, MSB + LSB).
 - **Coordinate Transformation & 90° Axis Swap:**
   - The physical touch sensor has a native resolution of 320×320 and is mounted rotated relative to the ST7567 128×64 LCD:
-    $$ x_{lcd} = \left( \text{raw}_y \times 128 \right) / 320 $$
-    $$ y_{lcd} = 63 - \left( \text{raw}_x \times 64 \right) / 320 $$
-  - Both coordinates are clamped to $x \in [0, 127]$ and $y \in [0, 63]$.
+    ```text
+    x_lcd = (raw_y * 128) / 320
+    y_lcd = 63 - (raw_x * 64) / 320
+    ```
+  - Both coordinates are clamped to `x ∈ [0, 127]` and `y ∈ [0, 63]`.
 
 ### Front Tactile Buttons & Digital Trims
 
@@ -79,11 +81,11 @@ The front dual tactile buttons (integrated into the power button assemblies with
   1. **Stick Modifier Mode:**
      - Holding **Left Front (`PA9`)** + Left Stick deflection: Vertical adjusts Throttle Trim; Horizontal adjusts Yaw Trim.
      - Holding **Right Front (`PA10`)** + Right Stick deflection: Vertical adjusts Pitch Trim; Horizontal adjusts Roll Trim.
-     - Stick deflection threshold: $> 350$ counts from center.
+     - Stick deflection threshold: > 350 counts from center.
   2. **Virtual Touch Hitboxes:**
-     - Left border ($x < 16$): Throttle Trim Up / Down.
-     - Right border ($x > 112$): Pitch Trim Up / Down.
-     - Bottom border ($y > 52$): Yaw Trim Left/Right and Roll Trim Left/Right.
+     - Left border (x < 16): Throttle Trim Up / Down.
+     - Right border (x > 112): Pitch Trim Up / Down.
+     - Bottom border (y > 52): Yaw Trim Left/Right and Roll Trim Left/Right.
 
 ---
 
@@ -216,7 +218,7 @@ The FlySky FS-i6S uses a single 12-bit ADC peripheral (**ADC1**) paired with **D
 | **CH7** | `PA7` | **Potentiometer VRB** | Right Jog Wheel (VR2) | 0 .. 4095 | Configurable via `AdcInputMode` |
 | **CH8** | `PB0` | **Switch SC** | 3-Position Toggle (Stock) | Up > 2500, Mid 1000..2500, Dwn < 1000 | Configurable via `AdcInputMode` |
 | **CH9** | `PB1` | **Switch SD** | 2-Position Toggle (Stock) | Down < 2000, Up > 2000 | Configurable via `AdcInputMode` |
-| **CH10**| `PC0` | **Battery Sense** | 4×AA Battery Pack | ~1400 .. 2100 (4.0V .. 6.0V) | $10\text{ k}\Omega / 5.1\text{ k}\Omega$ divider |
+| **CH10**| `PC0` | **Battery Sense** | 4×AA Battery Pack | ~1400 .. 2100 (4.0V .. 6.0V) | 10 kΩ / 5.1 kΩ divider |
 | **CH11**| `PC1` | **Ext Analog VRC / SWI**| `ADC_IN11` Expansion | 0 .. 4095 | Enabled via `Ext ADC (PC)` |
 | **CH12**| `PC2` | **Ext Analog VRD / SWJ**| `ADC_IN12` Expansion | 0 .. 4095 | Enabled via `Ext ADC (PC)` |
 | **CH13**| `PC3` | **Ext Analog VRE / SWK**| `ADC_IN13` Expansion | 0 .. 4095 | Enabled via `Ext ADC (PC)` |
@@ -225,10 +227,12 @@ The FlySky FS-i6S uses a single 12-bit ADC peripheral (**ADC1**) paired with **D
 
 ### Battery Voltage Sensing (FS-i6S Scaling)
 
-The FlySky FS-i6S uses a precision $10\text{ k}\Omega$ (upper) and $5.1\text{ k}\Omega$ (lower) resistive divider on `PC0` (ADC Channel 10):
-- **Divider Ratio:** $\frac{R_1 + R_2}{R_2} = \frac{10 + 5.1}{5.1} = 2.960784...$
+The FlySky FS-i6S uses a precision 10 kΩ (upper) and 5.1 kΩ (lower) resistive divider on `PC0` (ADC Channel 10):
+- **Divider Ratio:** `(R1 + R2) / R2 = (10 + 5.1) / 5.1 = 2.960784...`
 - **Voltage Formula (in mV):**
-  $$ V_{bat} = \left( \text{raw} \times 3300 \times 2.960784 \right) / 4095 = \frac{\text{raw} \times 977064}{409500} $$
+  ```text
+  V_bat = (raw * 3300 * 2.960784) / 4095 = (raw * 977064) / 409500
+  ```
 - Implemented with integer arithmetic in [`src/hw/mod.rs`](../src/hw/mod.rs):
   ```rust
   ((raw as u32 * 977064) / 409500) as u16
@@ -306,21 +310,20 @@ The potential for touchscreen reset stems from the electrical characteristics of
 
 - **Active-LOW Reset Physics:** The FT6236 `RST` pin is active-LOW (0V / GND triggers reset, 3.3V is normal operating mode). An internal pull-up resistor keeps the line HIGH when idle.
 - **UART Framing & Contiguous LOW Duration:** In asynchronous serial (8N1), the line idles HIGH. Data is framed with 1 Start Bit (LOW), 8 Data Bits, and 1 Stop Bit (HIGH). The longest possible contiguous LOW duration in a single frame occurs when sending byte `0x00` (Start Bit + 8 zero bits = 9 bit times), after which the Stop Bit forces the line back HIGH to 3.3V.
-- **Reset Trigger Threshold:** The FT6236 hardware reset comparator requires a sustained LOW pulse of **$\ge 1.0\text{ ms}$ ($1000\ \mu\text{s}$)** to trigger a reset.
+- **Reset Trigger Threshold:** The FT6236 hardware reset comparator requires a sustained LOW pulse of **>= 1.0 ms (1000 µs)** to trigger a reset.
 
-The following table compares each supported firmware baud rate against the $1\text{ ms}$ reset threshold:
+The following table compares each supported firmware baud rate against the 1.0 ms reset threshold:
 
-| Baud Rate | Protocol / Profile | Single Bit Time ($t_{\text{bit}}$) | Max Continuous Low Pulse ($9\text{ bits}$) | Safety Margin to $1\text{ ms}$ Reset | Likelihood of Normal Data Triggering Reset |
+| Baud Rate | Protocol / Profile | Single Bit Time (bit) | Max Continuous Low Pulse (9 bits) | Safety Margin to 1.0 ms Reset | Likelihood of Normal Data Triggering Reset |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **921,600 baud** | Fast CRSF / Ultra-low latency | **$1.09\ \mu\text{s}$** | **$9.8\ \mu\text{s}$** | **$102\times$ safety margin** | **Effectively 0%** |
-| **420,000 baud** | Standard ExpressLRS | **$2.38\ \mu\text{s}$** | **$21.4\ \mu\text{s}$** | **$47\times$ safety margin** | **Effectively 0%** |
-| **416,666 baud** | Standard TBS Crossfire | **$2.40\ \mu\text{s}$** | **$21.6\ \mu\text{s}$** | **$46\times$ safety margin** | **Effectively 0%** |
-| **115,200 baud** | Legacy / Debug Serial | **$8.68\ \mu\text{s}$** | **$78.1\ \mu\text{s}$** | **$13\times$ safety margin** | **Very Low (higher noise susceptibility)** |
+| **921,600 baud** | Fast CRSF / Ultra-low latency | **1.09 µs** | **9.8 µs** | **102× safety margin** | **Effectively 0%** |
+| **420,000 baud** | Standard ExpressLRS | **2.38 µs** | **21.4 µs** | **47× safety margin** | **Effectively 0%** |
+| **416,666 baud** | Standard TBS Crossfire | **2.40 µs** | **21.6 µs** | **46× safety margin** | **Effectively 0%** |
+| **115,200 baud** | Legacy / Debug Serial | **8.68 µs** | **78.1 µs** | **13× safety margin** | **Very Low (higher noise susceptibility)** |
 
 ##### Key Insights:
-1. **Faster Baud Rates Are Inherently Safer During Active Data Streaming:** At 420k and 921.6k baud, individual zero-bit pulses ($1\text{--}2\ \mu\text{s}$) are dozens of times too short to overcome the FT6236's internal RC filter and trip the reset comparator.
+1. **Faster Baud Rates Are Inherently Safer During Active Data Streaming:** At 420k and 921.6k baud, individual zero-bit pulses (1..2 µs) are dozens of times too short to overcome the FT6236's internal RC filter and trip the reset comparator.
 2. **True Cause of Accidental Resets:** Active serial packet transmission does not cause touchscreen resets. Accidental resets are triggered by **static / non-data LOW states**:
    - **Unpowered or Booting External Module:** A module whose TX pin floats to 0V or pulls LOW while powered off holds `PA15` LOW continuously, keeping the touch controller pinned in reset.
-   - **Baud Rate Mismatches & Serial Breaks:** If the radio and module baud rates do not match, framing errors can trigger prolonged serial break conditions ($> 1\text{ ms}$ LOW).
+   - **Baud Rate Mismatches & Serial Breaks:** If the radio and module baud rates do not match, framing errors can trigger prolonged serial break conditions (> 1.0 ms LOW).
    - **Cable Disconnects / Floating High-Z Lines:** Disconnecting an external module without a pull-up resistor can allow `PA15` to float into the CMOS undefined/low region.
-

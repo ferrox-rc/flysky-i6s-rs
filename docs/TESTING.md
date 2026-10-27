@@ -132,7 +132,7 @@ This pattern allows unit tests to:
 
 Physical timeouts are pervasive in communications protocols:
 - Telemetry link disconnect: **1,000 ms** of silence.
-- CRSF inter-byte framing resynchronization: **$\ge 3$ ms** bus silence.
+- CRSF inter-byte framing resynchronization: **>= 3 ms** bus silence.
 - Command status polling: **250 ms** periodic ping.
 - Command execution timeout: **1,500 ms** / **8,000 ms** safety cutoff.
 
@@ -201,7 +201,7 @@ Instead of synthetic test data alone, tests incorporate exact raw byte captures 
 Serial lines in noisy RC RF environments experience voltage transients, partial frames, and baud glitches. Our test suite explicitly exercises edge cases:
 - **Corrupted Sync Bytes**: `test_framing_garbage_rejection_and_invalid_length` feeds random byte sequences (`0xFF, 0x00, 0x55, 0x19`) and invalid length bytes to verify the parser safely discards noise without desyncing or overflowing buffers.
 - **CRC Failure Recovery**: `test_crc_failure_and_resynchronization` sends a frame with an invalid CRC byte, verifies it is rejected, and immediately feeds a valid telemetry frame to ensure the parser recovers without state lockup.
-- **Inter-Byte Silence Resynchronization**: `test_inter_byte_timeout_resync` injects a truncated frame, advances time by 1 ms (frame holds in buffer), and then advances by $\ge 3$ ms (parser automatically resets `RX_LEN` to 0). The subsequent valid frame parses with 100% success.
+- **Inter-Byte Silence Resynchronization**: `test_inter_byte_timeout_resync` injects a truncated frame, advances time by 1 ms (frame holds in buffer), and then advances by >= 3 ms (parser automatically resets `RX_LEN` to 0). The subsequent valid frame parses with 100% success.
 
 ### 4.3 Multi-Device Wire Routing
 
@@ -227,10 +227,10 @@ The test suite covers core flight, calculation, and protocol components:
 
 | Module | Test Coverage | Key Verifications |
 | :--- | :--- | :--- |
-| **`curve.rs`** | Throttle & Expo Curves | 5-point, 7-point, and 9-point linear identity, flat and inverted curves, Catmull-Rom cubic Hermite spline monotonicity, endpoint clamping ($0..1000$). |
-| **`trim.rs`** | Digital Trims | Linear trim steps ($-125..+125$), center-cross clicks, throttle trim safety options (linear trim vs bottom-half idle-only trim). |
-| **`mixer.rs`** | Flight Pipeline & Matrix Mixer | Linear and cubic exponential curves, channel reversing bitmask, Elevon/Delta and V-Tail mixing formulas, throw limits ($1000..2000\,\mu\text{s}$), dynamic weight modulation, and 32-line matrix mixing modes (`ADD`, `MULT`, `REPLACE`). |
-| **`crsf/protocol.rs`** | CRSF Wire Serialization | 16-channel 11-bit packing/unpacking, FlySky pulse scaling ($988..2012\,\mu\text{s} \to 172..1811$), CRC8-DVB validation against standard polynomials, telemetry payload parsing (Battery, Link Statistics). |
+| **`curve.rs`** | Throttle & Expo Curves | 5-point, 7-point, and 9-point linear identity, flat and inverted curves, Catmull-Rom cubic Hermite spline monotonicity, endpoint clamping (0..1000). |
+| **`trim.rs`** | Digital Trims | Linear trim steps (-125..+125), center-cross clicks, throttle trim safety options (linear trim vs bottom-half idle-only trim). |
+| **`mixer.rs`** | Flight Pipeline & Matrix Mixer | Linear and cubic exponential curves, channel reversing bitmask, Elevon/Delta and V-Tail mixing formulas, throw limits (1000..2000 µs), dynamic weight modulation, and 32-line matrix mixing modes (`ADD`, `MULT`, `REPLACE`). |
+| **`crsf/protocol.rs`** | CRSF Wire Serialization | 16-channel 11-bit packing/unpacking, FlySky pulse scaling (988..2012 µs -> 172..1811), CRC8-DVB validation against standard polynomials, telemetry payload parsing (Battery, Link Statistics). |
 | **`crsf/mod.rs`** | ELRS Configurator & State Machine | Discovery handshake, parameter loading, multi-frame chunk reassembly, interactive command execution, silence timeout recovery, and real-world receiver trace validation. |
 
 ---

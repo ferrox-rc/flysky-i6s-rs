@@ -181,8 +181,8 @@ pub struct MixLine {
 ### Dynamic Weight Modulation
 Mix lines can dynamically scale their gain authority based on real-time channel inputs or knobs:
 - **`Fixed` (`weight_src = 0`)**: The configured `weight` setting is applied directly.
-- **`CH1`..`CH18` (`weight_src = 1..18`)**: Bipolar modulation. The effective weight is multiplied by the modulating channel value ($-1000..+1000 \to -100\%..+100\%$). Useful for variable dual rates or knob-controlled mixer gains.
-- **`CH1+`..`CH18+` (`weight_src = 19..36`)**: Unipolar modulation ($0..+1000 \to 0\%..+100\%$). Ideal for flap-to-elevator compensation scaled by a knob, or spoilerons active only in one stick half.
+- **`CH1`..`CH18` (`weight_src = 1..18`)**: Bipolar modulation. The effective weight is multiplied by the modulating channel value (-1000..+1000 -> -100%..+100%). Useful for variable dual rates or knob-controlled mixer gains.
+- **`CH1+`..`CH18+` (`weight_src = 19..36`)**: Unipolar modulation (0..+1000 -> 0%..+100%). Ideal for flap-to-elevator compensation scaled by a knob, or spoilerons active only in one stick half.
 
 The effective term added to the channel is:
 ```text

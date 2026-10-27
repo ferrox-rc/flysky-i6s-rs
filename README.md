@@ -4,6 +4,9 @@ A minimalist, clean-slate RC transmitter firmware for the **FlySky FS-i6S**, wri
 
 Powered by the unified **`ferrox`** flight-control core and a dedicated FS-i6S Hardware Abstraction Layer (`src/hw/`), supporting the built-in **A7105** 2.4 GHz RF transceiver (**AFHDS 2A** protocol), external **CRSF / ExpressLRS** modules, **FT6236 Capacitive Touchscreen**, **Electronic Power Management**, **TIM15 Trainer Subsystem (PPM Out & In)**, and **128×64 LCD** interface.
 
+
+![FlySky FS-I6S](docs/img/IMG_20261025_185240.jpg)
+
 ---
 
 ## 1. Overview & Philosophy
@@ -52,7 +55,7 @@ The FlySky FS-i6S features an industrial design with an integrated capacitive to
 | | Sticks (RH, RV, LV, LH) | `PA0`, `PA1`, `PA2`, `PA3` | Channels 0..3 (mapped dynamically via Stick Mode 1..4) |
 | | Potentiometers (VRA, VRB)| `PA6`, `PA7` | Channels 6 (VR1 / Left), 7 (VR2 / Right) |
 | | Switches (SA, SB, SC, SD)| `PA4`, `PA5`, `PB0`, `PB1` | Channels 4 (2-pos), 5 (3-pos), 8 (3-pos), 9 (2-pos); configurable via `AdcInputMode` |
-| | Battery Sense | `PC0` | Channel 10 ($10\text{ k}\Omega / 5.1\text{ k}\Omega$ divider: `(raw * 977064) / 409500` mV) |
+| | Battery Sense | `PC0` | Channel 10 (10 kΩ / 5.1 kΩ divider: `(raw * 977064) / 409500` mV) |
 | | Extended Analog (`Ext ADC`)| `PC1`, `PC2`, `PC3`, `PC4` | Channels 11..14 (`ADC_IN11..14`): `VRC..VRF` pots or `SWI..SWL` switches |
 | **CRSF / Serial** | External Module Bay (`J15` & `H1`) | `USART1` (`PB6` TX / `PB7` RX) | 115.2k, 416.6k, 420k, 921.6k, 1.875M baud; full (2W) & half-duplex (1W); `PF6` (`H1`) power control |
 | **Trainer Port** | Hardware `TIM15` CPPM In/Out | `PF10` (`TIM15_CH2` Out) / `PF9` (`TIM15_CH1` In) | 22.5 ms 8-CH CPPM output on `PF10`; 0.5 µs input capture on `PF9` with `SD` Down handover |

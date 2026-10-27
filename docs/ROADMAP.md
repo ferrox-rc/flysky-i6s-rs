@@ -28,7 +28,7 @@ This document tracks the phased implementation, historical milestones, and ongoi
 ### Phase 2: Analog & Digital Inputs (COMPLETED)
 - [x] Continuous 11/15-channel DMA1 ADC1 scanner (0.23 ms complete scan).
 - [x] OpenTX Modified Moving Average (MMA) micro-jitter filter (0 latency on stick movement).
-- [x] Exponential moving average (EMA) filter on battery voltage ADC (`PC0`, $10\text{ k}\Omega / 5.1\text{ k}\Omega$ divider).
+- [x] Exponential moving average (EMA) filter on battery voltage ADC (`PC0`, 10 kΩ / 5.1 kΩ divider).
 - [x] Decode switches (`SA..SD`), rotary pots (`VRA`, `VRB`), extended analog (`PC1..PC5`), and J4 tactile buttons (`PA13`/`PA14`).
 - [x] Configurable Stick Modes 1, 2, 3, and 4 with decoupled logical controls (`aileron`, `elevator`, `throttle`, `rudder`).
 
@@ -149,7 +149,7 @@ This document tracks the phased implementation, historical milestones, and ongoi
 
 ### Phase 26: Variometer Telemetry & Acoustic Audio Feedback (COMPLETED / BRANCH: `feat/vario-telemetry-audio`)
 - [x] Telemetry frame decoding: CRSF `0x07` (`CRSF_FRAMETYPE_VARIO`) & `0x09` (`CRSF_FRAMETYPE_BARO_ALTITUDE`), and AFHDS 2A/i-BUS sensor `0x09` (vspeed) and `0x41`/`0x83`/`0xF9` (altitude).
-- [x] Core variometer engine (`src/vario.rs`) featuring 4-tap EMA noise filtering, fallback altitude differentiator ($\Delta h / \Delta t$), configurable climb/sink deadbands, pitch scaling ($1000\dots 2800\,\text{Hz}$), cadence scaling ($550\dots 110\,\text{ms}$), sink modes (`BEEP`, `CONT`, `SILENT`), and automatic motor lockout ($> 10\%$ throttle).
+- [x] Core variometer engine (`src/vario.rs`) featuring 4-tap EMA noise filtering, fallback altitude differentiator (Δh / Δt), configurable climb/sink deadbands, pitch scaling (1000..2800 Hz), cadence scaling (550..110 ms), sink modes (`BEEP`, `CONT`, `SILENT`), and automatic motor lockout (> 10% throttle).
 - [x] Non-blocking background audio synthesis on hardware PWM piezo (`TIM1_CH1`, `PA8`) with zero-latency preemption by higher-priority alarms (battery, RSSI, timer, clicks) and phase-preserved cadence tracking.
 - [x] Model storage integration: persistent `vario_switch`, `vario_climb_deadband`, `vario_sink_deadband`, `vario_sink_mode`, and `vario_motor_mute` in `ModelConfig` with automatic flash sanitization.
 - [x] Dedicated UI editors: `VARIO SETUP` under `MODEL SETUP` with switch auto-detection and live acoustic tone preview.

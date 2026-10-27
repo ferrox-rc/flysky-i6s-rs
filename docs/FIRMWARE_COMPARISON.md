@@ -44,7 +44,7 @@ While sharing the STM32F072VB core and A7105 RF transceiver with the older FS-i6
 - **Clean-Slate Bare-Metal `no_std` Rust:** Zero dynamic heap allocation (`alloc` free), in-tree 1bpp bitmap fonts, zero allocator stalls, and guaranteed memory safety on Cortex-M0.
 - **Deterministic RF Timing:** Dedicated hardware timer (`TIM16`) for frame synchronization, autonomous DMA ADC scanning, `TIM15` hardware CPPM trainer I/O, and a decoupled execution loop.
 - **Embedded CRSF & ExpressLRS Engine:** Native bidirectional CRSF parameter parsing directly in Rust to configure external modules on the touch interface without a Lua engine.
-- **Safety First & Instant Recovery:** Watchdog reset recovery in $< 2\text{ ms}$ bypassing interlocks, and safe hold-to-shutdown Flash flushing.
+- **Safety First & Instant Recovery:** Watchdog reset recovery in < 2 ms bypassing interlocks, and safe hold-to-shutdown Flash flushing.
 
 ---
 

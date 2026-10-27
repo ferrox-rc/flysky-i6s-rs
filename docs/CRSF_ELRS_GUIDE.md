@@ -21,7 +21,7 @@ The FlySky FS-i6S motherboard provides dedicated connectors and headers routed t
 | `PF9` | **PPM_IN** | `TIM15_CH1` (AF0) | 0.5 µs input capture for buddy-box student connection (`src/trainer/ppm_in.rs`) |
 | `PA13` / `PA14` | **SG / SH** | GPIO In | Momentary tactile push-buttons on header `J4` (when `j4_sg_sh_en` is enabled) |
 
-Implemented in [`src/hw/uart.rs`](../src/hw/uart.rs) and [`src/crsf/`](../src/crsf/mod.rs). The dedicated `USART1` interrupt handler (IRQ 27, priority `0x40`) clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout ($\ge 3\text{ ms}$) guarantees deterministic frame resynchronization.
+Implemented in [`src/hw/uart.rs`](../src/hw/uart.rs) and [`src/crsf/`](../src/crsf/mod.rs). The dedicated `USART1` interrupt handler (IRQ 27, priority `0x40`) clears hardware overrun (`USART_ISR_ORE`) and buffers incoming high-speed bytes with zero dropped packets during LCD flushes. Inter-byte silence timeout (>= 3 ms) guarantees deterministic frame resynchronization.
 
 ### FS-i6S PCB Connection Points (Connector J15 & Header H1)
 - **`J15` Connector:** Exposes `PB6` (`USART1_TX`), `PB7` (`USART1_RX`), and `PF10` (`PPM_OUT`).

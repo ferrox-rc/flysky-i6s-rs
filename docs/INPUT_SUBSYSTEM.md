@@ -20,7 +20,7 @@ The autonomous `ADC1` scanner digitizes 11 standard channels (`0x07FF`) or 15 ch
 | **7** | `PA7` | **Potentiometer VRB / VR2** | Right Jog Wheel: Left (-1000) .. Right (+1000) |
 | **8** | `PB0` | **Switch SC** (Default: 3-Pos) | UP (-1000) / MID (0 / 1500 µs) / DOWN (+1000) |
 | **9** | `PB1` | **Switch SD** (Default: 2-Pos) | UP (-1000 / 988 µs) / DOWN (+1000 / 2012 µs) |
-| **10** | `PC0` | **Battery Voltage Sense** | $10\text{ k}\Omega / 5.1\text{ k}\Omega$ divider: `(raw * 977064) / 409500` mV |
+| **10** | `PC0` | **Battery Voltage Sense** | 10 kΩ / 5.1 kΩ divider: `(raw * 977064) / 409500` mV |
 | **11** | `PC1` | **Ext Analog VRC / SWI** (`ADC_IN11`)| Left (-1000) .. Right (+1000) or Switch `SWI` |
 | **12** | `PC2` | **Ext Analog VRD / SWJ** (`ADC_IN12`)| Left (-1000) .. Right (+1000) or Switch `SWJ` |
 | **13** | `PC3` | **Ext Analog VRE / SWK** (`ADC_IN13`)| Left (-1000) .. Right (+1000) or Switch `SWK` |
@@ -68,7 +68,7 @@ To remove potentiometer electrical jitter without introducing deadbands or contr
   ```
 
 ### Battery Voltage Exponential Moving Average (EMA) Filter
-Raw ADC measurements on `PC0` via the internal resistor divider exhibit ±10..20 mV of switching regulator ripple and noise. An integer fixed-point IIR filter ($\alpha = 1/32$, $\tau \approx 640\text{ ms}$) stabilizes the hundredths readout (`X.YYV`):
+Raw ADC measurements on `PC0` via the internal resistor divider exhibit ±10..20 mV of switching regulator ripple and noise. An integer fixed-point IIR filter (alpha = 1/32, tau ≈ 640 ms) stabilizes the hundredths readout (`X.YYV`):
 ```text
 EMA_k = EMA_{k-1} - (EMA_{k-1} >> 5) + (Sample_k << 3)
 ```
@@ -82,19 +82,19 @@ The FlySky FS-i6S replaces mechanical trim rockers with three complementary digi
 ### 1. Stick Modifier Trim Mode (In-Flight Ergonomic Trimming)
 When `Rear L` and/or `Rear R` are configured to `TRIMS MOD` in `Radio Setup`:
 - **Hold Left Rear Button (`PA9`)**:
-  - Deflect Left Stick Horizontally (threshold $> 350$ counts): Adjusts **Yaw Trim** (Left / Right).
-  - Deflect Left Stick Vertically (threshold $> 350$ counts): Adjusts **Throttle Trim** (Up / Down).
+  - Deflect Left Stick Horizontally (threshold > 350 counts): Adjusts **Yaw Trim** (Left / Right).
+  - Deflect Left Stick Vertically (threshold > 350 counts): Adjusts **Throttle Trim** (Up / Down).
 - **Hold Right Rear Button (`PA10`)**:
-  - Deflect Right Stick Horizontally (threshold $> 350$ counts): Adjusts **Roll Trim** (Left / Right).
-  - Deflect Right Stick Vertically (threshold $> 350$ counts): Adjusts **Pitch Trim** (Up / Down).
+  - Deflect Right Stick Horizontally (threshold > 350 counts): Adjusts **Roll Trim** (Left / Right).
+  - Deflect Right Stick Vertically (threshold > 350 counts): Adjusts **Pitch Trim** (Up / Down).
 
 ### 2. Virtual Touch Perimeter Targets (Direct Screen Trimming)
 When viewing the main flight dashboard, tap zones along the LCD borders provide direct single-step trimming:
-- **Left Edge ($x < 16$)**: Throttle Trim Up ($y < 32$) / Throttle Trim Down ($y \ge 32$).
-- **Right Edge ($x > 112$)**: Pitch Trim Up ($y < 32$) / Pitch Trim Down ($y \ge 32$).
-- **Bottom Edge ($y > 52$)**:
-  - Yaw Trim Left ($x < 36$) / Yaw Trim Right ($36 \le x < 64$).
-  - Roll Trim Left ($64 \le x < 92$) / Roll Trim Right ($x \ge 92$).
+- **Left Edge (x < 16)**: Throttle Trim Up (y < 32) / Throttle Trim Down (y >= 32).
+- **Right Edge (x > 112)**: Pitch Trim Up (y < 32) / Pitch Trim Down (y >= 32).
+- **Bottom Edge (y > 52)**:
+  - Yaw Trim Left (x < 36) / Yaw Trim Right (36 <= x < 64).
+  - Roll Trim Left (64 <= x < 92) / Roll Trim Right (x >= 92).
 
 ### 3. Complete 3-Axis Instant Trim (`INSTANT TRIM`)
 Triggered by pressing the Right Rear button (`PA10`, when `Rear R:` is set to `INSTANT TRIM`) or flipping any auxiliary switch configured as `INST-TRIM`:
@@ -113,7 +113,7 @@ Triggered by pressing the Right Rear button (`PA10`, when `Rear R:` is set to `I
 ## 5. Hardware Piezo Buzzer (`src/buzzer.rs`)
 
 The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1 (`PSC = 47`, 1.000 µs tick):
-- **Power-On Welcome Fanfare**: 4-note ascending fanfare ($C_6 \to E_6 \to G_6 \to C_7$, 660 ms) under `ToneStyle::Rich`, or a single tactile click (15 ms) under `ToneStyle::Simple`.
+- **Power-On Welcome Fanfare**: 4-note ascending fanfare (C6 -> E6 -> G6 -> C7, 660 ms) under `ToneStyle::Rich`, or a single tactile click (15 ms) under `ToneStyle::Simple`.
 - **Switch Toggle Beep (`Sw Sound`)**: Subtle acoustic feedback when toggling physical switches (configurable in `Radio Setup -> Sw Sound`).
 - **Arming / Disarming Chimes**: 2-note rising chirp (`1800 Hz` -> `2400 Hz`) on motor arm, and falling chirp on disarm.
 - **Pitch-Shifted Trim Step**: Tones scale dynamically with trim position (`1500 Hz` to `2500 Hz`), with `2800 Hz` center confirmation and `1100 Hz` limit buzz.
@@ -124,8 +124,8 @@ The piezo buzzer on pin `PA8` is driven by **`TIM1_CH1`** in hardware PWM Mode 1
 
 ### Touch Gestures & Hitbox Zones
 - **Swipe Gestures**: Swipe UP/DOWN (scroll/cycle pages), Swipe RIGHT (OK/Select), Swipe LEFT (Cancel/Back).
-- **Tap Hitbox Zones in Menus**: Top Row ($y < 22$) = Up, Bottom Row ($y > 44$) = Down, Left Edge ($x < 32$) = Cancel, Right/Center = OK.
-- **Flight Dashboard Center Tap**: Tapping the center area ($32 \le x \le 96$, $20 \le y \le 44$) opens the **Settings Menu**.
+- **Tap Hitbox Zones in Menus**: Top Row (y < 22) = Up, Bottom Row (y > 44) = Down, Left Edge (x < 32) = Cancel, Right/Center = OK.
+- **Flight Dashboard Center Tap**: Tapping the center area (32 <= x <= 96, 20 <= y <= 44) opens the **Settings Menu**.
 
 ### Configurable Rear/Front Tactile Buttons (`PA9` / `PA10`)
 - **In Menus**: `PA9` = Cancel/Back, `PA10` = OK/Select.
