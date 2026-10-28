@@ -456,8 +456,8 @@ pub struct ModelConfig {
     pub vario_sink_deadband: u8, // 348: Sink deadband in 0.1 m/s (default 5 = -0.5 m/s)
     pub vario_sink_mode: u8, // 349: 0: Mute, 1: Pulse, 2: Continuous (default 1)
     pub vario_motor_mute: u8, // 350: 0: Disabled, 1: Enabled (default 1)
-    pub _pad_end: [u8; 1], // 351..352: Align struct to 4-byte word boundary
-    pub gvars: [i16; 5],  // 352..362: Global Variables GV1..GV5 (-1000..+1000)
+    pub crsf_arm_mode: u8, // 351: 0: CH5 (Standard 22B payload), 1: Switch (Extended 23B payload with arm flag)
+    pub gvars: [i16; 5],   // 352..362: Global Variables GV1..GV5 (-1000..+1000)
     pub _pad_gvar: [u8; 6], // 362..368: Align to 4-byte word boundary
 }
 
@@ -507,7 +507,7 @@ impl ModelConfig {
             vario_sink_deadband: 5,
             vario_sink_mode: 1,
             vario_motor_mute: 1,
-            _pad_end: [0; 1],
+            crsf_arm_mode: 0,
             gvars: [0; 5],
             _pad_gvar: [0; 6],
         }
@@ -985,35 +985,35 @@ impl RadioStorage {
         cur
     }
 
-    /// Check if an Arm Switch condition (0..=14: 0: None, 1..=14: SA^..SFv) is available.
+    /// Check if an Arm Switch condition (0..=28: 0: None, 1..=28: SA^..SWMv) is available.
     pub fn is_arm_switch_available(&self, sw: u8) -> bool {
         match sw {
             0 => true, // None
-            1..=14 => self.is_switch_cond_available(sw),
+            1..=28 => self.is_switch_cond_available(sw),
             _ => false,
         }
     }
 
-    /// Cycle to next available Arm Switch (0..=14).
+    /// Cycle to next available Arm Switch (0..=28).
     pub fn next_available_arm_switch(&self, cur: u8) -> u8 {
-        let mut candidate = (cur + 1) % 15;
+        let mut candidate = (cur + 1) % 29;
         while candidate != cur {
             if self.is_arm_switch_available(candidate) {
                 return candidate;
             }
-            candidate = (candidate + 1) % 15;
+            candidate = (candidate + 1) % 29;
         }
         cur
     }
 
-    /// Cycle to previous available Arm Switch (0..=14).
+    /// Cycle to previous available Arm Switch (0..=28).
     pub fn prev_available_arm_switch(&self, cur: u8) -> u8 {
-        let mut candidate = if cur == 0 { 14 } else { cur - 1 };
+        let mut candidate = if cur == 0 { 28 } else { cur - 1 };
         while candidate != cur {
             if self.is_arm_switch_available(candidate) {
                 return candidate;
             }
-            candidate = if candidate == 0 { 14 } else { candidate - 1 };
+            candidate = if candidate == 0 { 28 } else { candidate - 1 };
         }
         cur
     }
@@ -1211,8 +1211,11 @@ impl RadioStorage {
             m.thr_curve_pts = 5;
             m.thr_curve = [0, 25, 50, 75, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         }
-        if m.arm_switch > 14 {
+        if m.arm_switch > 28 {
             m.arm_switch = 0;
+        }
+        if m.crsf_arm_mode > 1 {
+            m.crsf_arm_mode = 0;
         }
         if m.timer_source > 17 {
             m.timer_source = 0;

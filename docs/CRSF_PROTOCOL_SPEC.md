@@ -63,6 +63,29 @@ Formula implemented in [`src/crsf/protocol.rs`](../src/crsf/protocol.rs#L122-L12
 CRSF_Value = floor(((clamped_us - 988) * 1639 + 512) / 1024) + 172
 ```
 
+### RC Channels Wire Layout (`0x16`) & ExpressLRS Switch-Based Arming
+
+CRSF transmits 16 channels at ~100 Hz using `CRSF_FRAMETYPE_RC_CHANNELS_PACKED` (`0x16`). Two wire formats are supported:
+
+1. **Standard Mode (`CH5 (Std)`) - 26-Byte Frame**:
+   - `[0]`: `0xC8` (`CRSF_SYNC_BYTE`)
+   - `[1]`: `24` (`Length`: Type + 22 bytes payload + CRC)
+   - `[2]`: `0x16` (`CRSF_FRAMETYPE_RC_CHANNELS_PACKED`)
+   - `[3..25]`: 22 bytes containing 16 packed 11-bit channels (`CH1..CH16`)
+   - `[25]`: `CRC8` over bytes `2..25`
+   - Arming is handled traditionally via `CH5` (`AUX1`). Compatible with TBS Crossfire, older ExpressLRS, and standard flight controllers.
+
+2. **ExpressLRS Switch-Based Arming Mode (`Switch`) - 27-Byte Frame**:
+   - `[0]`: `0xC8` (`CRSF_SYNC_BYTE`)
+   - `[1]`: `25` (`Length`: Type + 23 bytes payload + CRC)
+   - `[2]`: `0x16` (`CRSF_FRAMETYPE_RC_CHANNELS_PACKED`)
+   - `[3..25]`: 22 bytes containing 16 packed 11-bit channels (`CH1..CH16`)
+   - `[25]`: **Status byte**:
+     - `bit 0` (`0x01`, `CRSF_CHANNELS_STATUS_ARMED`): `1` = Armed, `0` = Disarmed.
+     - `bit 1` (`0x02`, `CRSF_CHANNELS_STATUS_ARMING_MODE_CH5`): `0` = Switch arming active.
+   - `[26]`: `CRC8` over bytes `2..26`
+   - Frees up `CH5` (`AUX1`) on ExpressLRS 4.0+ systems to be used as a full proportional or multi-switch channel. Configurable in `PROTOCOL SETUP -> CRSF -> Arm Mode`.
+
 ### Hardware UART & Real-Time Ingestion Architecture (`src/hw/uart.rs`)
 
 At 420,000–1,875,000 baud, 1 byte arrives every **5.3 to 23.8 µs**. The STM32F072 `USART1` peripheral features only a 1-byte Receive Data Register (`RDR`) and **no hardware FIFO**. If CPU execution is occupied for > 47.6 µs (such as drawing/flushing the ST7567 LCD at ~330 µs or ADC DMA handling), the hardware triggers an Overrun Error (`USART_ISR_ORE`), which silently drops subsequent bytes and truncates packets.

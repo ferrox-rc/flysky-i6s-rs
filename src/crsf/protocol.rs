@@ -79,6 +79,10 @@ pub const STATUS_POLL: u8 = 6;
 
 pub const CRSF_FRAME_MAX_SIZE: usize = 64;
 pub const CRSF_RC_FRAME_SIZE: usize = 26; // 1 (addr) + 1 (len) + 1 (type) + 22 (payload) + 1 (crc)
+pub const CRSF_RC_EXT_FRAME_SIZE: usize = 27; // 1 (addr) + 1 (len) + 1 (type) + 23 (payload) + 1 (crc)
+
+pub const CRSF_CHANNELS_STATUS_ARMED: u8 = 0x01;
+pub const CRSF_CHANNELS_STATUS_ARMING_MODE_CH5: u8 = 0x02;
 
 /// Incoming telemetry data decoded from CRSF link
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -217,6 +221,71 @@ pub fn build_channels_frame(
     out_frame[25] = crc8(&out_frame[2..25]);
 
     CRSF_RC_FRAME_SIZE
+}
+
+/// Build a packed 16-channel CRSF RC packet (Type 0x16) with optional ExpressLRS switch-based arming status byte.
+///
+/// If `arm_mode_switch` is false (standard mode), writes 26 bytes (`frame[1] = 24`, 22-byte payload).
+/// If `arm_mode_switch` is true (ExpressLRS 4.0+ switch arming mode), writes 27 bytes (`frame[1] = 25`, 23-byte payload with arm flag at byte 25).
+pub fn build_channels_frame_ext(
+    channels: &[u16; crate::mixer::NUM_CHANNELS],
+    arm_mode_switch: bool,
+    is_armed: bool,
+    out_frame: &mut [u8; CRSF_RC_EXT_FRAME_SIZE],
+) -> usize {
+    // Header
+    out_frame[0] = CRSF_SYNC_BYTE; // 0xC8 per TBS CRSF spec
+    out_frame[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED; // 0x16
+
+    // Convert first 16 radio channels to 16 CRSF 11-bit values (channels 17 & 18 ignored by CRSF 16-ch packet)
+    let mut ch11 = [CRSF_CHANNEL_CENTER; 16];
+    for i in 0..16 {
+        ch11[i] = us_to_crsf(channels[i]);
+    }
+
+    // 16 channels * 11 bits = 176 bits = 22 bytes
+    let p = &mut out_frame[3..25];
+    p[0] = (ch11[0] & 0x07FF) as u8;
+    p[1] = ((ch11[0] >> 8) | (ch11[1] << 3)) as u8;
+    p[2] = ((ch11[1] >> 5) | (ch11[2] << 6)) as u8;
+    p[3] = (ch11[2] >> 2) as u8;
+    p[4] = ((ch11[2] >> 10) | (ch11[3] << 1)) as u8;
+    p[5] = ((ch11[3] >> 7) | (ch11[4] << 4)) as u8;
+    p[6] = ((ch11[4] >> 4) | (ch11[5] << 7)) as u8;
+    p[7] = (ch11[5] >> 1) as u8;
+    p[8] = ((ch11[5] >> 9) | (ch11[6] << 2)) as u8;
+    p[9] = ((ch11[6] >> 6) | (ch11[7] << 5)) as u8;
+    p[10] = (ch11[7] >> 3) as u8;
+    p[11] = (ch11[8] & 0x07FF) as u8;
+    p[12] = ((ch11[8] >> 8) | (ch11[9] << 3)) as u8;
+    p[13] = ((ch11[9] >> 5) | (ch11[10] << 6)) as u8;
+    p[14] = (ch11[10] >> 2) as u8;
+    p[15] = ((ch11[10] >> 10) | (ch11[11] << 1)) as u8;
+    p[16] = ((ch11[11] >> 7) | (ch11[12] << 4)) as u8;
+    p[17] = ((ch11[12] >> 4) | (ch11[13] << 7)) as u8;
+    p[18] = (ch11[13] >> 1) as u8;
+    p[19] = ((ch11[13] >> 9) | (ch11[14] << 2)) as u8;
+    p[20] = ((ch11[14] >> 6) | (ch11[15] << 5)) as u8;
+    p[21] = (ch11[15] >> 3) as u8;
+
+    if arm_mode_switch {
+        // Length: Type (1) + Payload (23) + CRC (1) = 25
+        out_frame[1] = 25;
+        // Byte 25 is the arm status flag byte: bit 0 = ARMED, bit 1 = ARMING_MODE_CH5 (0 for switch mode)
+        out_frame[25] = if is_armed {
+            CRSF_CHANNELS_STATUS_ARMED
+        } else {
+            0
+        };
+        // CRC8 calculated over Type (byte 2) and Payload (bytes 3..26)
+        out_frame[26] = crc8(&out_frame[2..26]);
+        CRSF_RC_EXT_FRAME_SIZE
+    } else {
+        // Standard 26-byte frame: Length = 24
+        out_frame[1] = 24;
+        out_frame[25] = crc8(&out_frame[2..25]);
+        CRSF_RC_FRAME_SIZE
+    }
 }
 
 /// Parse incoming telemetry frame and update telemetry state.
@@ -518,6 +587,87 @@ mod tests {
         assert_eq!(unpacked[3], us_to_crsf(channels[3]));
         assert_eq!(unpacked[14], us_to_crsf(channels[14]));
         assert_eq!(unpacked[15], us_to_crsf(channels[15]));
+    }
+
+    #[test]
+    fn test_build_channels_frame_ext_switch_arming() {
+        let channels: [u16; crate::mixer::NUM_CHANNELS] = [
+            CHANNEL_CENTER_US,
+            CHANNEL_MIN_US,
+            CHANNEL_MAX_US,
+            1200,
+            1800,
+            1400,
+            1600,
+            1500,
+            988,
+            2012,
+            1500,
+            1500,
+            1500,
+            1500,
+            1750,
+            1250,
+            1900,
+            1100,
+        ];
+
+        // 1. Standard mode (arm_mode_switch = false) -> produces 26-byte frame matching build_channels_frame
+        let mut frame_std = [0u8; CRSF_RC_EXT_FRAME_SIZE];
+        let len_std = build_channels_frame_ext(&channels, false, false, &mut frame_std);
+        assert_eq!(len_std, CRSF_RC_FRAME_SIZE);
+        assert_eq!(frame_std[0], CRSF_SYNC_BYTE);
+        assert_eq!(frame_std[1], 24);
+        assert_eq!(frame_std[2], CRSF_FRAMETYPE_RC_CHANNELS_PACKED);
+        assert_eq!(frame_std[25], crc8(&frame_std[2..25]));
+
+        let mut ref_frame = [0u8; CRSF_RC_FRAME_SIZE];
+        build_channels_frame(&channels, &mut ref_frame);
+        assert_eq!(&frame_std[..26], &ref_frame[..26]);
+
+        // 2. Switch arming mode (arm_mode_switch = true, is_armed = false) -> 27-byte frame with status byte = 0x00
+        let mut frame_disarmed = [0u8; CRSF_RC_EXT_FRAME_SIZE];
+        let len_disarmed = build_channels_frame_ext(&channels, true, false, &mut frame_disarmed);
+        assert_eq!(len_disarmed, CRSF_RC_EXT_FRAME_SIZE);
+        assert_eq!(frame_disarmed[0], CRSF_SYNC_BYTE);
+        assert_eq!(frame_disarmed[1], 25, "Extended frame len = 25");
+        assert_eq!(frame_disarmed[2], CRSF_FRAMETYPE_RC_CHANNELS_PACKED);
+        assert_eq!(
+            &frame_disarmed[3..25],
+            &ref_frame[3..25],
+            "Packed channels bit-exact"
+        );
+        assert_eq!(
+            frame_disarmed[25], 0x00,
+            "Disarmed status byte must be 0x00"
+        );
+        assert_eq!(
+            frame_disarmed[26],
+            crc8(&frame_disarmed[2..26]),
+            "CRC covers byte 2..26"
+        );
+
+        // 3. Switch arming mode (arm_mode_switch = true, is_armed = true) -> 27-byte frame with status byte = 0x01
+        let mut frame_armed = [0u8; CRSF_RC_EXT_FRAME_SIZE];
+        let len_armed = build_channels_frame_ext(&channels, true, true, &mut frame_armed);
+        assert_eq!(len_armed, CRSF_RC_EXT_FRAME_SIZE);
+        assert_eq!(frame_armed[0], CRSF_SYNC_BYTE);
+        assert_eq!(frame_armed[1], 25);
+        assert_eq!(frame_armed[2], CRSF_FRAMETYPE_RC_CHANNELS_PACKED);
+        assert_eq!(
+            &frame_armed[3..25],
+            &ref_frame[3..25],
+            "Packed channels bit-exact"
+        );
+        assert_eq!(
+            frame_armed[25], CRSF_CHANNELS_STATUS_ARMED,
+            "Armed status byte must be 0x01"
+        );
+        assert_eq!(
+            frame_armed[26],
+            crc8(&frame_armed[2..26]),
+            "CRC covers byte 2..26"
+        );
     }
 
     #[test]

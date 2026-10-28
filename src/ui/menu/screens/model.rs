@@ -350,7 +350,8 @@ pub fn update_setup(
                 lcd.draw_str_6x10(40, y, type_str, inverted);
             }
             2 => {
-                let arm_idx = (storage.active_model.arm_switch as usize).min(14);
+                let arm_idx = (storage.active_model.arm_switch as usize)
+                    .min(crate::ui::format::SWITCH_COND_NAMES.len() - 1);
                 let arm_str = if arm_idx == 0 {
                     "NONE"
                 } else {

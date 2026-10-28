@@ -113,7 +113,7 @@ impl FlightPipeline {
         let mut just_disarmed = false;
         let is_armed = mixer::eval_arm_switch(active_model.arm_switch, &state.switches);
         if active_model.arm_switch > 0
-            && active_model.arm_switch <= 14
+            && active_model.arm_switch <= 28
             && is_armed != self.prev_armed
         {
             if is_armed {
@@ -182,7 +182,8 @@ impl FlightPipeline {
                 active_model.crsf_half_duplex != 0,
             );
             if crsf_active {
-                crsf::update_channels(now, &rf_chs);
+                let arm_mode_switch = active_model.crsf_arm_mode != 0;
+                crsf::update_channels(now, &rf_chs, arm_mode_switch, is_armed);
                 crsf::poll_telemetry(now);
             }
             rf::set_silenced(true);

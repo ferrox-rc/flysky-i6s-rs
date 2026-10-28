@@ -193,7 +193,7 @@ pub fn is_switch_active(condition: u8, switches: &Switches) -> bool {
 /// Returns false if arm_switch is 0 (unassigned) or out of range.
 #[inline]
 pub fn eval_arm_switch(arm_switch: u8, switches: &Switches) -> bool {
-    if arm_switch > 0 && arm_switch <= 14 {
+    if arm_switch > 0 && arm_switch <= 28 {
         is_switch_active(arm_switch, switches)
     } else {
         false
@@ -538,7 +538,7 @@ pub fn compute_channels(
     let is_heli_hold =
         model.model_type() == crate::safety::ModelType::Heli && switches.sa == SwitchPos::Down;
     let is_disarmed = model.arm_switch > 0
-        && model.arm_switch <= 14
+        && model.arm_switch <= 28
         && !eval_arm_switch(model.arm_switch, switches);
 
     if is_heli_hold || is_disarmed {
@@ -717,7 +717,7 @@ mod tests {
             "SF Down does not arm when sw=14"
         );
         assert!(
-            !eval_arm_switch(15, &switches),
+            !eval_arm_switch(29, &switches),
             "Out of range arm switch does not arm"
         );
 

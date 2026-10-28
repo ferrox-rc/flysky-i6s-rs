@@ -9,7 +9,9 @@
 pub mod protocol;
 pub use crate::hw::uart;
 
-use protocol::{build_channels_frame, parse_telemetry_frame, CrsfTelemetry, CRSF_RC_FRAME_SIZE};
+use protocol::{
+    build_channels_frame_ext, parse_telemetry_frame, CrsfTelemetry, CRSF_RC_EXT_FRAME_SIZE,
+};
 
 static mut TELEMETRY: CrsfTelemetry = CrsfTelemetry::new();
 static mut CRSF_ENABLED: bool = false;
@@ -58,7 +60,15 @@ pub fn is_enabled() -> bool {
 }
 
 /// Transmit RC channels packet to external module if interval elapsed (~100 Hz / 10 ms).
-pub fn update_channels(now_ms: u32, channels: &[u16; crate::mixer::NUM_CHANNELS]) {
+///
+/// Supports standard 26-byte CRSF frame (when `arm_mode_switch` is false) or
+/// extended 27-byte ExpressLRS switch-based arming frame (when `arm_mode_switch` is true).
+pub fn update_channels(
+    now_ms: u32,
+    channels: &[u16; crate::mixer::NUM_CHANNELS],
+    arm_mode_switch: bool,
+    is_armed: bool,
+) {
     unsafe {
         if !CRSF_ENABLED {
             return;
@@ -67,9 +77,9 @@ pub fn update_channels(now_ms: u32, channels: &[u16; crate::mixer::NUM_CHANNELS]
         // Pacing: 10 ms (100 Hz update rate)
         if now_ms.wrapping_sub(LAST_TX_MS) >= 10 {
             LAST_TX_MS = now_ms;
-            let mut frame = [0u8; CRSF_RC_FRAME_SIZE];
-            build_channels_frame(channels, &mut frame);
-            uart::write_bytes(&frame);
+            let mut frame = [0u8; CRSF_RC_EXT_FRAME_SIZE];
+            let len = build_channels_frame_ext(channels, arm_mode_switch, is_armed, &mut frame);
+            uart::write_bytes(&frame[..len]);
         }
     }
 }

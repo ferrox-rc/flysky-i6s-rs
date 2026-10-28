@@ -52,6 +52,11 @@ Baud rates are configured per-model in `9. Protocol Setup` -> `Baud:`:
 - **`3` — `921.6k (Fast)`**: `921,600 baud` (`BRR = 52`, high-speed ExpressLRS)
 - **`4` — `1.875M (Max)`**: `1,875,000 baud` (`BRR = 26`, ultra-low latency mode for high-rate ELRS modules)
 
+### Arming Mode (CH5 vs. Switch-Based Arming)
+Configured per-model in `9. Protocol Setup` -> `Arm Mode:`:
+- **`CH5 (Std)`**: Classic ExpressLRS and TBS Crossfire arming via `CH5` (`AUX1`). Sends the standard 26-byte `0x16` frame with 22-byte channel payload.
+- **`Switch`**: Modern ExpressLRS 4.0+ switch-based arming. Sends the extended 27-byte `0x16` frame with an additional status byte containing `CRSF_CHANNELS_STATUS_ARMED` (`bit 0`). The arm state is driven directly by the model's configured `Arm Sw` (`Model Setup`), freeing `CH5` to be used as a full proportional channel for pan/tilt, flaps, flight modes, or extra switches.
+
 ---
 
 ## 2. Flight Dashboard: Native CRSF Link Diagnostics & Custom Telemetry

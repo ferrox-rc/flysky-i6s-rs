@@ -5,6 +5,22 @@ All notable changes to the `flysky-i6s-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-27
+
+### Added
+- **ExpressLRS / CRSF Switch-Based Arming (`0x16` Extended Frame) ([`src/crsf/protocol.rs`](src/crsf/protocol.rs), [`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
+  - Implemented the ExpressLRS 4.0+ extended `0x16` RC channels packet appending a 23rd payload status byte (`CRSF_CHANNELS_STATUS_ARMED`, 27-byte wire frame) to communicate arming state directly from the transmitter.
+  - Added configurable `Arm Mode: CH5 (Std) / Switch` toggle under `PROTOCOL SETUP -> CRSF` to freely select between legacy Channel 5 arming and switch-based arming without locking `CH5` (`AUX1`).
+  - Extended arm switch selection to all 28 transmitter switch positions (`SA^`..`SWMv`), enabling `SG`/`SH` on header `J4` or `SWI`..`SWM` on `PC1..PC5` to act as dedicated arm switches.
+- **Upstream Feature Sync from `flysky-i6x-rs` v0.26.0**:
+  - Global Variables (`GV1..GV5`) in matrix mixer source and weight modulation.
+  - Aftermarket Hall effect gimbal support with anti-jitter center deadband and adaptive calibration limits.
+  - Barometric and variometer telemetry decoding (`vspeed` and `altitude`) with acoustic tone synthesis and `VARIO SETUP` UI.
+  - EEPROM Diagnostics page 4 with real-time I2C status.
+
+### Changed
+- Converted all documentation formulas and LaTeX KaTeX math to clean, universally compatible Markdown.
+
 ## [0.3.0] - 2026-10-20
 
 ### Added

@@ -368,11 +368,14 @@ Universal RF protocol and receiver configuration, saved per-model:
     > **Servo Safety Warning**: Standard analog servos (e.g. SG90, MG90S) **MUST** be driven at 50 Hz. Feeding higher frequencies to analog servos can cause severe jitter, excessive heating, and motor burnout. Only select rates above 50 Hz when all connected servos are high-speed digital servos rated for higher frame rates.
   - `RX Out:`: Receiver output signal format: **`PWM`** (individual servo pin outputs) or **`PPM`** (composite Pulse Position Modulation stream on CH1).
   - `Serial:`: Receiver serial bus protocol: **`i-BUS`** (`0xDE`, FlySky proprietary bidirectional serial protocol) or **`S.BUS`** (`0xDD`, Futaba/FrSky inverted serial stream for flight controllers). Transmitted immediately over the air to reconfigure the receiver hardware dynamically.
-- **`Proto: CRSF`**: Drives external Crossfire, ExpressLRS, or compatible CRSF transmitter modules connected to the rear expansion bay (`PD5` TX, `PA15` RX) with hardware power control on `PC13`.
+- **`Proto: CRSF`**: Drives external Crossfire, ExpressLRS, or compatible CRSF transmitter modules connected to the internal expansion header `J15` (`PB6` TX, `PB7` RX) with hardware power control on header `H1` (`PF6`).
   - **A7105 Deep Sleep**: When CRSF protocol is selected, the internal A7105 2.4 GHz RF transceiver is automatically placed into deep sleep mode (`0x0F`), completely eliminating internal RF transmission, reducing battery consumption, and preventing thermal buildup.
-  - Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, Duplex mode, and Configure Module:
+  - Pressing **`[OK]`** cycles selection through Protocol, Baud Rate, Duplex mode, Arm Mode, and Configure Module:
     - `Baud:` Selectable baud rate: `115.2k (Low)`, `416.6k (TBS)`, `420k (ELRS)` (default), `921.6k (Fast)`, and `1.875M (Max)`.
-    - `Duplex:` Serial wiring topology: `Full (2W)` (standard 2-wire `PD5` TX / `PA15` RX) or `Half (1W)` (bidirectional single-wire half-duplex over `PD5` with hardware self-echo suppression).
+    - `Duplex:` Serial wiring topology: `Full (2W)` (standard 2-wire `PB6` TX / `PB7` RX) or `Half (1W)` (bidirectional single-wire half-duplex over `PB6` with hardware self-echo suppression).
+    - `Arm Mode:` Arming transport architecture:
+      - **`CH5 (Std)`**: Traditional ExpressLRS/CRSF arming via Channel 5 (`AUX1`). Sends the standard 26-byte frame (`0x16` with 22-byte payload). Compatible with all TBS Crossfire, Betaflight, and ExpressLRS versions.
+      - **`Switch`**: Modern ExpressLRS 4.0+ switch-based arming. Sends the extended 27-byte frame (`0x16` with 23-byte payload containing the `CRSF_CHANNELS_STATUS_ARMED` flag byte). Frees up `CH5` (`AUX1`) to function as a full proportional or multi-switch channel.
     - `[Configure Module]`: Opens the native TBS-Agent style configurator screen to discover devices, navigate subfolders, and configure settings.
     - *For complete wiring pinouts, power polarity settings, live telemetry dashboard metrics, and the configurator guide, see the dedicated [CRSF Subsystem Guide](CRSF_ELRS_GUIDE.md).*
 
