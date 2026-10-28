@@ -165,14 +165,14 @@ pub struct RadioConfig {
     pub ext_adc: u8,               // 121 (0: Disabled, 1: Enabled / Header P7 AD11-AD15 or PC1-PC5)
     pub adc_modes: [u8; 11],       // 122..133: Input modes for the 11 auxiliary analog channels
     pub stick_mode: u8,            // 133 (0: Mode 1, 1: Mode 2, 2: Mode 3, 3: Mode 4)
-    pub telem_slots: [u8; 4],      // 134..138: Configurable telemetry dashboard sensor slots (1..4)
-    pub trainer_config: u8,        // 138: Bit 0: PPM Out on PF10, Bit 1: PPM In on PF9
-    pub rear_left_func: u8,        // 139: 0: RC Switch (SWE), 1: Timer Reset, 2: Trims Modifier
-    pub rear_right_func: u8,       // 140: 0: RC Switch (SWF), 1: Instant Trim, 2: Trims Modifier
-    pub touch_disabled: u8,        // 141: 0: Touch Enabled, 1: Touch Disabled
-    pub j4_sg_sh_en: u8,           // 142: 0: SWD Debug, 1: SG/SH Buttons on PA13/PA14
-    pub switch_beep: u8,           // 143: 0: Muted, 1: Beep on switch toggle
-    pub gimbal_type: u8,           // 144: 0: Standard Potentiometer, 1: Hall Effect
+    pub _reserved_telem: [u8; 4], // 134..138: Reserved / legacy telemetry slots (now in ModelConfig)
+    pub trainer_config: u8,       // 138: Bit 0: PPM Out on PF10, Bit 1: PPM In on PF9
+    pub rear_left_func: u8,       // 139: 0: RC Switch (SWE), 1: Timer Reset, 2: Trims Modifier
+    pub rear_right_func: u8,      // 140: 0: RC Switch (SWF), 1: Instant Trim, 2: Trims Modifier
+    pub touch_disabled: u8,       // 141: 0: Touch Enabled, 1: Touch Disabled
+    pub j4_sg_sh_en: u8,          // 142: 0: SWD Debug, 1: SG/SH Buttons on PA13/PA14
+    pub switch_beep: u8,          // 143: 0: Muted, 1: Beep on switch toggle
+    pub gimbal_type: u8,          // 144: 0: Standard Potentiometer, 1: Hall Effect
     pub stick_invert_mask: u8, // 145: 4 bits (bit 0: RH, bit 1: RV, bit 2: LV, bit 3: LH), default 0x03 (RH+RV inverted)
     pub _pad_align: [u8; 2],   // 146..148: Align to 148 bytes (4-byte word boundary)
 }
@@ -276,9 +276,9 @@ impl RadioConfig {
             rx_serial_proto: 0,
             ext_switches: 0,
             ext_adc: 0,
-            adc_modes: [0; 11],        // Default hardware modes
-            stick_mode: 1,             // Mode 2 default
-            telem_slots: [0, 1, 2, 3], // Default: RxBat, RSSI/LQ, TxBat, Current/Link
+            adc_modes: [0; 11],            // Default hardware modes
+            stick_mode: 1,                 // Mode 2 default
+            _reserved_telem: [0, 1, 2, 3], // Default: RxBat, RSSI/LQ, TxBat, Current/Link
             trainer_config: 0,
             rear_left_func: 0,
             rear_right_func: 0,
@@ -458,7 +458,8 @@ pub struct ModelConfig {
     pub vario_motor_mute: u8, // 350: 0: Disabled, 1: Enabled (default 1)
     pub crsf_arm_mode: u8, // 351: 0: CH5 (Standard 22B payload), 1: Switch (Extended 23B payload with arm flag)
     pub gvars: [i16; 5],   // 352..362: Global Variables GV1..GV5 (-1000..+1000)
-    pub _pad_gvar: [u8; 6], // 362..368: Align to 4-byte word boundary
+    pub telem_slots: [u8; 4], // 362..366: Configurable telemetry dashboard sensor slots (1..4)
+    pub _pad_gvar: [u8; 2], // 366..368: Align to 4-byte word boundary
 }
 
 impl ModelConfig {
@@ -509,7 +510,8 @@ impl ModelConfig {
             vario_motor_mute: 1,
             crsf_arm_mode: 0,
             gvars: [0; 5],
-            _pad_gvar: [0; 6],
+            telem_slots: [0, 1, 2, 3],
+            _pad_gvar: [0; 2],
         }
     }
 
@@ -1138,7 +1140,7 @@ impl RadioStorage {
                 *mode = 0; // Default
             }
         }
-        for slot in self.radio.telem_slots.iter_mut() {
+        for slot in self.radio._reserved_telem.iter_mut() {
             if *slot > 14 {
                 *slot = 14; // OFF
             }
@@ -1148,6 +1150,11 @@ impl RadioStorage {
         }
 
         let m = &mut self.active_model;
+        for slot in m.telem_slots.iter_mut() {
+            if *slot > 14 {
+                *slot = 14; // OFF
+            }
+        }
         if m.model_type > 4 {
             m.model_type = 0;
         }
@@ -1243,7 +1250,7 @@ impl RadioStorage {
                 b'M', b'O', b'D', b'E', b'L', b' ', digit1, digit2, b' ', b' ',
             ];
         }
-        if m.vario_switch > 28 {
+        if m.vario_switch > 29 {
             m.vario_switch = 0;
         }
         if m.vario_climb_deadband < 1 || m.vario_climb_deadband > 10 {
@@ -2101,9 +2108,36 @@ pub fn load_slot<T: Copy>(addr: u16, dst: &mut T) -> Result<(), StorageError> {
                 );
             }
 
-            // In-place upgrade: re-save slot as v2 (348 bytes) with updated CRC-16 envelope
+            // In-place upgrade: re-save slot as v2 (368 bytes) with updated CRC-16 envelope
             let _ = save_slot(addr, &v2_model);
 
+            return Ok(());
+        }
+
+        // Check if this is a ModelConfig request and the slot holds legacy 348 or 364 bytes
+        if expected_size == core::mem::size_of::<ModelConfig>()
+            && (hdr.len == 348 || hdr.len == 364)
+            && hdr.magic == SLOT_MAGIC
+            && hdr.flags == 0
+        {
+            let old_len = hdr.len as usize;
+            let mut buf = [0u8; core::mem::size_of::<ModelConfig>()];
+            EepromI2c::read(addr + HEADER_SIZE as u16, &mut buf[..old_len])?;
+            let computed_crc = crc16(&buf[..old_len]);
+            if computed_crc != hdr.crc16 {
+                return Err(StorageError::CrcMismatch);
+            }
+            let mut model =
+                unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const ModelConfig) };
+            model.telem_slots = [0, 1, 2, 3];
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    &model as *const ModelConfig as *const T,
+                    dst as *mut T,
+                    1,
+                );
+            }
+            let _ = save_slot(addr, &model);
             return Ok(());
         }
 
@@ -2506,14 +2540,17 @@ mod tests {
             assert_eq!(v2.mixes[i], MixLine::disabled());
         }
         assert_eq!(v2.gvars, [0; 5]);
+        assert_eq!(v2.telem_slots, [0, 1, 2, 3]);
     }
 
     #[test]
     fn test_telem_slots_sanitize() {
         let mut storage = RadioStorage::default_factory();
-        storage.radio.telem_slots = [0, 11, 14, 15];
+        storage.active_model.telem_slots = [0, 11, 14, 15];
+        storage.radio._reserved_telem = [0, 11, 14, 15];
         storage.sanitize();
-        assert_eq!(storage.radio.telem_slots, [0, 11, 14, 14]);
+        assert_eq!(storage.active_model.telem_slots, [0, 11, 14, 14]);
+        assert_eq!(storage.radio._reserved_telem, [0, 11, 14, 14]);
     }
 
     #[test]

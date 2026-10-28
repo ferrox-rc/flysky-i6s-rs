@@ -84,7 +84,7 @@ pub struct Vario {
     pub vspeed_cms: i16,
     /// Current barometric altitude in meters.
     pub alt_m: i16,
-    last_alt_m: i16,
+    last_alt_dm: i16,
     last_alt_ms: u32,
     initialized: bool,
 }
@@ -100,7 +100,7 @@ impl Vario {
         Self {
             vspeed_cms: 0,
             alt_m: 0,
-            last_alt_m: 0,
+            last_alt_dm: 0,
             last_alt_ms: 0,
             initialized: false,
         }
@@ -110,7 +110,7 @@ impl Vario {
     pub fn reset(&mut self) {
         self.vspeed_cms = 0;
         self.alt_m = 0;
-        self.last_alt_m = 0;
+        self.last_alt_dm = 0;
         self.last_alt_ms = 0;
         self.initialized = false;
     }
@@ -119,7 +119,9 @@ impl Vario {
     ///
     /// - `now_ms`: Monotonic system tick.
     /// - `raw_alt_m`: Current altitude in meters from telemetry.
+    /// - `raw_alt_dm`: Current altitude in decimeters (0.1m resolution).
     /// - `raw_vspeed_cms`: Direct vertical speed in cm/s from telemetry (0 if unavailable).
+    /// - `has_native_vspeed`: True if telemetry explicitly provided native vertical speed.
     /// - `telem_connected`: True if active RF downlink packets are arriving.
     /// - `switch_active`: True if the configured activation switch condition is met.
     /// - `throttle_us`: Current throttle channel pulse in microseconds (1000..2000).
@@ -128,7 +130,9 @@ impl Vario {
         &mut self,
         now_ms: u32,
         raw_alt_m: i16,
+        raw_alt_dm: i16,
         raw_vspeed_cms: i16,
+        has_native_vspeed: bool,
         telem_connected: bool,
         switch_active: bool,
         throttle_us: u16,
@@ -141,7 +145,7 @@ impl Vario {
 
         // Initialize baseline altitude reference
         if !self.initialized {
-            self.last_alt_m = raw_alt_m;
+            self.last_alt_dm = raw_alt_dm;
             self.last_alt_ms = now_ms;
             self.alt_m = raw_alt_m;
             self.vspeed_cms = raw_vspeed_cms;
@@ -151,20 +155,25 @@ impl Vario {
         }
 
         // Process vertical speed
-        if raw_vspeed_cms != 0 {
-            // Direct telemetry sensor provided vspeed (CRSF 0x07 or i-BUS 0x09)
-            // Apply 4-tap Exponential Moving Average (EMA) filter
+        if has_native_vspeed {
+            // Direct telemetry sensor provided vspeed (CRSF 0x07 or 0x09)
+            // Apply 4-tap Exponential Moving Average (EMA) filter.
+            // Note: always update EMA even when raw_vspeed_cms == 0 so leveling out decays to 0 cm/s!
             self.vspeed_cms = ((self.vspeed_cms as i32 * 3 + raw_vspeed_cms as i32) / 4) as i16;
-            self.last_alt_m = raw_alt_m;
+            self.last_alt_dm = raw_alt_dm;
             self.last_alt_ms = now_ms;
-        } else if raw_alt_m != self.last_alt_m && now_ms > self.last_alt_ms {
+        } else {
             let dt_ms = now_ms.saturating_sub(self.last_alt_ms);
             // Differentiate rate of climb when only altitude is transmitted (dt >= 80ms)
-            if dt_ms >= 80 {
-                let dh_m = (raw_alt_m as i32) - (self.last_alt_m as i32);
-                let derived_cms = (dh_m * 100_000) / (dt_ms as i32);
+            if raw_alt_dm != self.last_alt_dm && dt_ms >= 80 {
+                let dh_dm = (raw_alt_dm as i32) - (self.last_alt_dm as i32);
+                let derived_cms = (dh_dm * 10_000) / (dt_ms as i32);
                 self.vspeed_cms = ((self.vspeed_cms as i32 * 3 + derived_cms) / 4) as i16;
-                self.last_alt_m = raw_alt_m;
+                self.last_alt_dm = raw_alt_dm;
+                self.last_alt_ms = now_ms;
+            } else if dt_ms > 500 && self.vspeed_cms != 0 {
+                // Decay smoothly toward 0 when altitude is stationary
+                self.vspeed_cms = (self.vspeed_cms as i32 * 3 / 4) as i16;
                 self.last_alt_ms = now_ms;
             }
         }
@@ -251,7 +260,7 @@ mod tests {
         };
 
         // Weak lift: +50 cm/s
-        let tone_weak = vario.update(1000, 100, 50, true, true, 1000, &config);
+        let tone_weak = vario.update(1000, 100, 1000, 50, true, true, true, 1000, &config);
         assert!(!tone_weak.is_silent());
         assert!(tone_weak.freq_hz >= 1000 && tone_weak.freq_hz <= 1300);
         assert!(tone_weak.pulse_ms >= 200);
@@ -262,7 +271,9 @@ mod tests {
             tone_strong = vario.update(
                 1000 + i * 50,
                 100 + i as i16,
+                (100 + i as i16) * 10,
                 500,
+                true,
                 true,
                 true,
                 1000,
@@ -288,11 +299,11 @@ mod tests {
         };
 
         // Level cruising: +10 cm/s (inside deadband)
-        let tone = vario.update(1000, 100, 10, true, true, 1000, &config);
+        let tone = vario.update(1000, 100, 1000, 10, true, true, true, 1000, &config);
         assert!(tone.is_silent());
 
         // Mild sink: -30 cm/s (inside deadband)
-        let tone = vario.update(1100, 100, -30, true, true, 1000, &config);
+        let tone = vario.update(1100, 100, 1000, -30, true, true, true, 1000, &config);
         assert!(tone.is_silent());
     }
 
@@ -308,12 +319,12 @@ mod tests {
         };
 
         // Heavy sink with Mute mode
-        let tone_mute = vario.update(1000, 100, -150, true, true, 1000, &config);
+        let tone_mute = vario.update(1000, 100, 1000, -150, true, true, true, 1000, &config);
         assert!(tone_mute.is_silent());
 
         // Heavy sink with Pulse mode
         config.sink_mode = VarioSinkMode::Pulse;
-        let tone_pulse = vario.update(1100, 95, -150, true, true, 1000, &config);
+        let tone_pulse = vario.update(1100, 95, 950, -150, true, true, true, 1000, &config);
         assert!(!tone_pulse.is_silent());
         assert_eq!(tone_pulse.pulse_ms, 160);
         assert_eq!(tone_pulse.pause_ms, 360);
@@ -321,7 +332,7 @@ mod tests {
 
         // Heavy sink with Continuous mode
         config.sink_mode = VarioSinkMode::Continuous;
-        let tone_cont = vario.update(1200, 90, -150, true, true, 1000, &config);
+        let tone_cont = vario.update(1200, 90, 900, -150, true, true, true, 1000, &config);
         assert!(!tone_cont.is_silent());
         assert_eq!(tone_cont.pause_ms, 0);
     }
@@ -338,11 +349,11 @@ mod tests {
         };
 
         // Motor climb (throttle at 1500 µs = 50%) -> MUST BE SILENT
-        let tone = vario.update(1000, 100, 300, true, true, 1500, &config);
+        let tone = vario.update(1000, 100, 1000, 300, true, true, true, 1500, &config);
         assert!(tone.is_silent());
 
         // Gliding climb (throttle at 1000 µs = 0%) -> MUST BE AUDIBLE
-        let tone = vario.update(1100, 105, 300, true, true, 1000, &config);
+        let tone = vario.update(1100, 105, 1050, 300, true, true, true, 1000, &config);
         assert!(!tone.is_silent());
     }
 
@@ -357,12 +368,39 @@ mod tests {
             motor_mute: false,
         };
 
-        // Initialize at 100m at t=0
-        vario.update(0, 100, 0, true, true, 1000, &config);
+        // Initialize at 100.0m (1000 dm) at t=0
+        vario.update(0, 100, 1000, 0, false, true, true, 1000, &config);
 
-        // Climb to 102m after 1000ms (+2.0 m/s = +200 cm/s)
-        let tone = vario.update(1000, 102, 0, true, true, 1000, &config);
+        // Climb to 102.0m (1020 dm) after 1000ms (+2.0 m/s = +200 cm/s)
+        let tone = vario.update(1000, 102, 1020, 0, false, true, true, 1000, &config);
         assert!(!tone.is_silent());
         assert!(vario.vspeed_cms > 40);
+    }
+
+    #[test]
+    fn test_vario_level_flight_decay() {
+        let mut vario = Vario::new();
+        let config = VarioConfig {
+            switch: 1,
+            climb_deadband_dm_s: 2,
+            sink_deadband_dm_s: 5,
+            sink_mode: VarioSinkMode::Pulse,
+            motor_mute: false,
+        };
+
+        // Establish climb at 400 cm/s
+        for i in 0..10 {
+            vario.update(i * 100, 100, 1000, 400, true, true, true, 1000, &config);
+        }
+        assert!(vario.vspeed_cms > 350);
+
+        // Level off: sensor sends 0 cm/s
+        for i in 10..40 {
+            vario.update(i * 100, 100, 1000, 0, true, true, true, 1000, &config);
+        }
+        // Filter must decay to 0 and tone must become silent
+        assert_eq!(vario.vspeed_cms, 0);
+        let tone = vario.update(4000, 100, 1000, 0, true, true, true, 1000, &config);
+        assert!(tone.is_silent());
     }
 }

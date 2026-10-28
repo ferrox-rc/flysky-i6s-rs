@@ -19,7 +19,7 @@ pub fn update(
     storage: &mut RadioStorage,
     buzzer: &mut Buzzer,
 ) {
-    const ITEM_COUNT: usize = 13;
+    const ITEM_COUNT: usize = 12;
     let items = [
         "Model Select",
         "Model Setup",
@@ -29,7 +29,6 @@ pub fn update(
         "Aux Channels",
         "Channel Reverse",
         "Radio Setup",
-        "Protocol Setup",
         "Channel Monitor",
         "Calibration",
         "Analog Diag",
@@ -103,26 +102,21 @@ pub fn update(
                 ctrl.scroll_offset = 0;
             }
             8 => {
-                ctrl.state = MenuState::RxSetup;
-                ctrl.selected_item = 0;
-                ctrl.scroll_offset = 0;
-            }
-            9 => {
                 ctrl.state = MenuState::ChannelMonitor;
                 ctrl.page_idx = 0;
             }
-            10 => {
+            9 => {
                 ctrl.request_calibration = true;
                 ctrl.state = MenuState::Closed;
                 return;
             }
-            11 => {
+            10 => {
                 ctrl.state = MenuState::DiagAnas;
                 ctrl.page_idx = 0;
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
             }
-            12 => {
+            11 => {
                 ctrl.state = MenuState::SystemInfo;
                 ctrl.selected_item = 0;
                 ctrl.scroll_offset = 0;
@@ -171,7 +165,7 @@ pub fn update(
         i += 1;
         pos_buf[i] = b'1';
         i += 1;
-        pos_buf[i] = b'3';
+        pos_buf[i] = b'2';
         i += 1;
         core::str::from_utf8(&pos_buf[..i]).unwrap_or("")
     };

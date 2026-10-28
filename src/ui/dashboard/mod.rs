@@ -183,7 +183,7 @@ mod tests {
         let mut storage = RadioStorage::default_factory();
         let telem = TelemetryData::default();
 
-        storage.radio.telem_slots = [4, 5, 6, 11]; // Custom slots: CAPACITY, TX POWER, SNR, TIMER
+        storage.active_model.telem_slots = [4, 5, 6, 11]; // Custom slots: CAPACITY, TX POWER, SNR, TIMER
 
         pages::telemetry::render(
             &mut lcd,

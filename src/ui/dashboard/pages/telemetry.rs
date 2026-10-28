@@ -266,7 +266,7 @@ pub fn render(
     is_binding: bool,
     timer_str: Option<&str>,
 ) {
-    let slots = storage.radio.telem_slots;
+    let slots = storage.active_model.telem_slots;
     let is_custom = slots != [0, 1, 2, 3];
 
     if is_custom {

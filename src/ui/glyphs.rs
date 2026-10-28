@@ -57,7 +57,7 @@ pub const GLYPH_INFORMATION_OUTLINE: [u8; 18] = [
     0, 0, 15, 12, 67, 32, 2, 36, 64, 98, 36, 70, 4, 194, 48, 240, 0, 0,
 ];
 
-pub const MENU_GLYPHS: [&[u8; 18]; 13] = [
+pub const MENU_GLYPHS: [&[u8; 18]; 12] = [
     &GLYPH_AIRPLANE,
     &GLYPH_AIRPLANE_COG,
     &GLYPH_CHART_LINE,
@@ -66,7 +66,6 @@ pub const MENU_GLYPHS: [&[u8; 18]; 13] = [
     &GLYPH_TOGGLE_SWITCH,
     &GLYPH_SWAP_VERTICAL,
     &GLYPH_COG,
-    &GLYPH_RADIO_TOWER,
     &GLYPH_GAUGE,
     &GLYPH_CROSSHAIRS_GPS,
     &GLYPH_PULSE,

@@ -93,6 +93,7 @@ impl FlightPipeline {
         storage: &storage::RadioStorage,
         trims: &trim::TrimController,
         menu_active: bool,
+        vario_preview: bool,
         buzzer: &mut buzzer::Buzzer,
     ) -> FlightSnapshot {
         // 1. Poll continuous DMA analog and digital inputs (sub-microsecond)
@@ -196,19 +197,26 @@ impl FlightPipeline {
         }
 
         // 7. Map telemetry data based on active protocol
-        let telem = if is_crsf {
+        let (telem, baro_alt_dm, has_vspeed) = if is_crsf {
             let ct = crsf::get_telemetry();
-            rf::afhds2a::TelemetryData {
-                connected: ct.connected,
-                rssi: ct.uplink_link_quality,
-                rx_voltage_mv: ct.rx_battery_mv,
-                alt_m: ct.baro_alt_m,
-                vspeed_cms: ct.vspeed_cms,
-                packets_sent: 0,
-                packets_received: 0,
-            }
+            (
+                rf::afhds2a::TelemetryData {
+                    connected: ct.connected,
+                    rssi: ct.uplink_link_quality,
+                    rx_voltage_mv: ct.rx_battery_mv,
+                    alt_m: ct.baro_alt_m,
+                    vspeed_cms: ct.vspeed_cms,
+                    packets_sent: 0,
+                    packets_received: 0,
+                },
+                ct.baro_alt_dm,
+                ct.has_vspeed,
+            )
         } else {
-            rf::get_telemetry_local(&mut self.telem_reading_idx)
+            let t = rf::get_telemetry_local(&mut self.telem_reading_idx);
+            let dm = t.alt_m.saturating_mul(10);
+            let has_v = t.vspeed_cms != 0;
+            (t, dm, has_v)
         };
         let is_binding = !is_crsf && rf::is_binding();
 
@@ -216,20 +224,23 @@ impl FlightPipeline {
         usb::poll(now, &rf_chs, &state.switches, &telem, state.battery_mv);
 
         // 9. Variometer Acoustic Evaluation & Background Audio Generation
-        if !menu_active {
+        if !menu_active || vario_preview {
             let vario_cfg = storage.vario_config();
-            let sw_active = if vario_cfg.switch > 0 && vario_cfg.switch <= 14 {
-                mixer::eval_arm_switch(vario_cfg.switch, &state.switches)
-            } else {
-                false
+            let sw_active = match vario_cfg.switch {
+                0 => false,
+                1 => true,
+                s if s <= 29 => mixer::eval_arm_switch(s - 1, &state.switches),
+                _ => false,
             };
             let thr_ch = rf_chs[2]; // CH3 Throttle in µs (1000..2000)
             let tone = self.vario.update(
                 now,
                 telem.alt_m,
+                baro_alt_dm,
                 telem.vspeed_cms,
+                has_vspeed,
                 telem.connected,
-                sw_active,
+                sw_active || vario_preview,
                 thr_ch,
                 &vario_cfg,
             );
@@ -1214,7 +1225,15 @@ fn main() -> ! {
         }
 
         // Tier 1: High-Rate Flight Pipeline Tick (multi-kHz)
-        let flight_snapshot = pipeline.tick(now, storage, &trims, menu_active, &mut buzzer);
+        let vario_preview = menu_controller.state == menu::MenuState::VarioSetup;
+        let flight_snapshot = pipeline.tick(
+            now,
+            storage,
+            &trims,
+            menu_active,
+            vario_preview,
+            &mut buzzer,
+        );
 
         // Tier 2: Background Idle & UI Tick (30 Hz rate-governed)
         idle_manager.tick(

@@ -800,7 +800,7 @@ mod tests {
         ctrl.selected_item = 0;
         ctrl.scroll_offset = 0;
 
-        assert_eq!(storage.radio.telem_slots, [0, 1, 2, 3]);
+        assert_eq!(storage.active_model.telem_slots, [0, 1, 2, 3]);
 
         let mut nav = NavKeys {
             ok: true,
@@ -815,7 +815,7 @@ mod tests {
 
         // Press OK on slot 0 -> cycle to 1 (LQ / RSSI)
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
-        assert_eq!(storage.radio.telem_slots[0], 1);
+        assert_eq!(storage.active_model.telem_slots[0], 1);
 
         // Move down to slot 1
         nav.ok = false;
@@ -827,14 +827,15 @@ mod tests {
         nav.down = false;
         nav.ok = true;
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
-        assert_eq!(storage.radio.telem_slots[1], 2);
+        assert_eq!(storage.active_model.telem_slots[1], 2);
 
-        // Press Cancel -> return to RadioSetup
+        // Press Cancel -> return to ModelSetup
         nav.ok = false;
         nav.cancel = true;
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
-        assert_eq!(ctrl.state, MenuState::RadioSetup);
-        assert_eq!(ctrl.selected_item, crate::hw::TELEM_SETUP_RETURN.0);
+        assert_eq!(ctrl.state, MenuState::ModelSetup);
+        assert_eq!(ctrl.selected_item, 7);
+        assert_eq!(ctrl.scroll_offset, 4);
     }
 
     #[test]
@@ -868,7 +869,7 @@ mod tests {
                 &mut storage,
                 &mut buzzer,
             );
-            assert_eq!(storage.radio.telem_slots[0], expected);
+            assert_eq!(storage.active_model.telem_slots[0], expected);
         }
         // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is OFF
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[11], "TIMER");
@@ -878,7 +879,7 @@ mod tests {
 
         // Next cycle wraps back to 0 (RX BAT)
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
-        assert_eq!(storage.radio.telem_slots[0], 0);
+        assert_eq!(storage.active_model.telem_slots[0], 0);
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[0], "RX BAT");
     }
 
@@ -1036,10 +1037,10 @@ mod tests {
         let mut lcd = St7567::new();
         let mut storage = RadioStorage::default_factory();
 
-        // 1. Enter ModelSetup, select item 6 (Vario)
+        // 1. Enter ModelSetup, select item 8 (Vario)
         ctrl.state = MenuState::ModelSetup;
-        ctrl.selected_item = 6;
-        ctrl.scroll_offset = 3;
+        ctrl.selected_item = 8;
+        ctrl.scroll_offset = 4;
 
         let mut nav = NavKeys {
             ok: true,
@@ -1109,6 +1110,7 @@ mod tests {
         nav.cancel = true;
         screens::model::update_vario_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
         assert_eq!(ctrl.state, MenuState::ModelSetup);
-        assert_eq!(ctrl.selected_item, 6);
+        assert_eq!(ctrl.selected_item, 8);
+        assert_eq!(ctrl.scroll_offset, 4);
     }
 }

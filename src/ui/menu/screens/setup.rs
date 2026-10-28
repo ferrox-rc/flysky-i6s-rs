@@ -274,9 +274,9 @@ pub fn update_telem_setup(
     buzzer: &mut Buzzer,
 ) {
     if keys.cancel {
-        ctrl.state = MenuState::RadioSetup;
-        ctrl.selected_item = crate::hw::TELEM_SETUP_RETURN.0;
-        ctrl.scroll_offset = crate::hw::TELEM_SETUP_RETURN.1;
+        ctrl.state = MenuState::ModelSetup;
+        ctrl.selected_item = 7;
+        ctrl.scroll_offset = 4;
         buzzer.click();
         return;
     }
@@ -296,9 +296,10 @@ pub fn update_telem_setup(
         let idx = ctrl.selected_item;
         if idx < SLOT_COUNT {
             buzzer.click();
-            let current = storage.radio.telem_slots[idx];
-            storage.radio.telem_slots[idx] = (current + 1) % (TELEM_SENSOR_NAMES.len() as u8);
-            storage::save_radio_config(storage);
+            let current = storage.active_model.telem_slots[idx];
+            storage.active_model.telem_slots[idx] =
+                (current + 1) % (TELEM_SENSOR_NAMES.len() as u8);
+            storage::save_active_model(storage);
         }
     }
 
@@ -311,7 +312,7 @@ pub fn update_telem_setup(
         }
         let is_sel = idx == ctrl.selected_item;
         let sensor_idx =
-            (storage.radio.telem_slots[idx] as usize).min(TELEM_SENSOR_NAMES.len() - 1);
+            (storage.active_model.telem_slots[idx] as usize).min(TELEM_SENSOR_NAMES.len() - 1);
         widgets::draw_list_row_right(
             lcd,
             slot,
@@ -342,7 +343,10 @@ pub fn update_rx_setup(
             ctrl.editing = false;
             buzzer.click();
         } else {
-            ctrl.return_to_main_menu();
+            ctrl.state = MenuState::ModelSetup;
+            ctrl.selected_item = 6;
+            ctrl.scroll_offset = 3;
+            storage::save_active_model(storage);
             buzzer.click();
             return;
         }
