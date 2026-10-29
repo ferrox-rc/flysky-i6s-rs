@@ -30,42 +30,33 @@ fn append_stale<'a>(s: &'a str, is_stale: bool, buf: &'a mut [u8; 12]) -> &'a st
     ascii_as_str(&buf[..copy_len + 1])
 }
 
-fn format_rpm(rpm: u32, is_stale: bool, buf: &mut [u8; 12]) -> &str {
-    let mut pos = 0;
-    if rpm >= 100_000 {
-        let k = (rpm / 1000).min(999);
-        let mut k_buf = [b' '; 5];
-        u32_to_dec_5(k, &mut k_buf);
-        for &b in &k_buf {
-            if b != b' ' {
-                buf[pos] = b;
-                pos += 1;
-            }
-        }
-        buf[pos] = b'k';
-        pos += 1;
+fn format_u32_append<'a>(val: u32, suffix: &str, buf: &'a mut [u8; 12]) -> &'a str {
+    let mut temp = [0u8; 10];
+    let mut count = 0;
+    let mut v = val;
+    if v == 0 {
+        temp[0] = b'0';
+        count = 1;
     } else {
-        let mut n_buf = [b' '; 5];
-        u32_to_dec_5(rpm, &mut n_buf);
-        for &b in &n_buf {
-            if b != b' ' {
-                buf[pos] = b;
-                pos += 1;
-            }
-        }
-        if pos == 0 {
-            buf[pos] = b'0';
-            pos += 1;
+        while v > 0 && count < temp.len() {
+            temp[count] = b'0' + (v % 10) as u8;
+            v /= 10;
+            count += 1;
         }
     }
-    if is_stale && pos < buf.len() {
-        buf[pos] = b'*';
+    let mut pos = 0;
+    for i in 0..count {
+        buf[pos] = temp[count - 1 - i];
         pos += 1;
     }
+    let s_bytes = suffix.as_bytes();
+    let copy_len = s_bytes.len().min(buf.len() - pos);
+    buf[pos..pos + copy_len].copy_from_slice(&s_bytes[..copy_len]);
+    pos += copy_len;
     ascii_as_str(&buf[..pos])
 }
 
-fn format_temp(temp_x10: i16, is_stale: bool, buf: &mut [u8; 12]) -> &str {
+fn format_temp(temp_x10: i16, buf: &mut [u8; 12]) -> &str {
     let mut pos = 0;
     let abs_val = if temp_x10 < 0 {
         buf[pos] = b'-';
@@ -76,16 +67,10 @@ fn format_temp(temp_x10: i16, is_stale: bool, buf: &mut [u8; 12]) -> &str {
     };
     let whole = abs_val / 10;
     let frac = (abs_val % 10) as u8;
-    let mut n_buf = [b' '; 5];
-    u32_to_dec_5(whole as u32, &mut n_buf);
-    for &b in &n_buf {
-        if b != b' ' {
-            buf[pos] = b;
-            pos += 1;
-        }
-    }
-    if pos == 0 || (pos == 1 && buf[0] == b'-') {
-        buf[pos] = b'0';
+    let mut n_buf = [0u8; 12];
+    let w_str = format_u32_append(whole as u32, "", &mut n_buf);
+    for &b in w_str.as_bytes() {
+        buf[pos] = b;
         pos += 1;
     }
     buf[pos] = b'.';
@@ -94,82 +79,10 @@ fn format_temp(temp_x10: i16, is_stale: bool, buf: &mut [u8; 12]) -> &str {
     pos += 1;
     buf[pos] = b'C';
     pos += 1;
-    if is_stale && pos < buf.len() {
-        buf[pos] = b'*';
-        pos += 1;
-    }
     ascii_as_str(&buf[..pos])
 }
 
-fn format_gspd(speed_x10: u16, is_stale: bool, buf: &mut [u8; 12]) -> &str {
-    let mut pos = 0;
-    let whole = speed_x10 / 10;
-    let mut n_buf = [b' '; 5];
-    u32_to_dec_5(whole as u32, &mut n_buf);
-    for &b in &n_buf {
-        if b != b' ' {
-            buf[pos] = b;
-            pos += 1;
-        }
-    }
-    if pos == 0 {
-        buf[pos] = b'0';
-        pos += 1;
-    }
-    if pos + 3 <= buf.len() {
-        buf[pos] = b'k';
-        buf[pos + 1] = b'm';
-        buf[pos + 2] = b'h';
-        pos += 3;
-    }
-    if is_stale && pos < buf.len() {
-        buf[pos] = b'*';
-        pos += 1;
-    }
-    ascii_as_str(&buf[..pos])
-}
-
-fn format_sats(sats: u8, is_stale: bool, buf: &mut [u8; 8]) -> &str {
-    let mut pos = 0;
-    if sats >= 10 {
-        buf[pos] = b'0' + (sats / 10);
-        pos += 1;
-    }
-    buf[pos] = b'0' + (sats % 10);
-    pos += 1;
-    if is_stale && pos < buf.len() {
-        buf[pos] = b'*';
-        pos += 1;
-    }
-    ascii_as_str(&buf[..pos])
-}
-
-fn format_heading(deg: u16, is_stale: bool, buf: &mut [u8; 12]) -> &str {
-    let mut pos = 0;
-    let mut n_buf = [b' '; 5];
-    u32_to_dec_5(deg as u32, &mut n_buf);
-    for &b in &n_buf {
-        if b != b' ' {
-            buf[pos] = b;
-            pos += 1;
-        }
-    }
-    if pos == 0 {
-        buf[pos] = b'0';
-        pos += 1;
-    }
-    if pos < buf.len() {
-        buf[pos] = b'D';
-        pos += 1;
-    }
-    if is_stale && pos < buf.len() {
-        buf[pos] = b'*';
-        pos += 1;
-    }
-    ascii_as_str(&buf[..pos])
-}
-
-fn format_angle(angle_deg: i16, is_stale: bool, buf: &mut [u8; 12]) -> &str {
+fn format_angle(angle_deg: i16, buf: &mut [u8; 12]) -> &str {
     let mut pos = 0;
     let (sign, abs_deg) = if angle_deg < 0 {
         (b'-', angle_deg.unsigned_abs() as u32)
@@ -178,27 +91,26 @@ fn format_angle(angle_deg: i16, is_stale: bool, buf: &mut [u8; 12]) -> &str {
     };
     buf[pos] = sign;
     pos += 1;
-    let mut n_buf = [b' '; 5];
-    u32_to_dec_5(abs_deg, &mut n_buf);
-    for &b in &n_buf {
-        if b != b' ' {
+    let mut n_buf = [0u8; 12];
+    let s = format_u32_append(abs_deg, "D", &mut n_buf);
+    for &b in s.as_bytes() {
+        if pos < buf.len() {
             buf[pos] = b;
             pos += 1;
         }
     }
-    if pos == 1 {
-        buf[pos] = b'0';
-        pos += 1;
-    }
-    if pos < buf.len() {
-        buf[pos] = b'D';
-        pos += 1;
-    }
-    if is_stale && pos < buf.len() {
-        buf[pos] = b'*';
-        pos += 1;
-    }
     ascii_as_str(&buf[..pos])
+}
+
+#[inline(never)]
+fn render_tile(lcd: &mut St7567, x: i32, y: i32, label: &str, val: &str, is_stale: bool) {
+    lcd.draw_str_4x6(x, y, label, false);
+    if is_stale {
+        lcd.draw_str_4x6(x + 50, y, "*", false);
+    }
+    let mut s_buf = [0u8; 12];
+    let final_s = append_stale(val, is_stale, &mut s_buf);
+    lcd.draw_str_6x10(x, y + 7, final_s, false);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -214,9 +126,9 @@ fn render_sensor_tile(
     now_ms: u32,
 ) {
     let ct = crsf::get_telemetry();
+    let mut buf = [0u8; 12];
     match sensor_id {
         0 => {
-            // RX BAT
             let last_ms = if is_crsf {
                 ct.last_vbat_ms
             } else {
@@ -233,98 +145,60 @@ fn render_sensor_tile(
                 telem.rx_voltage_mv
             };
             let (has_data, is_stale) = check_sensor_status(last_ms, now_ms, connected);
-
-            lcd.draw_str_4x6(x, y, "RX BAT", false);
-            if has_data && mv > 0 {
-                let mut buf = [0u8; 6];
-                let s = format_vbat(mv, &mut buf);
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(s, is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+            let val = if has_data && mv > 0 {
+                let mut v_buf = [0u8; 6];
+                format_vbat(mv, &mut v_buf);
+                v_buf
             } else {
-                lcd.draw_str_6x10(x, y + 7, "----", false);
-            }
+                *b"----\0\0"
+            };
+            render_tile(lcd, x, y, "RX BAT", ascii_as_str(&val[..4.max(val.iter().position(|&b| b == 0).unwrap_or(val.len()))]), is_stale);
         }
         1 => {
-            // LQ / RSSI
             if is_crsf {
-                lcd.draw_str_4x6(x, y, "LINK Q", false);
                 let (has_data, is_stale) =
                     check_sensor_status(ct.last_link_ms, now_ms, ct.connected);
-                if has_data {
-                    let mut buf = *b"100%";
+                let val = if has_data {
+                    let mut b = *b"100%";
                     let lq = ct.uplink_link_quality.min(100);
-                    if lq == 100 {
-                        buf = *b"100%";
-                    } else if lq >= 10 {
-                        buf[0] = b' ';
-                        buf[1] = b'0' + (lq / 10);
-                        buf[2] = b'0' + (lq % 10);
-                        buf[3] = b'%';
-                    } else {
-                        buf[0] = b' ';
-                        buf[1] = b' ';
-                        buf[2] = b'0' + lq;
-                        buf[3] = b'%';
+                    if lq < 100 {
+                        b[0] = b' ';
+                        b[1] = if lq >= 10 { b'0' + (lq / 10) } else { b' ' };
+                        b[2] = b'0' + (lq % 10);
                     }
-                    let mut s_buf = [0u8; 12];
-                    let final_s = append_stale(ascii_as_str(&buf), is_stale, &mut s_buf);
-                    lcd.draw_str_6x10(x, y + 7, final_s, false);
-                    if is_stale {
-                        lcd.draw_str_4x6(x + 50, y, "*", false);
-                    }
+                    b
                 } else {
-                    lcd.draw_str_6x10(x, y + 7, "---%", false);
-                }
+                    *b"---%"
+                };
+                render_tile(lcd, x, y, "LINK Q", ascii_as_str(&val), is_stale);
             } else {
-                lcd.draw_str_4x6(x, y, "RSSI", false);
                 let (has_data, is_stale) =
                     check_sensor_status(telem.last_rx_voltage_ms, now_ms, telem.connected);
-                if has_data {
-                    let mut buf = *b"100%";
+                let val = if has_data {
+                    let mut b = *b"100%";
                     let r = telem.rssi.min(100);
-                    if r == 100 {
-                        buf = *b"100%";
-                    } else if r >= 10 {
-                        buf[0] = b' ';
-                        buf[1] = b'0' + (r / 10);
-                        buf[2] = b'0' + (r % 10);
-                        buf[3] = b'%';
-                    } else {
-                        buf[0] = b' ';
-                        buf[1] = b' ';
-                        buf[2] = b'0' + r;
-                        buf[3] = b'%';
+                    if r < 100 {
+                        b[0] = b' ';
+                        b[1] = if r >= 10 { b'0' + (r / 10) } else { b' ' };
+                        b[2] = b'0' + (r % 10);
                     }
-                    let mut s_buf = [0u8; 12];
-                    let final_s = append_stale(ascii_as_str(&buf), is_stale, &mut s_buf);
-                    lcd.draw_str_6x10(x, y + 7, final_s, false);
-                    if is_stale {
-                        lcd.draw_str_4x6(x + 50, y, "*", false);
-                    }
+                    b
                 } else {
-                    lcd.draw_str_6x10(x, y + 7, "---%", false);
-                }
+                    *b"---%"
+                };
+                render_tile(lcd, x, y, "RSSI", ascii_as_str(&val), is_stale);
             }
         }
         2 => {
-            // TX BAT
-            lcd.draw_str_4x6(x, y, "TX BAT", false);
-            let mut buf = [0u8; 6];
-            let s = format_vbat(battery_mv, &mut buf);
-            lcd.draw_str_6x10(x, y + 7, s, false);
+            let mut v_buf = [0u8; 6];
+            let s = format_vbat(battery_mv, &mut v_buf);
+            render_tile(lcd, x, y, "TX BAT", s, false);
         }
         3 => {
-            // CURRENT (CRSF) or LINK (AFHDS 2A)
             if is_crsf {
-                lcd.draw_str_4x6(x, y, "CURRENT", false);
                 let (has_data, is_stale) =
                     check_sensor_status(ct.last_vbat_ms, now_ms, ct.connected);
                 if has_data && ct.rx_current_ma > 0 {
-                    let mut buf = [b' '; 6];
                     let a = ct.rx_current_ma / 10;
                     let da = ct.rx_current_ma % 10;
                     buf[0] = b'0' + ((a / 10) % 10) as u8;
@@ -332,134 +206,78 @@ fn render_sensor_tile(
                     buf[2] = b'.';
                     buf[3] = b'0' + da as u8;
                     buf[4] = b'A';
-                    let mut s_buf = [0u8; 12];
-                    let final_s = append_stale(ascii_as_str(&buf[..5]), is_stale, &mut s_buf);
-                    lcd.draw_str_6x10(x, y + 7, final_s, false);
-                    if is_stale {
-                        lcd.draw_str_4x6(x + 50, y, "*", false);
-                    }
+                    render_tile(lcd, x, y, "CURRENT", ascii_as_str(&buf[..5]), is_stale);
                 } else {
-                    lcd.draw_str_6x10(x, y + 7, "0.0A", false);
+                    render_tile(lcd, x, y, "CURRENT", "0.0A", false);
                 }
             } else {
-                lcd.draw_str_4x6(x, y, "LINK", false);
                 let link_str = if telem.connected { "OK" } else { "DISC" };
-                lcd.draw_str_6x10(x, y + 7, link_str, false);
+                render_tile(lcd, x, y, "LINK", link_str, false);
             }
         }
         4 => {
-            // CAPACITY
-            lcd.draw_str_4x6(x, y, "CAP mAh", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_vbat_ms, now_ms, ct.connected);
             if is_crsf && has_data && ct.rx_capacity_mah > 0 {
-                let mut buf = [b' '; 5];
-                u32_to_dec_5(ct.rx_capacity_mah.min(99999), &mut buf);
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(ascii_as_str(&buf), is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = format_u32_append(ct.rx_capacity_mah.min(99999), "", &mut buf);
+                render_tile(lcd, x, y, "CAP mAh", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "0", false);
+                render_tile(lcd, x, y, "CAP mAh", "0", false);
             }
         }
         5 => {
-            // TX POWER
-            lcd.draw_str_4x6(x, y, "PWR mW", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_link_ms, now_ms, ct.connected);
             if is_crsf && has_data && ct.tx_power_mw > 0 {
-                let mut buf = [b' '; 5];
-                u32_to_dec_5(ct.tx_power_mw as u32, &mut buf);
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(ascii_as_str(&buf), is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = format_u32_append(ct.tx_power_mw as u32, "", &mut buf);
+                render_tile(lcd, x, y, "PWR mW", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---", false);
+                render_tile(lcd, x, y, "PWR mW", "---", false);
             }
         }
         6 => {
-            // SNR
-            lcd.draw_str_4x6(x, y, "SNR dB", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_link_ms, now_ms, ct.connected);
             if is_crsf && has_data {
-                let mut buf = *b"+00dB";
                 let sign = if ct.uplink_snr >= 0 { b'+' } else { b'-' };
                 let mag = ct.uplink_snr.unsigned_abs();
                 buf[0] = sign;
                 buf[1] = b'0' + ((mag / 10) % 10);
                 buf[2] = b'0' + (mag % 10);
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(ascii_as_str(&buf), is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                buf[3] = b'd';
+                buf[4] = b'B';
+                render_tile(lcd, x, y, "SNR dB", ascii_as_str(&buf[..5]), is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "--dB", false);
+                render_tile(lcd, x, y, "SNR dB", "--dB", false);
             }
         }
         7 => {
-            // PKT RATE
-            lcd.draw_str_4x6(x, y, "RATE", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_link_ms, now_ms, ct.connected);
-            if is_crsf && has_data {
-                let rate_name = crsf::protocol::rf_mode_to_str(ct.rf_mode);
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(rate_name, is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+            let s = if is_crsf && has_data {
+                crsf::protocol::rf_mode_to_str(ct.rf_mode)
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---", false);
-            }
+                "---"
+            };
+            render_tile(lcd, x, y, "RATE", s, is_stale);
         }
         8 => {
-            // ANTENNA
-            lcd.draw_str_4x6(x, y, "ANTENNA", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_link_ms, now_ms, ct.connected);
-            if is_crsf && has_data {
-                let ant = if ct.active_antenna == 0 {
-                    "ANT 1"
-                } else {
-                    "ANT 2"
-                };
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(ant, is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+            let s = if is_crsf && has_data {
+                if ct.active_antenna == 0 { "ANT 1" } else { "ANT 2" }
             } else {
-                lcd.draw_str_6x10(x, y + 7, "ANT -", false);
-            }
+                "ANT -"
+            };
+            render_tile(lcd, x, y, "ANTENNA", s, is_stale);
         }
         9 => {
-            // PACKETS TX
-            lcd.draw_str_4x6(x, y, "PKTS TX", false);
-            let mut buf = [b' '; 5];
-            u32_to_dec_5(telem.packets_sent, &mut buf);
-            lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+            let s = format_u32_append(telem.packets_sent, "", &mut buf);
+            render_tile(lcd, x, y, "PKTS TX", s, false);
         }
         10 => {
-            // PACKETS RX
-            lcd.draw_str_4x6(x, y, "PKTS RX", false);
-            let mut buf = [b' '; 5];
-            u32_to_dec_5(telem.packets_received, &mut buf);
-            lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf), false);
+            let s = format_u32_append(telem.packets_received, "", &mut buf);
+            render_tile(lcd, x, y, "PKTS RX", s, false);
         }
         11 => {
-            // TIMER
-            lcd.draw_str_4x6(x, y, "TIMER", false);
-            lcd.draw_str_6x10(x, y + 7, timer_str.unwrap_or("00:00"), false);
+            render_tile(lcd, x, y, "TIMER", timer_str.unwrap_or("00:00"), false);
         }
         12 => {
-            // VSPD
-            lcd.draw_str_4x6(x, y, "VSPD", false);
             let last_ms = if is_crsf {
                 ct.last_vspd_ms
             } else {
@@ -472,29 +290,19 @@ fn render_sensor_tile(
             };
             let (has_data, is_stale) = check_sensor_status(last_ms, now_ms, connected);
             if has_data {
-                let mut buf = *b"+0.0m/s";
+                let mut b = *b"+0.0m/s";
                 let vspeed = telem.vspeed_cms;
-                let sign = if vspeed >= 0 { b'+' } else { b'-' };
+                b[0] = if vspeed >= 0 { b'+' } else { b'-' };
                 let mag = (vspeed.unsigned_abs()).min(999);
-                let whole = mag / 100;
-                let frac = (mag % 100) / 10;
-                buf[0] = sign;
-                buf[1] = b'0' + (whole as u8);
-                buf[2] = b'.';
-                buf[3] = b'0' + (frac as u8);
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(ascii_as_str(&buf[..7]), is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                b[1] = b'0' + (mag / 100) as u8;
+                b[2] = b'.';
+                b[3] = b'0' + ((mag % 100) / 10) as u8;
+                render_tile(lcd, x, y, "VSPD", ascii_as_str(&b), is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---m/s", false);
+                render_tile(lcd, x, y, "VSPD", "---m/s", false);
             }
         }
         13 => {
-            // ALT
-            lcd.draw_str_4x6(x, y, "ALT", false);
             let last_ms = if is_crsf {
                 ct.last_alt_ms
             } else {
@@ -507,39 +315,26 @@ fn render_sensor_tile(
             };
             let (has_data, is_stale) = check_sensor_status(last_ms, now_ms, connected);
             if has_data {
-                let mut buf = [b' '; 6];
-                let mut pos = 0;
                 let alt = telem.alt_m;
+                let mut pos = 0;
                 if alt < 0 {
                     buf[pos] = b'-';
                     pos += 1;
                 }
-                let mag = alt.unsigned_abs() as u32;
-                let mut num_buf = [b' '; 5];
-                u32_to_dec_5(mag, &mut num_buf);
-                for &b in &num_buf {
-                    if b != b' ' && pos < 5 {
+                let mut n_buf = [0u8; 12];
+                let s = format_u32_append(alt.unsigned_abs() as u32, "m", &mut n_buf);
+                for &b in s.as_bytes() {
+                    if pos < buf.len() {
                         buf[pos] = b;
                         pos += 1;
                     }
                 }
-                if pos < 5 {
-                    buf[pos] = b'm';
-                    pos += 1;
-                }
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(ascii_as_str(&buf[..pos]), is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                render_tile(lcd, x, y, "ALT", ascii_as_str(&buf[..pos]), is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---m", false);
+                render_tile(lcd, x, y, "ALT", "---m", false);
             }
         }
         14 => {
-            // CELLS
-            lcd.draw_str_4x6(x, y, "CELLS", false);
             let last_ms = if is_crsf {
                 ct.last_cells_ms
             } else {
@@ -553,7 +348,6 @@ fn render_sensor_tile(
             let (has_data, is_stale) = check_sensor_status(last_ms, now_ms, connected);
             if is_crsf {
                 if has_data && ct.cell_count > 0 && ct.cell_min_mv > 0 {
-                    let mut buf = [b' '; 9];
                     let mut pos = 0;
                     if ct.cell_count > 1 && ct.cell_count < 10 {
                         buf[pos] = b'0' + ct.cell_count;
@@ -575,40 +369,23 @@ fn render_sensor_tile(
                     pos += 1;
                     buf[pos] = b'V';
                     pos += 1;
-                    let mut s_buf = [0u8; 12];
-                    let final_s = append_stale(ascii_as_str(&buf[..pos]), is_stale, &mut s_buf);
-                    lcd.draw_str_6x10(x, y + 7, final_s, false);
-                    if is_stale {
-                        lcd.draw_str_4x6(x + 50, y, "*", false);
-                    }
+                    render_tile(lcd, x, y, "CELLS", ascii_as_str(&buf[..pos]), is_stale);
                 } else if has_data && ct.rx_battery_mv > 0 {
-                    let mut buf = [0u8; 6];
-                    let s = format_vbat(ct.rx_battery_mv, &mut buf);
-                    let mut s_buf = [0u8; 12];
-                    let final_s = append_stale(s, is_stale, &mut s_buf);
-                    lcd.draw_str_6x10(x, y + 7, final_s, false);
-                    if is_stale {
-                        lcd.draw_str_4x6(x + 50, y, "*", false);
-                    }
+                    let mut v_buf = [0u8; 6];
+                    let s = format_vbat(ct.rx_battery_mv, &mut v_buf);
+                    render_tile(lcd, x, y, "CELLS", s, is_stale);
                 } else {
-                    lcd.draw_str_6x10(x, y + 7, "---V", false);
+                    render_tile(lcd, x, y, "CELLS", "---V", false);
                 }
             } else if has_data && telem.rx_voltage_mv > 0 {
-                let mut buf = [0u8; 6];
-                let s = format_vbat(telem.rx_voltage_mv, &mut buf);
-                let mut s_buf = [0u8; 12];
-                let final_s = append_stale(s, is_stale, &mut s_buf);
-                lcd.draw_str_6x10(x, y + 7, final_s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let mut v_buf = [0u8; 6];
+                let s = format_vbat(telem.rx_voltage_mv, &mut v_buf);
+                render_tile(lcd, x, y, "CELLS", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---V", false);
+                render_tile(lcd, x, y, "CELLS", "---V", false);
             }
         }
         15 => {
-            // RPM
-            lcd.draw_str_4x6(x, y, "RPM", false);
             let last_ms = if is_crsf {
                 ct.last_rpm_ms
             } else {
@@ -622,19 +399,17 @@ fn render_sensor_tile(
             let (has_data, is_stale) = check_sensor_status(last_ms, now_ms, connected);
             let rpm = if is_crsf { ct.rpm } else { telem.rpm };
             if has_data {
-                let mut buf = [0u8; 12];
-                let s = format_rpm(rpm, is_stale, &mut buf);
-                lcd.draw_str_6x10(x, y + 7, s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = if rpm >= 100_000 {
+                    format_u32_append(rpm / 1000, "k", &mut buf)
+                } else {
+                    format_u32_append(rpm, "", &mut buf)
+                };
+                render_tile(lcd, x, y, "RPM", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "----", false);
+                render_tile(lcd, x, y, "RPM", "----", false);
             }
         }
         16 => {
-            // TEMP
-            lcd.draw_str_4x6(x, y, "TEMP", false);
             let last_ms = if is_crsf {
                 ct.last_temp_ms
             } else {
@@ -652,49 +427,31 @@ fn render_sensor_tile(
                 telem.temp_c_x10
             };
             if has_data {
-                let mut buf = [0u8; 12];
-                let s = format_temp(temp_x10, is_stale, &mut buf);
-                lcd.draw_str_6x10(x, y + 7, s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = format_temp(temp_x10, &mut buf);
+                render_tile(lcd, x, y, "TEMP", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---C", false);
+                render_tile(lcd, x, y, "TEMP", "---C", false);
             }
         }
         17 => {
-            // GSPD
-            lcd.draw_str_4x6(x, y, "GSPD", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_gps_ms, now_ms, ct.connected);
             if is_crsf && has_data {
-                let mut buf = [0u8; 12];
-                let s = format_gspd(ct.gps_groundspeed_kmh_x10, is_stale, &mut buf);
-                lcd.draw_str_6x10(x, y + 7, s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = format_u32_append(ct.gps_groundspeed_kmh_x10 as u32 / 10, "kmh", &mut buf);
+                render_tile(lcd, x, y, "GSPD", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---km", false);
+                render_tile(lcd, x, y, "GSPD", "---km", false);
             }
         }
         18 => {
-            // SATS
-            lcd.draw_str_4x6(x, y, "SATS", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_gps_ms, now_ms, ct.connected);
             if is_crsf && has_data {
-                let mut buf = [0u8; 8];
-                let s = format_sats(ct.gps_satellites, is_stale, &mut buf);
-                lcd.draw_str_6x10(x, y + 7, s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = format_u32_append(ct.gps_satellites as u32, "", &mut buf);
+                render_tile(lcd, x, y, "SATS", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "--", false);
+                render_tile(lcd, x, y, "SATS", "--", false);
             }
         }
         19 => {
-            // HDG
-            lcd.draw_str_4x6(x, y, "HDG", false);
             let last_hdg_ms = if ct.last_gps_ms > 0 {
                 ct.last_gps_ms
             } else {
@@ -707,50 +464,31 @@ fn render_sensor_tile(
                 } else {
                     (ct.yaw_cdeg / 10).rem_euclid(360) as u16
                 };
-                let mut buf = [0u8; 12];
-                let s = format_heading(deg, is_stale, &mut buf);
-                lcd.draw_str_6x10(x, y + 7, s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = format_u32_append(deg as u32, "D", &mut buf);
+                render_tile(lcd, x, y, "HDG", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---", false);
+                render_tile(lcd, x, y, "HDG", "---", false);
             }
         }
         20 => {
-            // PITCH
-            lcd.draw_str_4x6(x, y, "PITCH", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_att_ms, now_ms, ct.connected);
             if is_crsf && has_data {
-                let deg = ct.pitch_cdeg / 10;
-                let mut buf = [0u8; 12];
-                let s = format_angle(deg, is_stale, &mut buf);
-                lcd.draw_str_6x10(x, y + 7, s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = format_angle(ct.pitch_cdeg / 10, &mut buf);
+                render_tile(lcd, x, y, "PITCH", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---", false);
+                render_tile(lcd, x, y, "PITCH", "---", false);
             }
         }
         21 => {
-            // ROLL
-            lcd.draw_str_4x6(x, y, "ROLL", false);
             let (has_data, is_stale) = check_sensor_status(ct.last_att_ms, now_ms, ct.connected);
             if is_crsf && has_data {
-                let deg = ct.roll_cdeg / 10;
-                let mut buf = [0u8; 12];
-                let s = format_angle(deg, is_stale, &mut buf);
-                lcd.draw_str_6x10(x, y + 7, s, false);
-                if is_stale {
-                    lcd.draw_str_4x6(x + 50, y, "*", false);
-                }
+                let s = format_angle(ct.roll_cdeg / 10, &mut buf);
+                render_tile(lcd, x, y, "ROLL", s, is_stale);
             } else {
-                lcd.draw_str_6x10(x, y + 7, "---", false);
+                render_tile(lcd, x, y, "ROLL", "---", false);
             }
         }
         _ => {
-            // OFF
             lcd.draw_str_4x6(x, y, "SLOT OFF", false);
         }
     }
@@ -776,19 +514,15 @@ pub fn render(
 
     if is_custom {
         // Render 4 custom configurable telemetry tiles (2x2 grid)
-        // Tile 0 (Top-Left): x=4, y=14
         render_sensor_tile(
             lcd, slots[0], 4, 14, is_crsf, telem, battery_mv, timer_str, now_ms,
         );
-        // Tile 1 (Top-Right): x=68, y=14
         render_sensor_tile(
             lcd, slots[1], 68, 14, is_crsf, telem, battery_mv, timer_str, now_ms,
         );
-        // Tile 2 (Bottom-Left): x=4, y=33
         render_sensor_tile(
             lcd, slots[2], 4, 33, is_crsf, telem, battery_mv, timer_str, now_ms,
         );
-        // Tile 3 (Bottom-Right): x=68, y=33
         render_sensor_tile(
             lcd, slots[3], 68, 33, is_crsf, telem, battery_mv, timer_str, now_ms,
         );
@@ -1041,7 +775,9 @@ pub fn render(
         if min_rx_v_mv != 0xFFFF && min_rx_v_mv > 0 {
             let mut mrxv_buf = [0u8; 6];
             let mrxv_str = format_vbat(min_rx_v_mv, &mut mrxv_buf);
-            lcd.draw_str_6x10(92, 44, mrxv_str, false);
+            let mut s_buf = [0u8; 12];
+            let s = append_stale(mrxv_str, rxv_stale, &mut s_buf);
+            lcd.draw_str_6x10(92, 44, s, false);
         } else {
             lcd.draw_str_6x10(92, 44, "----", false);
         }
