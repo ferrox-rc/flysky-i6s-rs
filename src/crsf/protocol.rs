@@ -104,6 +104,8 @@ pub struct CrsfTelemetry {
     pub has_vspeed: bool,        // True if explicit vertical speed was provided by telemetry
     pub baro_alt_m: i16,         // Barometric altitude in meters (relative or AMSL)
     pub baro_alt_dm: i16,        // Barometric altitude in decimeters (0.1m resolution)
+    pub cell_count: u8,          // Number of cells detected from 0x0E (0 if unknown)
+    pub cell_min_mv: u16,        // Minimum individual cell voltage in millivolts
     pub last_telemetry_ms: u32,  // System tick when last valid frame was received
 }
 
@@ -132,6 +134,8 @@ impl CrsfTelemetry {
             has_vspeed: false,
             baro_alt_m: 0,
             baro_alt_dm: 0,
+            cell_count: 0,
+            cell_min_mv: 0,
             last_telemetry_ms: 0,
         }
     }
@@ -392,16 +396,35 @@ pub fn parse_telemetry_frame(frame: &[u8], telem: &mut CrsfTelemetry, now_ms: u3
         }
         CRSF_FRAMETYPE_CELLS if payload.len() >= 2 => {
             let mut total_mv: u32 = 0;
-            let mut i = 0;
-            while i + 1 < payload.len() {
-                let cell_mv = u16::from_be_bytes([payload[i], payload[i + 1]]);
+            let mut min_cell = 0xFFFFu16;
+            let mut count = 0u8;
+            let mut offset = if payload.len() % 2 == 1 { 1 } else { 0 };
+            while offset + 2 <= payload.len() {
+                let cell_mv = u16::from_be_bytes([payload[offset], payload[offset + 1]]);
                 if cell_mv > 0 && cell_mv < 10_000 {
                     total_mv = total_mv.saturating_add(cell_mv as u32);
+                    if cell_mv < min_cell {
+                        min_cell = cell_mv;
+                    }
+                    count += 1;
                 }
-                i += 2;
+                offset += 2;
             }
             if total_mv > 0 {
                 telem.rx_battery_mv = total_mv.min(65535) as u16;
+                telem.cell_count = count;
+                telem.cell_min_mv = if min_cell != 0xFFFF { min_cell } else { 0 };
+                telem.connected = true;
+                telem.last_telemetry_ms = now_ms;
+                return true;
+            }
+        }
+        CRSF_FRAMETYPE_GPS if payload.len() >= 15 => {
+            let raw_alt = u16::from_be_bytes([payload[12], payload[13]]);
+            let alt_m = (raw_alt as i32) - 1000;
+            if telem.baro_alt_m == 0 && telem.baro_alt_dm == 0 {
+                telem.baro_alt_m = alt_m as i16;
+                telem.baro_alt_dm = (alt_m as i16).saturating_mul(10);
             }
             telem.connected = true;
             telem.last_telemetry_ms = now_ms;
@@ -982,13 +1005,38 @@ mod tests {
     #[test]
     fn test_parse_telemetry_cells() {
         let mut telem = CrsfTelemetry::new();
-        // 3-cell battery: 3.80V, 3.81V, 3.79V -> total 11.40V (11400 mV)
+        // 3-cell battery: 3.80V, 3.81V, 3.79V -> total 11.40V (11400 mV), min 3.79V
         let cell1 = 3800u16.to_be_bytes();
         let cell2 = 3810u16.to_be_bytes();
         let cell3 = 3790u16.to_be_bytes();
+        // Standard Crossfire wire format: Type (1) + sensor_id (1) + 6 bytes cells + CRC (1) = Len 9
         let mut frame = [
             0xC8,
-            8, // Type (1) + 6 bytes payload + CRC (1)
+            9,
+            CRSF_FRAMETYPE_CELLS,
+            0x00, // sensor_id
+            cell1[0],
+            cell1[1],
+            cell2[0],
+            cell2[1],
+            cell3[0],
+            cell3[1],
+            0,
+        ];
+        frame[10] = crc8(&frame[2..10]);
+
+        let success = parse_telemetry_frame(&frame, &mut telem, 5000);
+        assert!(success);
+        assert_eq!(telem.rx_battery_mv, 11400);
+        assert_eq!(telem.cell_count, 3);
+        assert_eq!(telem.cell_min_mv, 3790);
+        assert!(telem.connected);
+        assert_eq!(telem.last_telemetry_ms, 5000);
+
+        // Also test raw format (even payload length without sensor_id)
+        let mut raw_frame = [
+            0xC8,
+            8,
             CRSF_FRAMETYPE_CELLS,
             cell1[0],
             cell1[1],
@@ -998,12 +1046,11 @@ mod tests {
             cell3[1],
             0,
         ];
-        frame[9] = crc8(&frame[2..9]);
-
-        let success = parse_telemetry_frame(&frame, &mut telem, 5000);
-        assert!(success);
-        assert_eq!(telem.rx_battery_mv, 11400);
-        assert!(telem.connected);
-        assert_eq!(telem.last_telemetry_ms, 5000);
+        raw_frame[9] = crc8(&raw_frame[2..9]);
+        let mut telem2 = CrsfTelemetry::new();
+        assert!(parse_telemetry_frame(&raw_frame, &mut telem2, 5100));
+        assert_eq!(telem2.rx_battery_mv, 11400);
+        assert_eq!(telem2.cell_count, 3);
+        assert_eq!(telem2.cell_min_mv, 3790);
     }
 }

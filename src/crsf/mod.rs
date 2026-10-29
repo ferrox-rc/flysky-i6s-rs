@@ -518,10 +518,6 @@ pub fn poll_telemetry(now_ms: u32) {
                         if expected_crc == calc {
                             let frame_type = frame[2];
                             match frame_type {
-                                protocol::CRSF_FRAMETYPE_LINK_STATISTICS
-                                | protocol::CRSF_FRAMETYPE_BATTERY_SENSOR => {
-                                    let _ = parse_telemetry_frame(frame, &mut TELEMETRY, now_ms);
-                                }
                                 protocol::CRSF_FRAMETYPE_ELRS_STATUS => {
                                     TELEMETRY.connected = true;
                                     TELEMETRY.last_telemetry_ms = now_ms;
@@ -532,7 +528,9 @@ pub fn poll_telemetry(now_ms: u32) {
                                 protocol::CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY => {
                                     handle_param_entry_frame(&frame[3..RX_LEN - 1], now_ms);
                                 }
-                                _ => {}
+                                _ => {
+                                    let _ = parse_telemetry_frame(frame, &mut TELEMETRY, now_ms);
+                                }
                             }
                         }
                         RX_LEN = 0;
@@ -2178,6 +2176,71 @@ mod tests {
             assert_eq!(RX_LEN, 3, "Start byte 0xEC must be accepted into RX_BUF");
             assert_eq!(RX_BUF[0], protocol::CRSF_ADDRESS_CRSF_RECEIVER);
         }
+    }
+
+    #[test]
+    fn test_telemetry_vario_baro_cells_rx_dispatch() {
+        reset_state();
+
+        // 1. Receive CRSF_FRAMETYPE_VARIO (0x07) via UART RX
+        let mut vario_frame = [0xC8, 4, protocol::CRSF_FRAMETYPE_VARIO, 0x00, 0xFA, 0];
+        vario_frame[5] = protocol::crc8(&vario_frame[2..5]);
+        uart::mock::push_rx_bytes(&vario_frame);
+        poll_telemetry(1000);
+
+        let t1 = get_telemetry();
+        assert!(t1.connected);
+        assert_eq!(t1.vspeed_cms, 250);
+        assert!(t1.has_vspeed);
+
+        // 2. Receive CRSF_FRAMETYPE_BARO_ALTITUDE (0x09) via UART RX (150m = 1500 dm -> raw 11500, vspeed +80)
+        let alt_raw: u16 = 11500;
+        let alt_b = alt_raw.to_be_bytes();
+        let v_b = (80i16).to_be_bytes();
+        let mut baro_frame = [
+            0xC8,
+            6,
+            protocol::CRSF_FRAMETYPE_BARO_ALTITUDE,
+            alt_b[0],
+            alt_b[1],
+            v_b[0],
+            v_b[1],
+            0,
+        ];
+        baro_frame[7] = protocol::crc8(&baro_frame[2..7]);
+        uart::mock::push_rx_bytes(&baro_frame);
+        poll_telemetry(1050);
+
+        let t2 = get_telemetry();
+        assert_eq!(t2.baro_alt_m, 150);
+        assert_eq!(t2.baro_alt_dm, 1500);
+        assert_eq!(t2.vspeed_cms, 80);
+
+        // 3. Receive CRSF_FRAMETYPE_CELLS (0x0E) via UART RX (3 cells: 3.80V, 3.81V, 3.79V -> 11400 mV)
+        let c1 = 3800u16.to_be_bytes();
+        let c2 = 3810u16.to_be_bytes();
+        let c3 = 3790u16.to_be_bytes();
+        let mut cells_frame = [
+            0xC8,
+            9,
+            protocol::CRSF_FRAMETYPE_CELLS,
+            0x00, // sensor_id
+            c1[0],
+            c1[1],
+            c2[0],
+            c2[1],
+            c3[0],
+            c3[1],
+            0,
+        ];
+        cells_frame[10] = protocol::crc8(&cells_frame[2..10]);
+        uart::mock::push_rx_bytes(&cells_frame);
+        poll_telemetry(1100);
+
+        let t3 = get_telemetry();
+        assert_eq!(t3.rx_battery_mv, 11400);
+        assert_eq!(t3.cell_count, 3);
+        assert_eq!(t3.cell_min_mv, 3790);
     }
 
     #[test]

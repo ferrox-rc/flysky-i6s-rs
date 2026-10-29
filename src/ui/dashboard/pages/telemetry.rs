@@ -245,6 +245,49 @@ fn render_sensor_tile(
                 lcd.draw_str_6x10(x, y + 7, "---m", false);
             }
         }
+        14 => {
+            // CELLS
+            lcd.draw_str_4x6(x, y, "CELLS", false);
+            if is_crsf {
+                if ct.connected && ct.cell_count > 0 && ct.cell_min_mv > 0 {
+                    let mut buf = [b' '; 9];
+                    let mut pos = 0;
+                    if ct.cell_count > 1 && ct.cell_count < 10 {
+                        buf[pos] = b'0' + ct.cell_count;
+                        pos += 1;
+                        buf[pos] = b'S';
+                        pos += 1;
+                        buf[pos] = b' ';
+                        pos += 1;
+                    }
+                    let whole = ct.cell_min_mv / 1000;
+                    let frac = (ct.cell_min_mv % 1000) / 10;
+                    buf[pos] = b'0' + (whole as u8);
+                    pos += 1;
+                    buf[pos] = b'.';
+                    pos += 1;
+                    buf[pos] = b'0' + ((frac / 10) as u8);
+                    pos += 1;
+                    buf[pos] = b'0' + ((frac % 10) as u8);
+                    pos += 1;
+                    buf[pos] = b'V';
+                    pos += 1;
+                    lcd.draw_str_6x10(x, y + 7, ascii_as_str(&buf[..pos]), false);
+                } else if ct.connected && ct.rx_battery_mv > 0 {
+                    let mut buf = [0u8; 6];
+                    let s = format_vbat(ct.rx_battery_mv, &mut buf);
+                    lcd.draw_str_6x10(x, y + 7, s, false);
+                } else {
+                    lcd.draw_str_6x10(x, y + 7, "---V", false);
+                }
+            } else if telem.connected && telem.rx_voltage_mv > 0 {
+                let mut buf = [0u8; 6];
+                let s = format_vbat(telem.rx_voltage_mv, &mut buf);
+                lcd.draw_str_6x10(x, y + 7, s, false);
+            } else {
+                lcd.draw_str_6x10(x, y + 7, "---V", false);
+            }
+        }
         _ => {
             // OFF
             lcd.draw_str_4x6(x, y, "SLOT OFF", false);
@@ -396,7 +439,13 @@ pub fn render(
         lcd.draw_str_6x10(98, 24, rate_name, false);
 
         // Row 3 (y = 34): Flight Battery Voltage
-        lcd.draw_str_6x10(66, 34, "BAT:", false);
+        if ct.connected && ct.cell_count > 1 && ct.cell_count < 10 {
+            let mut label_buf = *b"0S: ";
+            label_buf[0] = b'0' + ct.cell_count;
+            lcd.draw_str_6x10(66, 34, ascii_as_str(&label_buf), false);
+        } else {
+            lcd.draw_str_6x10(66, 34, "BAT:", false);
+        }
         if ct.connected && ct.rx_battery_mv > 0 {
             let mut rxv_buf = [0u8; 6];
             let rxv_str = format_vbat(ct.rx_battery_mv, &mut rxv_buf);

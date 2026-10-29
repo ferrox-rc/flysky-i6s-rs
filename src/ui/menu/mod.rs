@@ -860,8 +860,8 @@ mod tests {
             pot_change: None,
         };
 
-        // Cycle through all 15 sensor slots on slot 0: starts at 0
-        for expected in 1..=14 {
+        // Cycle through all 16 sensor slots on slot 0: starts at 0
+        for expected in 1..=15 {
             screens::setup::update_telem_setup(
                 &mut ctrl,
                 &mut lcd,
@@ -871,11 +871,12 @@ mod tests {
             );
             assert_eq!(storage.active_model.telem_slots[0], expected);
         }
-        // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is OFF
+        // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is CELLS, Slot 15 is OFF
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[11], "TIMER");
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[12], "VSPD");
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[13], "ALT");
-        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[14], "OFF");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[14], "CELLS");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[15], "OFF");
 
         // Next cycle wraps back to 0 (RX BAT)
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);
