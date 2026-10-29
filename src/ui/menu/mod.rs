@@ -860,8 +860,8 @@ mod tests {
             pot_change: None,
         };
 
-        // Cycle through all 16 sensor slots on slot 0: starts at 0
-        for expected in 1..=15 {
+        // Cycle through all 23 sensor slots on slot 0: starts at 0
+        for expected in 1..=22 {
             screens::setup::update_telem_setup(
                 &mut ctrl,
                 &mut lcd,
@@ -871,12 +871,19 @@ mod tests {
             );
             assert_eq!(storage.active_model.telem_slots[0], expected);
         }
-        // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is CELLS, Slot 15 is OFF
+        // Slot 11 is TIMER, Slot 12 is VSPD, Slot 13 is ALT, Slot 14 is CELLS, Slot 15 is RPM, Slot 16 is TEMP, ... Slot 22 is OFF
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[11], "TIMER");
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[12], "VSPD");
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[13], "ALT");
         assert_eq!(screens::setup::TELEM_SENSOR_NAMES[14], "CELLS");
-        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[15], "OFF");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[15], "RPM");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[16], "TEMP");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[17], "GSPD");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[18], "SATS");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[19], "HDG");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[20], "PITCH");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[21], "ROLL");
+        assert_eq!(screens::setup::TELEM_SENSOR_NAMES[22], "OFF");
 
         // Next cycle wraps back to 0 (RX BAT)
         screens::setup::update_telem_setup(&mut ctrl, &mut lcd, &nav, &mut storage, &mut buzzer);

@@ -51,6 +51,13 @@ pub struct TelemetryData {
     pub rx_voltage_mv: u16, // in millivolts (e.g. 5000 for 5.00V)
     pub alt_m: i16,         // in meters (e.g. 150 for 150m)
     pub vspeed_cms: i16,    // in cm/s (e.g. +120 for +1.2 m/s)
+    pub rpm: u32,           // RPM decoded from sensor 0x02
+    pub temp_c_x10: i16,    // Temperature in 0.1 deg C decoded from sensor 0x01
+    pub last_rx_voltage_ms: u32,
+    pub last_alt_ms: u32,
+    pub last_vspd_ms: u32,
+    pub last_rpm_ms: u32,
+    pub last_temp_ms: u32,
     pub packets_sent: u32,
     pub packets_received: u32,
 }
@@ -69,6 +76,13 @@ impl TelemetryData {
             rx_voltage_mv: 0,
             alt_m: 0,
             vspeed_cms: 0,
+            rpm: 0,
+            temp_c_x10: 0,
+            last_rx_voltage_ms: 0,
+            last_alt_ms: 0,
+            last_vspd_ms: 0,
+            last_rpm_ms: 0,
+            last_temp_ms: 0,
             packets_sent: 0,
             packets_received: 0,
         }
@@ -497,6 +511,7 @@ impl Afhds2a {
             self.telemetry.rssi = (rssi_val.clamp(0, 100)) as u8;
 
             // Parse IBUS sensors (starting at byte 10, 4 bytes per sensor: [id, inst, val_lo, val_hi])
+            let now_ms = crate::time::millis();
             let mut offset = 10;
             while offset + 4 <= RX_PACKET_SIZE {
                 let sensor_id = rx[offset];
@@ -506,18 +521,32 @@ impl Afhds2a {
                     0x00 => {
                         // Internal receiver voltage in 0.01V units -> convert to mV
                         self.telemetry.rx_voltage_mv = val * 10;
+                        self.telemetry.last_rx_voltage_ms = now_ms;
+                    }
+                    0x01 => {
+                        // Temperature sensor (FS-CPD01): (val - 400) / 10 in 0.1 deg C
+                        self.telemetry.temp_c_x10 = (val as i32 - 400) as i16;
+                        self.telemetry.last_temp_ms = now_ms;
+                    }
+                    0x02 => {
+                        // RPM sensor (FS-CPD02): direct RPM as u16
+                        self.telemetry.rpm = val as u32;
+                        self.telemetry.last_rpm_ms = now_ms;
                     }
                     0x03 => {
                         // External battery voltage
                         self.telemetry.rx_voltage_mv = val * 10;
+                        self.telemetry.last_rx_voltage_ms = now_ms;
                     }
                     0x09 => {
                         // Climb / Vertical speed (signed 16-bit in 0.1 m/s = 10 cm/s units)
                         self.telemetry.vspeed_cms = (val as i16) * 10;
+                        self.telemetry.last_vspd_ms = now_ms;
                     }
                     0x41 | 0x83 | 0xF9 => {
                         // Altitude sensor (signed 16-bit altitude in meters)
                         self.telemetry.alt_m = val as i16;
+                        self.telemetry.last_alt_ms = now_ms;
                     }
                     0xFE => {
                         // Link Quality indicator (100 - error_rate)
@@ -810,5 +839,36 @@ mod tests {
         assert!(radio.telemetry.connected);
         assert_eq!(radio.telemetry.vspeed_cms, 250);
         assert_eq!(radio.telemetry.alt_m, 185);
+    }
+
+    #[test]
+    fn test_afhds2a_temp_and_rpm_telemetry() {
+        crate::time::set_millis(7500);
+        let mut radio = Afhds2a::new(0x1234_5678);
+        radio.rx_id = 0x9ABC_DEF0;
+
+        let mut rx_buf = [0u8; RX_PACKET_SIZE];
+        rx_buf[0] = 0xAA;
+        rx_buf[1..5].copy_from_slice(&radio.tx_id.to_le_bytes());
+        rx_buf[5..9].copy_from_slice(&radio.rx_id.to_le_bytes());
+
+        // Sensor 1: 0x01 (Temperature: 25.5 C -> raw val = 255 + 400 = 655 -> 0x028F)
+        rx_buf[10] = 0x01;
+        rx_buf[11] = 0x01;
+        rx_buf[12] = 0x8F;
+        rx_buf[13] = 0x02;
+
+        // Sensor 2: 0x02 (RPM: 5400 -> 0x1518)
+        rx_buf[14] = 0x02;
+        rx_buf[15] = 0x02;
+        rx_buf[16] = 0x18;
+        rx_buf[17] = 0x15;
+
+        radio.process_rx_packet(&rx_buf);
+        assert!(radio.telemetry.connected);
+        assert_eq!(radio.telemetry.temp_c_x10, 255);
+        assert_eq!(radio.telemetry.last_temp_ms, 7500);
+        assert_eq!(radio.telemetry.rpm, 5400);
+        assert_eq!(radio.telemetry.last_rpm_ms, 7500);
     }
 }
