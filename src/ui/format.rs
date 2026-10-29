@@ -24,69 +24,147 @@ pub fn u32_to_hex(val: u32, buf: &mut [u8; 8]) {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SignMode {
+    None,
+    Force,
+    Pad,
+    LeadingSpace,
+}
+
+/// Unified fixed-point decimal and integer formatter for zero-allocation display rendering.
+#[inline(never)]
+pub fn format_fixed<'a>(
+    val: i32,
+    decimals: u8,
+    pad_digits: u8,
+    pad_zero: bool,
+    sign_mode: SignMode,
+    suffix: &str,
+    buf: &'a mut [u8],
+) -> &'a str {
+    let mut pos = 0;
+    let (mut n, is_neg) = if val < 0 {
+        (val.unsigned_abs(), true)
+    } else {
+        (val as u32, false)
+    };
+
+    match sign_mode {
+        SignMode::None => {
+            if is_neg && pos < buf.len() {
+                buf[pos] = b'-';
+                pos += 1;
+            }
+        }
+        SignMode::Force => {
+            if pos < buf.len() {
+                buf[pos] = if is_neg { b'-' } else { b'+' };
+                pos += 1;
+            }
+        }
+        SignMode::Pad => {
+            if pos < buf.len() {
+                buf[pos] = if is_neg {
+                    b'-'
+                } else if val > 0 {
+                    b'+'
+                } else {
+                    b' '
+                };
+                pos += 1;
+            }
+        }
+        SignMode::LeadingSpace => {
+            if pos < buf.len() {
+                buf[pos] = b' ';
+                pos += 1;
+            }
+        }
+    }
+
+    let mut digits = [0u8; 10];
+    let mut num_digits = 0;
+    if n == 0 {
+        digits[0] = 0;
+        num_digits = 1;
+    } else {
+        while n > 0 && num_digits < digits.len() {
+            digits[num_digits] = (n % 10) as u8;
+            n /= 10;
+            num_digits += 1;
+        }
+    }
+
+    let min_digits = (decimals as usize) + 1;
+    while num_digits < min_digits && num_digits < digits.len() {
+        digits[num_digits] = 0;
+        num_digits += 1;
+    }
+
+    let int_digits = num_digits - (decimals as usize);
+
+    if (pad_digits as usize) > int_digits {
+        let pad_char = if pad_zero { b'0' } else { b' ' };
+        let pad_count = (pad_digits as usize) - int_digits;
+        for _ in 0..pad_count {
+            if pos < buf.len() {
+                buf[pos] = pad_char;
+                pos += 1;
+            }
+        }
+    }
+
+    for i in (decimals as usize..num_digits).rev() {
+        if pos < buf.len() {
+            buf[pos] = b'0' + digits[i];
+            pos += 1;
+        }
+    }
+
+    if decimals > 0 {
+        if pos < buf.len() {
+            buf[pos] = b'.';
+            pos += 1;
+        }
+        for i in (0..decimals as usize).rev() {
+            if pos < buf.len() {
+                buf[pos] = b'0' + digits[i];
+                pos += 1;
+            }
+        }
+    }
+
+    let s_bytes = suffix.as_bytes();
+    let copy_len = s_bytes.len().min(buf.len() - pos);
+    buf[pos..pos + copy_len].copy_from_slice(&s_bytes[..copy_len]);
+    pos += copy_len;
+
+    ascii_as_str(&buf[..pos])
+}
+
 pub fn u16_to_dec_4(val: u16, buf: &mut [u8; 4]) {
-    buf[0] = b'0' + ((val / 1000) % 10) as u8;
-    buf[1] = b'0' + ((val / 100) % 10) as u8;
-    buf[2] = b'0' + ((val / 10) % 10) as u8;
-    buf[3] = b'0' + (val % 10) as u8;
+    format_fixed(val as i32, 0, 4, true, SignMode::None, "", buf);
 }
 
 /// Format 0..100 as percentage string "100%", " 50%", "  0%" into buf[0..4]
 pub fn format_pct_3(val: u8, buf: &mut [u8; 4]) -> &str {
-    let v = val.min(100);
-    if v == 100 {
-        buf[0] = b'1';
-        buf[1] = b'0';
-        buf[2] = b'0';
-    } else if v >= 10 {
-        buf[0] = b' ';
-        buf[1] = b'0' + (v / 10);
-        buf[2] = b'0' + (v % 10);
-    } else {
-        buf[0] = b' ';
-        buf[1] = b' ';
-        buf[2] = b'0' + v;
-    }
-    buf[3] = b'%';
-    ascii_as_str(buf)
+    format_fixed(val.min(100) as i32, 0, 3, false, SignMode::None, "%", buf)
 }
 
 /// Format 0..99 as two decimal digits "00".."99" into buf[0..2]
 pub fn format_u8_2(val: u8, buf: &mut [u8; 2]) -> &str {
-    let v = val.min(99);
-    buf[0] = b'0' + (v / 10);
-    buf[1] = b'0' + (v % 10);
-    ascii_as_str(buf)
+    format_fixed(val.min(99) as i32, 0, 2, true, SignMode::None, "", buf)
 }
 
 /// Format decivolts (e.g. 44 -> "4.4V") into buf[0..4]
 pub fn format_deci_volt(deci: u8, buf: &mut [u8; 4]) -> &str {
-    buf[0] = b'0' + (deci / 10);
-    buf[1] = b'.';
-    buf[2] = b'0' + (deci % 10);
-    buf[3] = b'V';
-    ascii_as_str(buf)
+    format_fixed(deci as i32, 1, 0, false, SignMode::None, "V", buf)
 }
 
 /// Format servo frequency (50..400 Hz) into buf[0..8] as "50 Hz" .. "400 Hz"
 pub fn format_servo_hz(hz: u16, buf: &mut [u8; 8]) -> &str {
-    let mut i = 0;
-    let clamped = hz.clamp(50, 400);
-    if clamped >= 100 {
-        buf[i] = b'0' + ((clamped / 100) % 10) as u8;
-        i += 1;
-    }
-    buf[i] = b'0' + ((clamped / 10) % 10) as u8;
-    i += 1;
-    buf[i] = b'0' + (clamped % 10) as u8;
-    i += 1;
-    buf[i] = b' ';
-    i += 1;
-    buf[i] = b'H';
-    i += 1;
-    buf[i] = b'z';
-    i += 1;
-    ascii_as_str(&buf[..i])
+    format_fixed(hz.clamp(50, 400) as i32, 0, 0, false, SignMode::None, " Hz", buf)
 }
 
 pub fn next_ascii(c: u8) -> u8 {
@@ -140,96 +218,20 @@ pub const WEIGHT_SRC_NAMES: [&str; 42] = [
 ];
 
 pub fn i8_to_dec(val: i8, buf: &mut [u8; 6]) -> &str {
-    let mut i = 0;
-    let abs_val = if val < 0 {
-        buf[i] = b'-';
-        i += 1;
-        (-val) as u8
-    } else {
-        buf[i] = b'+';
-        i += 1;
-        val as u8
-    };
-    if abs_val >= 100 {
-        buf[i] = b'0' + (abs_val / 100);
-        i += 1;
-    }
-    if abs_val >= 10 {
-        buf[i] = b'0' + ((abs_val / 10) % 10);
-        i += 1;
-    }
-    buf[i] = b'0' + (abs_val % 10);
-    i += 1;
-    buf[i] = b'%';
-    i += 1;
-    ascii_as_str(&buf[..i])
+    format_fixed(val as i32, 0, 0, false, SignMode::Force, "%", buf)
 }
 
 pub fn u8_to_dec(val: u8, buf: &mut [u8; 5]) -> &str {
-    let mut i = 0;
-    if val >= 100 {
-        buf[i] = b'0' + (val / 100);
-        i += 1;
-    }
-    if val >= 10 {
-        buf[i] = b'0' + ((val / 10) % 10);
-        i += 1;
-    }
-    buf[i] = b'0' + (val % 10);
-    i += 1;
-    buf[i] = b'%';
-    i += 1;
-    ascii_as_str(&buf[..i])
+    format_fixed(val as i32, 0, 0, false, SignMode::None, "%", buf)
 }
 
 pub fn u32_to_dec_5(val: u32, buf: &mut [u8; 5]) {
-    let v = val.min(99999);
-    buf[0] = if v >= 10000 {
-        b'0' + ((v / 10000) % 10) as u8
-    } else {
-        b' '
-    };
-    buf[1] = if v >= 1000 {
-        b'0' + ((v / 1000) % 10) as u8
-    } else {
-        b' '
-    };
-    buf[2] = if v >= 100 {
-        b'0' + ((v / 100) % 10) as u8
-    } else {
-        b' '
-    };
-    buf[3] = if v >= 10 {
-        b'0' + ((v / 10) % 10) as u8
-    } else {
-        b' '
-    };
-    buf[4] = b'0' + (v % 10) as u8;
+    format_fixed(val.min(99999) as i32, 0, 5, false, SignMode::None, "", buf);
 }
 
 /// Format voltage in mV to "X.YYV" or "XX.YYV"
 pub fn format_vbat(mv: u16, buf: &mut [u8; 6]) -> &str {
-    let v = mv / 1000;
-    let rem = mv % 1000;
-    let d1 = rem / 100;
-    let d2 = (rem % 100) / 10;
-
-    if v >= 10 {
-        buf[0] = b'0' + ((v / 10) as u8);
-        buf[1] = b'0' + ((v % 10) as u8);
-        buf[2] = b'.';
-        buf[3] = b'0' + (d1 as u8);
-        buf[4] = b'0' + (d2 as u8);
-        buf[5] = b'V';
-        ascii_as_str(buf)
-    } else {
-        buf[0] = b'0' + (v as u8);
-        buf[1] = b'.';
-        buf[2] = b'0' + (d1 as u8);
-        buf[3] = b'0' + (d2 as u8);
-        buf[4] = b'V';
-        ascii_as_str(&buf[0..5])
-    }
+    format_fixed((mv / 10) as i32, 2, 0, false, SignMode::None, "V", buf)
 }
 
 /// Format timer in seconds to "MM:SS" or "+MM:SS" if expired.
@@ -241,73 +243,22 @@ pub fn format_timer(secs: u16, expired: bool, buf: &mut [u8; 8]) -> &str {
         buf[i] = b'+';
         i += 1;
     }
-    buf[i] = b'0' + (min / 10);
-    i += 1;
-    buf[i] = b'0' + (min % 10);
-    i += 1;
-    buf[i] = b':';
-    i += 1;
-    buf[i] = b'0' + (sec / 10);
-    i += 1;
-    buf[i] = b'0' + (sec % 10);
-    i += 1;
-    ascii_as_str(&buf[..i])
+    write_dec2(min, &mut buf[i..i + 2]);
+    buf[i + 2] = b':';
+    write_dec2(sec, &mut buf[i + 3..i + 5]);
+    ascii_as_str(&buf[..i + 5])
 }
 
 /// Format stick value (-1000..+1000) to percentage string "-100%" .. "+100%"
 pub fn format_percent(val: i16, buf: &mut [u8; 5]) -> &str {
-    let pct = val / 10; // -100 .. +100
-    let abs_pct = pct.unsigned_abs();
-
-    if pct < 0 {
-        buf[0] = b'-';
-    } else if pct > 0 {
-        buf[0] = b'+';
-    } else {
-        buf[0] = b' ';
-    }
-
-    if abs_pct >= 100 {
-        buf[1] = b'1';
-        buf[2] = b'0';
-        buf[3] = b'0';
-        buf[4] = b'%';
-        ascii_as_str(buf)
-    } else if abs_pct >= 10 {
-        buf[1] = b' ';
-        buf[2] = b'0' + ((abs_pct / 10) as u8);
-        buf[3] = b'0' + ((abs_pct % 10) as u8);
-        buf[4] = b'%';
-        ascii_as_str(&buf[0..5])
-    } else {
-        buf[1] = b' ';
-        buf[2] = b' ';
-        buf[3] = b'0' + (abs_pct as u8);
-        buf[4] = b'%';
-        ascii_as_str(&buf[0..5])
-    }
+    let pct = val as i32 / 10;
+    format_fixed(pct, 0, 3, false, SignMode::Pad, "%", buf)
 }
 
 /// Format throttle value (-1000..+1000) to unipolar percentage string " 100%" .. "   0%"
 pub fn format_throttle_percent(val: i16, buf: &mut [u8; 5]) -> &str {
-    let pct = (((val as i32 + 1000) * 100) / 2000).clamp(0, 100) as u8;
-
-    buf[0] = b' ';
-    if pct >= 100 {
-        buf[1] = b'1';
-        buf[2] = b'0';
-        buf[3] = b'0';
-    } else if pct >= 10 {
-        buf[1] = b' ';
-        buf[2] = b'0' + (pct / 10);
-        buf[3] = b'0' + (pct % 10);
-    } else {
-        buf[1] = b' ';
-        buf[2] = b' ';
-        buf[3] = b'0' + pct;
-    }
-    buf[4] = b'%';
-    ascii_as_str(buf)
+    let pct = (((val as i32 + 1000) * 100) / 2000).clamp(0, 100);
+    format_fixed(pct, 0, 3, false, SignMode::LeadingSpace, "%", buf)
 }
 
 /// Format active trim status to "TRM X:+00"
@@ -319,12 +270,8 @@ pub fn format_trim(axis: crate::trim::ActiveTrim, val: i8, buf: &mut [u8; 9]) ->
         crate::trim::ActiveTrim::Yaw => b'R',
         crate::trim::ActiveTrim::None => b' ',
     };
-    buf[0] = b'T';
-    buf[1] = b'R';
-    buf[2] = b'M';
-    buf[3] = b' ';
+    buf[0..6].copy_from_slice(b"TRM  :");
     buf[4] = name;
-    buf[5] = b':';
     buf[6] = if val < 0 {
         b'-'
     } else if val > 0 {
@@ -332,40 +279,13 @@ pub fn format_trim(axis: crate::trim::ActiveTrim, val: i8, buf: &mut [u8; 9]) ->
     } else {
         b' '
     };
-    let abs = val.unsigned_abs();
-    buf[7] = b'0' + (abs / 10);
-    buf[8] = b'0' + (abs % 10);
+    write_dec2(val.unsigned_abs(), &mut buf[7..9]);
     ascii_as_str(buf)
 }
 
 /// Format an i32 to decimal ASCII representation in buf. Returns bytes written.
 pub fn i32_to_dec(val: i32, buf: &mut [u8]) -> usize {
-    if buf.is_empty() {
-        return 0;
-    }
-    if val == 0 {
-        buf[0] = b'0';
-        return 1;
-    }
-    let mut i = 0;
-    let (mut n, is_neg) = if val < 0 {
-        (val.unsigned_abs(), true)
-    } else {
-        (val as u32, false)
-    };
-    if is_neg && i < buf.len() {
-        buf[i] = b'-';
-        i += 1;
-    }
-    let start_digit = i;
-    while n > 0 && i < buf.len() {
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-        i += 1;
-    }
-    // Reverse digits
-    buf[start_digit..i].reverse();
-    i
+    format_fixed(val, 0, 0, false, SignMode::None, "", buf).len()
 }
 
 #[cfg(test)]

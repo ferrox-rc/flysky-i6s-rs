@@ -2,7 +2,7 @@
 
 use crate::buzzer::Buzzer;
 use crate::display::St7567;
-use crate::menu::format::{ascii_as_str, u16_to_dec_4, SOURCE_NAMES};
+use crate::menu::format::{ascii_as_str, SOURCE_NAMES};
 use crate::menu::widgets;
 use crate::menu::{MenuController, NavKeys};
 use crate::mixer::{CHANNEL_MAX_US, CHANNEL_MIN_US, CHANNEL_SPAN_US, NUM_CHANNELS};
@@ -274,16 +274,9 @@ pub fn update_channel_monitor(
         let mut name_buf = [0u8; 10];
         let name = format_channel_label(ch, active_model, &mut name_buf);
 
-        lcd.draw_str_4x6(2, y, name, false);
-
         let us = rf_chs[ch].clamp(CHANNEL_MIN_US, CHANNEL_MAX_US);
         let fill_w = (((us - CHANNEL_MIN_US) as u32 * 38) / CHANNEL_SPAN_US).min(38);
-        widgets::draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_w);
-
-        let mut val_buf = [0u8; 4];
-        u16_to_dec_4(us, &mut val_buf);
-        let val_str = ascii_as_str(&val_buf);
-        lcd.draw_str_4x6(90, y, val_str, false);
+        widgets::draw_gauge_row(lcd, y, name, fill_w, us);
     }
 
     widgets::draw_footer(lcd, "[UP/DN] Page  [ESC] Back");

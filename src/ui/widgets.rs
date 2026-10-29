@@ -4,6 +4,7 @@ use crate::buzzer::Buzzer;
 use crate::display::St7567;
 
 /// Draw a standardized top header banner with title and underline divider.
+#[inline(never)]
 pub fn draw_header(lcd: &mut St7567, title: &str) {
     let x = ((128i32 - title.len() as i32 * 6) / 2).max(2);
     lcd.draw_str_6x10(x, 2, title, false);
@@ -12,6 +13,7 @@ pub fn draw_header(lcd: &mut St7567, title: &str) {
 
 /// Draw a standardized bottom footer with small font (4x6) and divider line at y = 55,
 /// matching the flight pages' 8-pixel footer height and baseline at y = 62 (top at y = 57).
+#[inline(never)]
 pub fn draw_footer(lcd: &mut St7567, text: &str) {
     lcd.draw_hline(0, 55, 128, true);
     lcd.draw_str_4x6(2, 57, text, false);
@@ -19,6 +21,7 @@ pub fn draw_footer(lcd: &mut St7567, text: &str) {
 
 /// Draw a standardized bottom footer with left-aligned and right-aligned text (4x6)
 /// and divider line at y = 55.
+#[inline(never)]
 pub fn draw_footer_split(lcd: &mut St7567, left: &str, right: &str) {
     lcd.draw_hline(0, 55, 128, true);
     lcd.draw_str_4x6(2, 57, left, false);
@@ -28,6 +31,7 @@ pub fn draw_footer_split(lcd: &mut St7567, left: &str, right: &str) {
 
 /// Draw a standardized bottom footer with left-aligned, center-aligned, and right-aligned text (4x6)
 /// and divider line at y = 55. If center_inverted is true, draws an inverted solid background behind center text.
+#[inline(never)]
 pub fn draw_footer_three(
     lcd: &mut St7567,
     left: &str,
@@ -449,6 +453,7 @@ pub fn draw_icon_row<F>(
 
 /// Render a single list item row within a 4-slot view with highlight.
 /// If `value_x <= 0`, the value string is automatically right-aligned against the row right edge.
+#[inline(never)]
 pub fn draw_list_row(
     lcd: &mut St7567,
     slot: usize,
@@ -474,6 +479,7 @@ pub fn draw_list_row(
 }
 
 /// Render a single list item row within a 4-slot view with highlight, right-aligning the value.
+#[inline(never)]
 pub fn draw_list_row_right(
     lcd: &mut St7567,
     slot: usize,
@@ -493,6 +499,24 @@ pub fn draw_bar_gauge(lcd: &mut St7567, x: i32, y: i32, width: u32, height: u32,
         let inner_h = height.saturating_sub(2);
         lcd.fill_rect(inner_p_x, inner_p_y, fill_width, inner_h, true);
     }
+}
+
+/// Draw a standardized gauge row with a 4x6 label at (2, y), framed bar gauge at (44, y+1),
+/// and 4-digit decimal value at (90, y).
+#[inline(never)]
+pub fn draw_gauge_row(
+    lcd: &mut St7567,
+    y: i32,
+    label: &str,
+    fill_width: u32,
+    val: u16,
+) {
+    lcd.draw_str_4x6(2, y, label, false);
+    draw_bar_gauge(lcd, 44, y + 1, 40, 5, fill_width);
+    let mut val_buf = [0u8; 4];
+    crate::menu::format::u16_to_dec_4(val, &mut val_buf);
+    let val_str = crate::menu::format::ascii_as_str(&val_buf);
+    lcd.draw_str_4x6(90, y, val_str, false);
 }
 
 #[cfg(test)]

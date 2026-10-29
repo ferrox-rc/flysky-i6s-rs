@@ -478,21 +478,14 @@ impl St7567 {
         }
     }
 
-    /// Render a single 4x6 character at (x, y).
-    /// If `invert` is true, pixels that are ON become OFF (useful over filled inverted bars).
-    pub fn draw_char_4x6(&mut self, x: i32, y: i32, c: u8, invert: bool) {
-        if !(0x20..=0x7E).contains(&c) {
-            return;
-        }
-        let glyph_idx = (c - 0x20) as usize;
-        let glyph = &crate::display::fonts::FONT_4X6_DATA[glyph_idx];
-
-        for (col, &col_bits) in glyph.iter().enumerate() {
+    #[inline(never)]
+    fn draw_glyph_cols(&mut self, x: i32, y: i32, cols: &[u16], height: i32, invert: bool) {
+        for (col, &col_bits) in cols.iter().enumerate() {
             let px = x + col as i32;
             if px < 0 || px >= WIDTH as i32 {
                 continue;
             }
-            for row in 0..6i32 {
+            for row in 0..height {
                 let py = y + row;
                 if py < 0 || py >= HEIGHT as i32 {
                     continue;
@@ -509,7 +502,21 @@ impl St7567 {
         }
     }
 
+    /// Render a single 4x6 character at (x, y).
+    /// If `invert` is true, pixels that are ON become OFF (useful over filled inverted bars).
+    #[inline(never)]
+    pub fn draw_char_4x6(&mut self, x: i32, y: i32, c: u8, invert: bool) {
+        if !(0x20..=0x7E).contains(&c) {
+            return;
+        }
+        let glyph_idx = (c - 0x20) as usize;
+        let glyph = &crate::display::fonts::FONT_4X6_DATA[glyph_idx];
+        let cols = [glyph[0] as u16, glyph[1] as u16, glyph[2] as u16, glyph[3] as u16];
+        self.draw_glyph_cols(x, y, &cols, 6, invert);
+    }
+
     /// Render a 4x6 ASCII string starting at top-left (x, y).
+    #[inline(never)]
     pub fn draw_str_4x6(&mut self, mut x: i32, y: i32, text: &str, invert: bool) {
         for &byte in text.as_bytes() {
             self.draw_char_4x6(x, y, byte, invert);
@@ -519,36 +526,18 @@ impl St7567 {
 
     /// Render a single 6x10 character at (x, y).
     /// If `invert` is true, pixels that are ON become OFF (useful over filled inverted bars).
+    #[inline(never)]
     pub fn draw_char_6x10(&mut self, x: i32, y: i32, c: u8, invert: bool) {
         if !(0x20..=0x7E).contains(&c) {
             return;
         }
         let glyph_idx = (c - 0x20) as usize;
         let glyph = &crate::display::fonts::FONT_6X10_DATA[glyph_idx];
-
-        for (col, &col_bits) in glyph.iter().enumerate() {
-            let px = x + col as i32;
-            if px < 0 || px >= WIDTH as i32 {
-                continue;
-            }
-            for row in 0..10i32 {
-                let py = y + row;
-                if py < 0 || py >= HEIGHT as i32 {
-                    continue;
-                }
-                let bit_set = (col_bits & (1 << row)) != 0;
-                if invert {
-                    if bit_set {
-                        self.set_pixel(px, py, false);
-                    }
-                } else if bit_set {
-                    self.set_pixel(px, py, true);
-                }
-            }
-        }
+        self.draw_glyph_cols(x, y, glyph, 10, invert);
     }
 
     /// Render a 6x10 ASCII string starting at top-left (x, y).
+    #[inline(never)]
     pub fn draw_str_6x10(&mut self, mut x: i32, y: i32, text: &str, invert: bool) {
         for &byte in text.as_bytes() {
             self.draw_char_6x10(x, y, byte, invert);

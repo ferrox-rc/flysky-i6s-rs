@@ -76,48 +76,16 @@ pub fn update_dual_rate(
                 }
             }
             2 => {
-                // Hi Rate (50..100%, step 5%)
-                let cur = storage.active_model.dr_high[axis];
-                if keys.up && cur <= 95 {
-                    storage.active_model.dr_high[axis] = cur + 5;
-                    buzzer.play_tone(2200, 20);
-                } else if keys.down && cur >= 55 {
-                    storage.active_model.dr_high[axis] = cur - 5;
-                    buzzer.play_tone(2200, 20);
-                }
+                adjust_clamped_u8(&mut storage.active_model.dr_high[axis], 50, 100, 5, keys.up, keys.down, buzzer);
             }
             3 => {
-                // Lo Rate (30..100%, step 5%)
-                let cur = storage.active_model.dr_low[axis];
-                if keys.up && cur <= 95 {
-                    storage.active_model.dr_low[axis] = cur + 5;
-                    buzzer.play_tone(2200, 20);
-                } else if keys.down && cur >= 35 {
-                    storage.active_model.dr_low[axis] = cur - 5;
-                    buzzer.play_tone(2200, 20);
-                }
+                adjust_clamped_u8(&mut storage.active_model.dr_low[axis], 30, 100, 5, keys.up, keys.down, buzzer);
             }
             4 => {
-                // Hi Expo (-100..+100%, step 5%)
-                let cur = storage.active_model.expo_high[axis];
-                if keys.up && cur <= 95 {
-                    storage.active_model.expo_high[axis] = cur + 5;
-                    buzzer.play_tone(2200, 20);
-                } else if keys.down && cur >= -95 {
-                    storage.active_model.expo_high[axis] = cur - 5;
-                    buzzer.play_tone(2200, 20);
-                }
+                adjust_clamped_i8(&mut storage.active_model.expo_high[axis], -100, 100, 5, keys.up, keys.down, buzzer);
             }
             5 => {
-                // Lo Expo (-100..+100%, step 5%)
-                let cur = storage.active_model.expo_low[axis];
-                if keys.up && cur <= 95 {
-                    storage.active_model.expo_low[axis] = cur + 5;
-                    buzzer.play_tone(2200, 20);
-                } else if keys.down && cur >= -95 {
-                    storage.active_model.expo_low[axis] = cur - 5;
-                    buzzer.play_tone(2200, 20);
-                }
+                adjust_clamped_i8(&mut storage.active_model.expo_low[axis], -100, 100, 5, keys.up, keys.down, buzzer);
             }
             _ => {}
         }
@@ -131,41 +99,12 @@ pub fn update_dual_rate(
     // Render Header
     widgets::draw_header(lcd, "DUAL RATE / EXPO");
 
-    let mut b5 = [0u8; 5];
-    let mut b6 = [0u8; 6];
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
         if idx >= FIELD_COUNT {
             break;
         }
-        let is_sel = idx == ctrl.selected_item;
-
-        match idx {
-            0 => {
-                let sw_name = DR_SWITCH_NAMES[(storage.active_model.dr_switch as usize).min(6)];
-                widgets::draw_list_row(lcd, slot, is_sel, "Switch:", Some(sw_name), 60);
-            }
-            1 => {
-                widgets::draw_list_row(lcd, slot, is_sel, "Channel:", Some(AXIS_NAMES[axis]), 60);
-            }
-            2 => {
-                let str_val = u8_to_dec(storage.active_model.dr_high[axis], &mut b5);
-                widgets::draw_list_row(lcd, slot, is_sel, "Hi Rate:", Some(str_val), 60);
-            }
-            3 => {
-                let str_val = u8_to_dec(storage.active_model.dr_low[axis], &mut b5);
-                widgets::draw_list_row(lcd, slot, is_sel, "Lo Rate:", Some(str_val), 60);
-            }
-            4 => {
-                let str_val = i8_to_dec(storage.active_model.expo_high[axis], &mut b6);
-                widgets::draw_list_row(lcd, slot, is_sel, "Hi Expo:", Some(str_val), 60);
-            }
-            5 => {
-                let str_val = i8_to_dec(storage.active_model.expo_low[axis], &mut b6);
-                widgets::draw_list_row(lcd, slot, is_sel, "Lo Expo:", Some(str_val), 60);
-            }
-            _ => {}
-        }
+        render_dr_expo_row(lcd, slot, idx, idx == ctrl.selected_item, axis, storage);
     }
 
     let footer = if ctrl.editing {
@@ -174,6 +113,97 @@ pub fn update_dual_rate(
         "[OK] Edit   [ESC] Exit"
     };
     widgets::draw_footer(lcd, footer);
+}
+
+#[inline(never)]
+fn adjust_clamped_i8(
+    val: &mut i8,
+    min: i8,
+    max: i8,
+    step: i8,
+    up: bool,
+    down: bool,
+    buzzer: &mut Buzzer,
+) {
+    if up && *val <= max - step {
+        *val += step;
+        buzzer.play_tone(2200, 20);
+    } else if down && *val >= min + step {
+        *val -= step;
+        buzzer.play_tone(2200, 20);
+    }
+}
+
+#[inline(never)]
+fn adjust_clamped_u8(
+    val: &mut u8,
+    min: u8,
+    max: u8,
+    step: u8,
+    up: bool,
+    down: bool,
+    buzzer: &mut Buzzer,
+) {
+    if up && *val <= max - step {
+        *val += step;
+        buzzer.play_tone(2200, 20);
+    } else if down && *val >= min + step {
+        *val -= step;
+        buzzer.play_tone(2200, 20);
+    }
+}
+
+#[inline(never)]
+fn format_ch_str(ch: u8, buf: &mut [u8; 4]) -> &str {
+    buf[0] = b'C';
+    buf[1] = b'H';
+    if ch >= 10 {
+        buf[2] = b'0' + (ch / 10);
+        buf[3] = b'0' + (ch % 10);
+    } else {
+        buf[2] = b'0' + ch;
+        buf[3] = b' ';
+    }
+    ascii_as_str(buf)
+}
+
+#[inline(never)]
+fn render_dr_expo_row(
+    lcd: &mut St7567,
+    slot: usize,
+    idx: usize,
+    is_sel: bool,
+    axis: usize,
+    storage: &RadioStorage,
+) {
+    let mut b5 = [0u8; 5];
+    let mut b6 = [0u8; 6];
+    match idx {
+        0 => {
+            let sw_name = DR_SWITCH_NAMES[(storage.active_model.dr_switch as usize).min(6)];
+            widgets::draw_list_row(lcd, slot, is_sel, "Switch:", Some(sw_name), 60);
+        }
+        1 => {
+            widgets::draw_list_row(lcd, slot, is_sel, "Channel:", Some(AXIS_NAMES[axis]), 60);
+        }
+        2 => {
+            let str_val = u8_to_dec(storage.active_model.dr_high[axis], &mut b5);
+            widgets::draw_list_row(lcd, slot, is_sel, "Hi Rate:", Some(str_val), 60);
+        }
+        3 => {
+            let str_val = u8_to_dec(storage.active_model.dr_low[axis], &mut b5);
+            widgets::draw_list_row(lcd, slot, is_sel, "Lo Rate:", Some(str_val), 60);
+        }
+        4 => {
+            let str_val = i8_to_dec(storage.active_model.expo_high[axis], &mut b6);
+            widgets::draw_list_row(lcd, slot, is_sel, "Hi Expo:", Some(str_val), 60);
+        }
+        5 => {
+            let str_val = i8_to_dec(storage.active_model.expo_low[axis], &mut b6);
+            widgets::draw_list_row(lcd, slot, is_sel, "Lo Expo:", Some(str_val), 60);
+        }
+        _ => {}
+    }
 }
 
 #[inline(never)]
@@ -503,58 +533,20 @@ pub fn update_wing_mixer(
 
     widgets::draw_header(lcd, "WING & MIXER");
 
-    let mut b6 = [0u8; 6];
-
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
         if idx >= mix_items {
             break;
         }
-        let y = 14 + (slot as i32 * 9);
-        let is_sel = idx == ctrl.selected_item;
-        if is_sel {
-            lcd.fill_rect(2, y, 124, 9, true);
-        }
-
-        if idx == 0 {
-            let t_idx = (storage.active_model.wing_tail_mix as usize).min(3);
-            lcd.draw_str_6x10(4, y, "Wing:", is_sel);
-            lcd.draw_str_6x10(36, y, TEMPLATE_NAMES[t_idx], is_sel);
-        } else if has_diff && idx == 1 {
-            let d_str = i8_to_dec(storage.active_model.template_diff, &mut b6);
-            lcd.draw_str_6x10(4, y, "Diff:", is_sel);
-            lcd.draw_str_6x10(36, y, d_str, is_sel);
-        } else if idx == gvar_item_idx {
-            lcd.draw_str_6x10(4, y, "GVars: [Edit GV1..5]", is_sel);
-        } else {
-            let m_idx = idx - (gvar_item_idx + 1);
-            let mix = storage.active_model.mixes[m_idx];
-            let mut m_buf = *b"M00: ";
-            let m_num = (m_idx + 1) as u8;
-            m_buf[1] = b'0' + (m_num / 10);
-            m_buf[2] = b'0' + (m_num % 10);
-            let m_label = ascii_as_str(&m_buf);
-            lcd.draw_str_6x10(4, y, m_label, is_sel);
-
-            if mix.target_ch == 0 {
-                lcd.draw_str_6x10(32, y, "[DISABLED]", is_sel);
-            } else {
-                let mut ch_buf = *b"CH00";
-                if mix.target_ch >= 10 {
-                    ch_buf[2] = b'0' + (mix.target_ch / 10);
-                    ch_buf[3] = b'0' + (mix.target_ch % 10);
-                } else {
-                    ch_buf[2] = b'0' + mix.target_ch;
-                    ch_buf[3] = b' ';
-                }
-                let ch_str = ascii_as_str(&ch_buf);
-                lcd.draw_str_6x10(30, y, ch_str, is_sel);
-
-                lcd.draw_str_6x10(58, y, "<-", is_sel);
-                let s_idx = (mix.source as usize).min(SOURCE_NAMES.len() - 1);
-                lcd.draw_str_6x10(74, y, SOURCE_NAMES[s_idx], is_sel);
-            }
-        }
+        render_wing_mixer_row(
+            lcd,
+            slot,
+            idx,
+            idx == ctrl.selected_item,
+            has_diff,
+            gvar_item_idx,
+            storage,
+        );
     }
 
     let footer = if ctrl.editing {
@@ -563,6 +555,56 @@ pub fn update_wing_mixer(
         "[OK] Select/Edit   [ESC] Back"
     };
     widgets::draw_footer(lcd, footer);
+}
+
+#[inline(never)]
+fn render_wing_mixer_row(
+    lcd: &mut St7567,
+    slot: usize,
+    idx: usize,
+    is_sel: bool,
+    has_diff: bool,
+    gvar_item_idx: usize,
+    storage: &RadioStorage,
+) {
+    let y = 14 + (slot as i32 * 9);
+    if is_sel {
+        lcd.fill_rect(2, y, 124, 9, true);
+    }
+
+    let mut b6 = [0u8; 6];
+    let mut ch_buf = [0u8; 4];
+    if idx == 0 {
+        let t_idx = (storage.active_model.wing_tail_mix as usize).min(3);
+        lcd.draw_str_6x10(4, y, "Wing:", is_sel);
+        lcd.draw_str_6x10(36, y, TEMPLATE_NAMES[t_idx], is_sel);
+    } else if has_diff && idx == 1 {
+        let d_str = i8_to_dec(storage.active_model.template_diff, &mut b6);
+        lcd.draw_str_6x10(4, y, "Diff:", is_sel);
+        lcd.draw_str_6x10(36, y, d_str, is_sel);
+    } else if idx == gvar_item_idx {
+        lcd.draw_str_6x10(4, y, "GVars: [Edit GV1..5]", is_sel);
+    } else {
+        let m_idx = idx - (gvar_item_idx + 1);
+        let mix = storage.active_model.mixes[m_idx];
+        let mut m_buf = *b"M00: ";
+        let m_num = (m_idx + 1) as u8;
+        m_buf[1] = b'0' + (m_num / 10);
+        m_buf[2] = b'0' + (m_num % 10);
+        let m_label = ascii_as_str(&m_buf);
+        lcd.draw_str_6x10(4, y, m_label, is_sel);
+
+        if mix.target_ch == 0 {
+            lcd.draw_str_6x10(32, y, "[DISABLED]", is_sel);
+        } else {
+            let ch_str = format_ch_str(mix.target_ch, &mut ch_buf);
+            lcd.draw_str_6x10(30, y, ch_str, is_sel);
+
+            lcd.draw_str_6x10(58, y, "<-", is_sel);
+            let s_idx = (mix.source as usize).min(SOURCE_NAMES.len() - 1);
+            lcd.draw_str_6x10(74, y, SOURCE_NAMES[s_idx], is_sel);
+        }
+    }
 }
 
 #[inline(never)]
@@ -646,22 +688,10 @@ pub fn update_mixer_line_edit(
                 }
             }
             3 => {
-                if keys.up && mix.weight <= 95 {
-                    mix.weight += 5;
-                    buzzer.play_tone(2200, 20);
-                } else if keys.down && mix.weight >= -95 {
-                    mix.weight -= 5;
-                    buzzer.play_tone(2200, 20);
-                }
+                adjust_clamped_i8(&mut mix.weight, -100, 100, 5, keys.up, keys.down, buzzer);
             }
             4 => {
-                if keys.up && mix.offset <= 95 {
-                    mix.offset += 5;
-                    buzzer.play_tone(2200, 20);
-                } else if keys.down && mix.offset >= -95 {
-                    mix.offset -= 5;
-                    buzzer.play_tone(2200, 20);
-                }
+                adjust_clamped_i8(&mut mix.offset, -100, 100, 5, keys.up, keys.down, buzzer);
             }
             5 => {
                 if let Some(sw) = keys.sw_change {
@@ -706,71 +736,12 @@ pub fn update_mixer_line_edit(
     widgets::draw_header(lcd, title_str);
 
     let mix = storage.active_model.mixes[mix_idx];
-    let mut b6 = [0u8; 6];
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
         if idx >= FIELD_COUNT {
             break;
         }
-        let is_sel = idx == ctrl.selected_item;
-
-        match idx {
-            0 => {
-                if mix.target_ch == 0 {
-                    widgets::draw_list_row(lcd, slot, is_sel, "Target:", Some("Disabled"), 56);
-                } else {
-                    let mut ch_buf = *b"CH00";
-                    if mix.target_ch >= 10 {
-                        ch_buf[2] = b'0' + (mix.target_ch / 10);
-                        ch_buf[3] = b'0' + (mix.target_ch % 10);
-                    } else {
-                        ch_buf[2] = b'0' + mix.target_ch;
-                        ch_buf[3] = b' ';
-                    }
-                    let ch_str = ascii_as_str(&ch_buf);
-                    widgets::draw_list_row(lcd, slot, is_sel, "Target:", Some(ch_str), 56);
-                }
-            }
-            1 => {
-                let s_idx = (mix.source as usize).min(SOURCE_NAMES.len() - 1);
-                widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
-            }
-            2 => {
-                let ws_idx = (mix.weight_src as usize).min(WEIGHT_SRC_NAMES.len() - 1);
-                widgets::draw_list_row(
-                    lcd,
-                    slot,
-                    is_sel,
-                    "Wt Src:",
-                    Some(WEIGHT_SRC_NAMES[ws_idx]),
-                    56,
-                );
-            }
-            3 => {
-                let w_str = i8_to_dec(mix.weight, &mut b6);
-                widgets::draw_list_row(lcd, slot, is_sel, "Weight:", Some(w_str), 56);
-            }
-            4 => {
-                let o_str = i8_to_dec(mix.offset, &mut b6);
-                widgets::draw_list_row(lcd, slot, is_sel, "Offset:", Some(o_str), 56);
-            }
-            5 => {
-                let sw_idx = (mix.switch as usize).min(SWITCH_COND_NAMES.len() - 1);
-                widgets::draw_list_row(
-                    lcd,
-                    slot,
-                    is_sel,
-                    "Switch:",
-                    Some(SWITCH_COND_NAMES[sw_idx]),
-                    56,
-                );
-            }
-            6 => {
-                let m_idx = (mix.mode as usize).min(2);
-                widgets::draw_list_row(lcd, slot, is_sel, "Mode:", Some(MODE_NAMES[m_idx]), 56);
-            }
-            _ => {}
-        }
+        render_mixer_line_edit_row(lcd, slot, idx, idx == ctrl.selected_item, &mix);
     }
 
     let footer = if ctrl.editing {
@@ -779,6 +750,67 @@ pub fn update_mixer_line_edit(
         "[OK] Edit   [ESC] Back"
     };
     widgets::draw_footer(lcd, footer);
+}
+
+#[inline(never)]
+fn render_mixer_line_edit_row(
+    lcd: &mut St7567,
+    slot: usize,
+    idx: usize,
+    is_sel: bool,
+    mix: &crate::storage::MixLine,
+) {
+    let mut b6 = [0u8; 6];
+    let mut ch_buf = [0u8; 4];
+    match idx {
+        0 => {
+            if mix.target_ch == 0 {
+                widgets::draw_list_row(lcd, slot, is_sel, "Target:", Some("Disabled"), 56);
+            } else {
+                let ch_str = format_ch_str(mix.target_ch, &mut ch_buf);
+                widgets::draw_list_row(lcd, slot, is_sel, "Target:", Some(ch_str), 56);
+            }
+        }
+        1 => {
+            let s_idx = (mix.source as usize).min(SOURCE_NAMES.len() - 1);
+            widgets::draw_list_row(lcd, slot, is_sel, "Source:", Some(SOURCE_NAMES[s_idx]), 56);
+        }
+        2 => {
+            let ws_idx = (mix.weight_src as usize).min(WEIGHT_SRC_NAMES.len() - 1);
+            widgets::draw_list_row(
+                lcd,
+                slot,
+                is_sel,
+                "Wt Src:",
+                Some(WEIGHT_SRC_NAMES[ws_idx]),
+                56,
+            );
+        }
+        3 => {
+            let w_str = i8_to_dec(mix.weight, &mut b6);
+            widgets::draw_list_row(lcd, slot, is_sel, "Weight:", Some(w_str), 56);
+        }
+        4 => {
+            let o_str = i8_to_dec(mix.offset, &mut b6);
+            widgets::draw_list_row(lcd, slot, is_sel, "Offset:", Some(o_str), 56);
+        }
+        5 => {
+            let sw_idx = (mix.switch as usize).min(SWITCH_COND_NAMES.len() - 1);
+            widgets::draw_list_row(
+                lcd,
+                slot,
+                is_sel,
+                "Switch:",
+                Some(SWITCH_COND_NAMES[sw_idx]),
+                56,
+            );
+        }
+        6 => {
+            let m_idx = (mix.mode as usize).min(2);
+            widgets::draw_list_row(lcd, slot, is_sel, "Mode:", Some(MODE_NAMES[m_idx]), 56);
+        }
+        _ => {}
+    }
 }
 
 #[inline(never)]

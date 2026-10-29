@@ -112,45 +112,13 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                     if idx >= engine.devices_len {
                         break;
                     }
-                    let y = 14 + (slot as i32 * 9);
-                    let is_sel = idx == ctrl.selected_item;
-                    if is_sel {
-                        lcd.fill_rect(2, y, row_w, 9, true);
-                    }
-
-                    let dev = &engine.devices[idx];
-                    let d_name =
-                        crate::ui::format::ascii_as_str(&dev.name[..dev.name_len as usize]);
-
-                    // Left: Device Name
-                    lcd.draw_str_6x10(4, y, d_name, is_sel);
-
-                    // Right: [Role] Tag (e.g. [TX], [RX], [FC], [VTX], [WIFI], [ESC1])
-                    // Or raw hex fallback for uncommon devices (e.g. [0x55])
-                    let mut tag_buf = [b' '; 9];
-                    tag_buf[0] = b'[';
-                    let tag_len = match crsf::protocol::device_role_str(dev.address) {
-                        Some(role) => {
-                            let r_bytes = role.as_bytes();
-                            let r_len = r_bytes.len().min(4);
-                            tag_buf[1..1 + r_len].copy_from_slice(&r_bytes[..r_len]);
-                            tag_buf[1 + r_len] = b']';
-                            r_len + 2
-                        }
-                        None => {
-                            tag_buf[1] = b'0';
-                            tag_buf[2] = b'x';
-                            const HEX: &[u8; 16] = b"0123456789ABCDEF";
-                            tag_buf[3] = HEX[((dev.address >> 4) & 0x0F) as usize];
-                            tag_buf[4] = HEX[(dev.address & 0x0F) as usize];
-                            tag_buf[5] = b']';
-                            6
-                        }
-                    };
-
-                    let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..tag_len]);
-                    let tag_x = (row_w as i32) - (tag_len as i32 * 4);
-                    lcd.draw_str_4x6(tag_x, y + 2, tag_str, is_sel);
+                    render_device_row(
+                        lcd,
+                        slot,
+                        idx == ctrl.selected_item,
+                        row_w,
+                        &engine.devices[idx],
+                    );
                 }
 
                 if has_scroll {
@@ -391,239 +359,19 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
                         break;
                     }
                     let actual_idx = folder_indices[slot_idx] as usize;
-                    let y = 14 + (slot as i32 * 9);
-                    let is_sel = slot_idx == ctrl.selected_item;
-                    if is_sel {
-                        lcd.fill_rect(2, y, 124, 9, true);
-                    }
-
-                    let p = &engine.params[actual_idx];
-                    let name = p.name(&engine.string_pool);
-                    let p_type = p.clean_type();
-
-                    if p_type == crsf::protocol::CRSF_TYPE_FOLDER {
-                        // Folder row with trailing chevron
-                        let max_n_chars = 18usize;
-                        let n_disp = &name[..name.len().min(max_n_chars)];
-                        lcd.draw_str_6x10(4, y, n_disp, is_sel);
-                        lcd.draw_str_6x10(118, y, ">", is_sel);
-                    } else if p_type == crsf::protocol::CRSF_TYPE_SELECT {
-                        let mut opt_buf = [0u8; 24];
-                        let raw_opt = if is_sel && ctrl.editing {
-                            p.option_str_for_val(
-                                &engine.string_pool,
-                                ctrl.sub_idx as u8,
-                                &mut opt_buf,
-                            )
-                        } else {
-                            p.current_option_str(&engine.string_pool, &mut opt_buf)
-                        };
-
-                        // If option has parenthetical hint e.g. "250Hz(-108dBm)", and total line is cramped,
-                        // strip the parenthetical hint so the value is cleanly readable
-                        let mut opt_clean_len = raw_opt.len();
-                        if let Some(pos) = raw_opt.find('(') {
-                            if pos > 0
-                                && (name.len() + raw_opt.len() > 18 || is_sel && ctrl.editing)
-                            {
-                                opt_clean_len = pos;
-                            }
-                        }
-                        let opt_clean = raw_opt[..opt_clean_len].trim_end();
-
-                        if is_sel && ctrl.editing {
-                            // Modal edit display: bracketed with '<' and '>'
-                            let mut ed_buf = [b' '; 26];
-                            ed_buf[0] = b'<';
-                            ed_buf[1] = b' ';
-                            let o_len = opt_clean.len().min(14);
-                            ed_buf[2..2 + o_len].copy_from_slice(&opt_clean.as_bytes()[..o_len]);
-                            ed_buf[2 + o_len] = b' ';
-                            ed_buf[3 + o_len] = b'>';
-                            let ed_str = crate::ui::format::ascii_as_str(&ed_buf[..4 + o_len]);
-
-                            let val_x = 124i32.saturating_sub((ed_str.len() as i32) * 6);
-                            let max_name_chars = 20usize.saturating_sub(ed_str.len() + 1).max(5);
-                            let name_disp = &name[..name.len().min(max_name_chars)];
-                            lcd.draw_str_6x10(4, y, name_disp, is_sel);
-                            lcd.draw_str_6x10(val_x, y, ed_str, is_sel);
-                        } else {
-                            let val_x = 124i32.saturating_sub((opt_clean.len() as i32) * 6);
-                            let max_name_chars = 20usize.saturating_sub(opt_clean.len() + 1).max(5);
-                            let name_disp = &name[..name.len().min(max_name_chars)];
-                            lcd.draw_str_6x10(4, y, name_disp, is_sel);
-                            lcd.draw_str_6x10(val_x, y, opt_clean, is_sel);
-                        }
-                    } else if p_type == crsf::protocol::CRSF_TYPE_COMMAND {
-                        let is_active = match engine.active_cmd {
-                            crsf::ActiveCommandState::Starting { param_id, .. }
-                            | crsf::ActiveCommandState::Running { param_id, .. }
-                            | crsf::ActiveCommandState::Completed { param_id, .. } => {
-                                param_id == p.id
-                            }
-                            _ => false,
-                        };
-                        if is_active {
-                            let info_str = engine.cmd_info_str();
-                            let text_to_show = if !info_str.is_empty() {
-                                info_str
-                            } else {
-                                match engine.active_cmd {
-                                    crsf::ActiveCommandState::Completed { .. } => "OK",
-                                    _ => "Executing...",
-                                }
-                            };
-                            let mut cmd_buf = [b' '; 22];
-                            cmd_buf[0] = b'[';
-                            let t_bytes = text_to_show.as_bytes();
-                            let t_len = t_bytes.len().min(18);
-                            cmd_buf[1..1 + t_len].copy_from_slice(&t_bytes[..t_len]);
-                            cmd_buf[1 + t_len] = b']';
-                            let c_str = crate::ui::format::ascii_as_str(&cmd_buf[..2 + t_len]);
-                            lcd.draw_str_6x10(6, y, c_str, is_sel);
-                        } else {
-                            let mut cmd_buf = [b' '; 22];
-                            cmd_buf[0] = b'[';
-                            let n_bytes = name.as_bytes();
-                            let n_len = n_bytes.len().min(18);
-                            cmd_buf[1..1 + n_len].copy_from_slice(&n_bytes[..n_len]);
-                            cmd_buf[1 + n_len] = b']';
-                            let c_str = crate::ui::format::ascii_as_str(&cmd_buf[..2 + n_len]);
-                            lcd.draw_str_6x10(6, y, c_str, is_sel);
-                        }
-                    } else if p_type == crsf::protocol::CRSF_TYPE_INFO
-                        || p_type == crsf::protocol::CRSF_TYPE_STRING
-                    {
-                        let info = p.info_str(&engine.string_pool);
-                        if info.is_empty() {
-                            let max_n_chars = 19usize;
-                            let n_disp = &name[..name.len().min(max_n_chars)];
-                            lcd.draw_str_6x10(4, y, n_disp, is_sel);
-                        } else {
-                            let use_small = info.len() > 7 || name.len() + info.len() > 17;
-                            if use_small {
-                                let max_info_chars = 15usize;
-                                let info_len = info.len().min(max_info_chars);
-                                let info_disp = &info[..info_len];
-                                let val_x = 124i32.saturating_sub(info_len as i32 * 4);
-                                let max_name_width = (val_x - 6).max(24);
-                                let max_name_chars = (max_name_width / 6) as usize;
-                                let name_disp = &name[..name.len().min(max_name_chars)];
-
-                                lcd.draw_str_6x10(4, y, name_disp, is_sel);
-                                lcd.draw_str_4x6(val_x, y + 2, info_disp, is_sel);
-                            } else {
-                                let val_x = 124i32.saturating_sub(info.len() as i32 * 6);
-                                let max_name_chars = 20usize.saturating_sub(info.len() + 1).max(5);
-                                let name_disp = &name[..name.len().min(max_name_chars)];
-
-                                lcd.draw_str_6x10(4, y, name_disp, is_sel);
-                                lcd.draw_str_6x10(val_x, y, info, is_sel);
-                            }
-                        }
-                    } else if p.is_integer() {
-                        let mut num_buf = [0u8; 12];
-                        let val_to_show = if is_sel && ctrl.editing {
-                            ctrl.edit_val
-                        } else {
-                            p.value
-                        };
-                        let num_len = crate::ui::format::i32_to_dec(val_to_show, &mut num_buf);
-                        let num_str = crate::ui::format::ascii_as_str(&num_buf[..num_len]);
-                        let unit_str = p.unit_str(&engine.string_pool);
-
-                        if is_sel && ctrl.editing {
-                            // Modal edit display: bracketed with '<' and '>' e.g. "< 4 >" or "< 4 ch >"
-                            let mut ed_buf = [b' '; 26];
-                            ed_buf[0] = b'<';
-                            ed_buf[1] = b' ';
-                            let mut offset = 2;
-                            let n_bytes = num_str.as_bytes();
-                            let n_len = n_bytes.len().min(12);
-                            ed_buf[offset..offset + n_len].copy_from_slice(&n_bytes[..n_len]);
-                            offset += n_len;
-
-                            if !unit_str.is_empty() {
-                                ed_buf[offset] = b' ';
-                                offset += 1;
-                                let u_bytes = unit_str.as_bytes();
-                                let u_len = u_bytes.len().min(8);
-                                ed_buf[offset..offset + u_len].copy_from_slice(&u_bytes[..u_len]);
-                                offset += u_len;
-                            }
-
-                            ed_buf[offset] = b' ';
-                            ed_buf[offset + 1] = b'>';
-                            let total_len = offset + 2;
-                            let ed_str = crate::ui::format::ascii_as_str(&ed_buf[..total_len]);
-
-                            let val_x = 124i32.saturating_sub((ed_str.len() as i32) * 6);
-                            let max_name_chars = 20usize.saturating_sub(ed_str.len() + 1).max(5);
-                            let name_disp = &name[..name.len().min(max_name_chars)];
-                            lcd.draw_str_6x10(4, y, name_disp, is_sel);
-                            lcd.draw_str_6x10(val_x, y, ed_str, is_sel);
-                        } else {
-                            let mut full_val_buf = [0u8; 24];
-                            let mut offset = 0;
-                            let n_bytes = num_str.as_bytes();
-                            full_val_buf[offset..offset + n_bytes.len()].copy_from_slice(n_bytes);
-                            offset += n_bytes.len();
-                            if !unit_str.is_empty() {
-                                full_val_buf[offset] = b' ';
-                                offset += 1;
-                                let u_bytes = unit_str.as_bytes();
-                                let u_len = u_bytes.len().min(full_val_buf.len() - offset);
-                                full_val_buf[offset..offset + u_len]
-                                    .copy_from_slice(&u_bytes[..u_len]);
-                                offset += u_len;
-                            }
-                            let full_val_str =
-                                crate::ui::format::ascii_as_str(&full_val_buf[..offset]);
-                            let val_x = 124i32.saturating_sub((full_val_str.len() as i32) * 6);
-                            let max_name_chars =
-                                20usize.saturating_sub(full_val_str.len() + 1).max(5);
-                            let name_disp = &name[..name.len().min(max_name_chars)];
-                            lcd.draw_str_6x10(4, y, name_disp, is_sel);
-                            lcd.draw_str_6x10(val_x, y, full_val_str, is_sel);
-                        }
-                    } else {
-                        let max_n_chars = 19usize;
-                        let n_disp = &name[..name.len().min(max_n_chars)];
-                        lcd.draw_str_6x10(4, y, n_disp, is_sel);
-                    }
+                    render_param_row(
+                        lcd,
+                        ctrl,
+                        slot,
+                        slot_idx,
+                        &engine.params[actual_idx],
+                        engine,
+                    );
                 }
 
                 // If confirmation modal is needed, draw centered overlay box
                 if let crsf::ActiveCommandState::WaitingConfirm { param_id } = engine.active_cmd {
-                    let p_name = engine.params[..engine.params_len]
-                        .iter()
-                        .find(|p| p.id == param_id)
-                        .map(|p| p.name(&engine.string_pool))
-                        .unwrap_or("Action");
-
-                    lcd.fill_rect(10, 16, 108, 32, false);
-                    lcd.draw_rect(10, 16, 108, 32, true);
-
-                    let info_prompt = engine.cmd_info_str();
-                    if !info_prompt.is_empty() {
-                        let prompt_len = info_prompt.len().min(17);
-                        let prompt_disp = &info_prompt[..prompt_len];
-                        let prompt_x = 10 + (108i32.saturating_sub(prompt_len as i32 * 6) / 2);
-                        lcd.draw_str_6x10(prompt_x, 20, prompt_disp, false);
-                    } else {
-                        let mut q_buf = [b' '; 18];
-                        q_buf[..6].copy_from_slice(b"Run: [");
-                        let n_len = p_name.len().min(8);
-                        q_buf[6..6 + n_len].copy_from_slice(&p_name.as_bytes()[..n_len]);
-                        q_buf[6 + n_len] = b']';
-                        q_buf[7 + n_len] = b'?';
-                        let q_str = crate::ui::format::ascii_as_str(&q_buf[..8 + n_len]);
-                        let q_x = 10 + (108i32.saturating_sub((8 + n_len) as i32 * 6) / 2);
-                        lcd.draw_str_6x10(q_x, 20, q_str, false);
-                    }
-                    lcd.draw_str_4x6(20, 37, "[OK] Yes  [ESC] No", false);
-
-                    widgets::draw_footer(lcd, "[OK] Confirm   [ESC] Cancel");
+                    render_confirm_dialog(lcd, engine, param_id);
                 } else if engine.folder_loading {
                     widgets::draw_footer(lcd, "Loading...    [ESC] Back");
                 } else if ctrl.editing {
@@ -684,4 +432,247 @@ pub fn update(ctrl: &mut MenuController, lcd: &mut St7567, keys: &NavKeys, buzze
             }
         }
     }
+}
+
+#[inline(never)]
+fn render_device_row(
+    lcd: &mut St7567,
+    slot: usize,
+    is_sel: bool,
+    row_w: u32,
+    dev: &crsf::DiscoveredDevice,
+) {
+    let y = 14 + (slot as i32 * 9);
+    if is_sel {
+        lcd.fill_rect(2, y, row_w, 9, true);
+    }
+
+    let d_name = crate::ui::format::ascii_as_str(&dev.name[..dev.name_len as usize]);
+    lcd.draw_str_6x10(4, y, d_name, is_sel);
+
+    let mut tag_buf = [b' '; 9];
+    tag_buf[0] = b'[';
+    let tag_len = match crsf::protocol::device_role_str(dev.address) {
+        Some(role) => {
+            let r_bytes = role.as_bytes();
+            let r_len = r_bytes.len().min(4);
+            tag_buf[1..1 + r_len].copy_from_slice(&r_bytes[..r_len]);
+            tag_buf[1 + r_len] = b']';
+            r_len + 2
+        }
+        None => {
+            tag_buf[1] = b'0';
+            tag_buf[2] = b'x';
+            const HEX: &[u8; 16] = b"0123456789ABCDEF";
+            tag_buf[3] = HEX[((dev.address >> 4) & 0x0F) as usize];
+            tag_buf[4] = HEX[(dev.address & 0x0F) as usize];
+            tag_buf[5] = b']';
+            6
+        }
+    };
+
+    let tag_str = crate::ui::format::ascii_as_str(&tag_buf[..tag_len]);
+    let tag_x = (row_w as i32) - (tag_len as i32 * 4);
+    lcd.draw_str_4x6(tag_x, y + 2, tag_str, is_sel);
+}
+
+#[inline(never)]
+fn draw_name_and_val_right(
+    lcd: &mut St7567,
+    y: i32,
+    name: &str,
+    val_str: &str,
+    is_sel: bool,
+) {
+    let val_x = 124i32.saturating_sub((val_str.len() as i32) * 6);
+    let max_name_chars = 20usize.saturating_sub(val_str.len() + 1).max(5);
+    let name_disp = &name[..name.len().min(max_name_chars)];
+    lcd.draw_str_6x10(4, y, name_disp, is_sel);
+    lcd.draw_str_6x10(val_x, y, val_str, is_sel);
+}
+
+#[inline(never)]
+fn format_bracketed_edit<'a>(val: &str, buf: &'a mut [u8; 26]) -> &'a str {
+    buf[0] = b'<';
+    buf[1] = b' ';
+    let len = val.len().min(22);
+    buf[2..2 + len].copy_from_slice(&val.as_bytes()[..len]);
+    buf[2 + len] = b' ';
+    buf[3 + len] = b'>';
+    crate::ui::format::ascii_as_str(&buf[..4 + len])
+}
+
+#[inline(never)]
+fn render_param_row(
+    lcd: &mut St7567,
+    ctrl: &MenuController,
+    slot: usize,
+    slot_idx: usize,
+    p: &crsf::Parameter,
+    engine: &crsf::CrsfConfigEngine,
+) {
+    let is_sel = slot_idx == ctrl.selected_item;
+    let editing = ctrl.editing;
+    let sub_idx = ctrl.sub_idx;
+    let edit_val = ctrl.edit_val;
+    let y = 14 + (slot as i32 * 9);
+    if is_sel {
+        lcd.fill_rect(2, y, 124, 9, true);
+    }
+
+    let name = p.name(&engine.string_pool);
+    let p_type = p.clean_type();
+
+    if p_type == crsf::protocol::CRSF_TYPE_FOLDER {
+        let max_n_chars = 18usize;
+        let n_disp = &name[..name.len().min(max_n_chars)];
+        lcd.draw_str_6x10(4, y, n_disp, is_sel);
+        lcd.draw_str_6x10(118, y, ">", is_sel);
+    } else if p_type == crsf::protocol::CRSF_TYPE_SELECT {
+        let mut opt_buf = [0u8; 24];
+        let raw_opt = if is_sel && editing {
+            p.option_str_for_val(&engine.string_pool, sub_idx as u8, &mut opt_buf)
+        } else {
+            p.current_option_str(&engine.string_pool, &mut opt_buf)
+        };
+
+        let mut opt_clean_len = raw_opt.len();
+        if let Some(pos) = raw_opt.find('(') {
+            if pos > 0 && (name.len() + raw_opt.len() > 18 || is_sel && editing) {
+                opt_clean_len = pos;
+            }
+        }
+        let opt_clean = raw_opt[..opt_clean_len].trim_end();
+
+        if is_sel && editing {
+            let mut ed_buf = [0u8; 26];
+            let ed_str = format_bracketed_edit(opt_clean, &mut ed_buf);
+            draw_name_and_val_right(lcd, y, name, ed_str, is_sel);
+        } else {
+            draw_name_and_val_right(lcd, y, name, opt_clean, is_sel);
+        }
+    } else if p_type == crsf::protocol::CRSF_TYPE_COMMAND {
+        let is_active = match engine.active_cmd {
+            crsf::ActiveCommandState::Starting { param_id, .. }
+            | crsf::ActiveCommandState::Running { param_id, .. }
+            | crsf::ActiveCommandState::Completed { param_id, .. } => param_id == p.id,
+            _ => false,
+        };
+        let text_to_show = if is_active {
+            let info_str = engine.cmd_info_str();
+            if !info_str.is_empty() {
+                info_str
+            } else {
+                match engine.active_cmd {
+                    crsf::ActiveCommandState::Completed { .. } => "OK",
+                    _ => "Executing...",
+                }
+            }
+        } else {
+            name
+        };
+        let mut cmd_buf = [b' '; 22];
+        cmd_buf[0] = b'[';
+        let t_bytes = text_to_show.as_bytes();
+        let t_len = t_bytes.len().min(18);
+        cmd_buf[1..1 + t_len].copy_from_slice(&t_bytes[..t_len]);
+        cmd_buf[1 + t_len] = b']';
+        let c_str = crate::ui::format::ascii_as_str(&cmd_buf[..2 + t_len]);
+        lcd.draw_str_6x10(6, y, c_str, is_sel);
+    } else if p_type == crsf::protocol::CRSF_TYPE_INFO
+        || p_type == crsf::protocol::CRSF_TYPE_STRING
+    {
+        let info = p.info_str(&engine.string_pool);
+        if info.is_empty() {
+            let max_n_chars = 19usize;
+            let n_disp = &name[..name.len().min(max_n_chars)];
+            lcd.draw_str_6x10(4, y, n_disp, is_sel);
+        } else {
+            let use_small = info.len() > 7 || name.len() + info.len() > 17;
+            if use_small {
+                let max_info_chars = 15usize;
+                let info_len = info.len().min(max_info_chars);
+                let info_disp = &info[..info_len];
+                let val_x = 124i32.saturating_sub(info_len as i32 * 4);
+                let max_name_width = (val_x - 6).max(24);
+                let max_name_chars = (max_name_width / 6) as usize;
+                let name_disp = &name[..name.len().min(max_name_chars)];
+
+                lcd.draw_str_6x10(4, y, name_disp, is_sel);
+                lcd.draw_str_4x6(val_x, y + 2, info_disp, is_sel);
+            } else {
+                draw_name_and_val_right(lcd, y, name, info, is_sel);
+            }
+        }
+    } else if p.is_integer() {
+        let mut num_buf = [0u8; 12];
+        let val_to_show = if is_sel && editing {
+            edit_val
+        } else {
+            p.value
+        };
+        let num_len = crate::ui::format::i32_to_dec(val_to_show, &mut num_buf);
+        let num_str = crate::ui::format::ascii_as_str(&num_buf[..num_len]);
+        let unit_str = p.unit_str(&engine.string_pool);
+
+        let mut full_val_buf = [0u8; 24];
+        let mut offset = 0;
+        let n_bytes = num_str.as_bytes();
+        full_val_buf[offset..offset + n_bytes.len()].copy_from_slice(n_bytes);
+        offset += n_bytes.len();
+        if !unit_str.is_empty() {
+            full_val_buf[offset] = b' ';
+            offset += 1;
+            let u_bytes = unit_str.as_bytes();
+            let u_len = u_bytes.len().min(full_val_buf.len() - offset);
+            full_val_buf[offset..offset + u_len].copy_from_slice(&u_bytes[..u_len]);
+            offset += u_len;
+        }
+        let full_val_str = crate::ui::format::ascii_as_str(&full_val_buf[..offset]);
+
+        if is_sel && editing {
+            let mut ed_buf = [0u8; 26];
+            let ed_str = format_bracketed_edit(full_val_str, &mut ed_buf);
+            draw_name_and_val_right(lcd, y, name, ed_str, is_sel);
+        } else {
+            draw_name_and_val_right(lcd, y, name, full_val_str, is_sel);
+        }
+    } else {
+        let max_n_chars = 19usize;
+        let n_disp = &name[..name.len().min(max_n_chars)];
+        lcd.draw_str_6x10(4, y, n_disp, is_sel);
+    }
+}
+
+#[inline(never)]
+fn render_confirm_dialog(lcd: &mut St7567, engine: &crsf::CrsfConfigEngine, param_id: u8) {
+    let p_name = engine.params[..engine.params_len]
+        .iter()
+        .find(|p| p.id == param_id)
+        .map(|p| p.name(&engine.string_pool))
+        .unwrap_or("Action");
+
+    lcd.fill_rect(10, 16, 108, 32, false);
+    lcd.draw_rect(10, 16, 108, 32, true);
+
+    let info_prompt = engine.cmd_info_str();
+    if !info_prompt.is_empty() {
+        let prompt_len = info_prompt.len().min(17);
+        let prompt_disp = &info_prompt[..prompt_len];
+        let prompt_x = 10 + (108i32.saturating_sub(prompt_len as i32 * 6) / 2);
+        lcd.draw_str_6x10(prompt_x, 20, prompt_disp, false);
+    } else {
+        let mut q_buf = [b' '; 18];
+        q_buf[..6].copy_from_slice(b"Run: [");
+        let n_len = p_name.len().min(8);
+        q_buf[6..6 + n_len].copy_from_slice(&p_name.as_bytes()[..n_len]);
+        q_buf[6 + n_len] = b']';
+        q_buf[7 + n_len] = b'?';
+        let q_str = crate::ui::format::ascii_as_str(&q_buf[..8 + n_len]);
+        let q_x = 10 + (108i32.saturating_sub((8 + n_len) as i32 * 6) / 2);
+        lcd.draw_str_6x10(q_x, 20, q_str, false);
+    }
+    lcd.draw_str_4x6(20, 37, "[OK] Yes  [ESC] No", false);
+
+    widgets::draw_footer(lcd, "[OK] Confirm   [ESC] Cancel");
 }

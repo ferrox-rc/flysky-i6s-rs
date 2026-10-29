@@ -8,7 +8,7 @@ use crate::menu::{MenuController, MenuState, NavKeys};
 use crate::rf;
 use crate::storage::{self, ModelConfig, RadioStorage, NUM_MODELS};
 use crate::trim::TrimController;
-use crate::ui::format::format_timer;
+use crate::ui::format::{format_timer, write_dec2};
 
 #[inline(never)]
 pub fn update_select(
@@ -84,8 +84,7 @@ pub fn update_select(
 
         let mut line_buf = [b' '; 18];
         line_buf[0] = b'M';
-        line_buf[1] = b'0' + ((idx + 1) / 10) as u8;
-        line_buf[2] = b'0' + ((idx + 1) % 10) as u8;
+        write_dec2((idx + 1) as u8, &mut line_buf[1..3]);
         line_buf[3] = b':';
         if is_active {
             line_buf[4..14].copy_from_slice(&storage.active_model.name);
@@ -96,9 +95,7 @@ pub fn update_select(
             line_buf[4..14].copy_from_slice(&default_name);
         }
         if is_active {
-            line_buf[15] = b'[';
-            line_buf[16] = b'*';
-            line_buf[17] = b']';
+            line_buf[15..18].copy_from_slice(b"[*]");
         }
         let line_str = ascii_as_str(&line_buf);
 
@@ -106,6 +103,106 @@ pub fn update_select(
     }
 
     widgets::draw_footer(lcd, "[OK] Load     [ESC] Back");
+}
+
+#[inline(never)]
+fn render_setup_row(
+    lcd: &mut St7567,
+    slot: usize,
+    idx: usize,
+    is_sel: bool,
+    is_edit: bool,
+    sub_idx: usize,
+    storage: &RadioStorage,
+) {
+    let inverted = is_sel || is_edit;
+    let y = 14 + (slot as i32 * 9);
+    match idx {
+        0 => {
+            widgets::draw_list_row(
+                lcd,
+                slot,
+                inverted,
+                "Name:",
+                Some(ascii_as_str(&storage.active_model.name)),
+                40,
+            );
+            if is_edit {
+                let char_x = 40 + (sub_idx as i32 * 6);
+                lcd.fill_rect(char_x - 1, y, 8, 9, true);
+                let single_char = [storage.active_model.name[sub_idx]];
+                lcd.draw_str_6x10(char_x, y, ascii_as_str(&single_char), true);
+            }
+        }
+        1 => {
+            widgets::draw_list_row(
+                lcd,
+                slot,
+                inverted,
+                "Type:",
+                Some(storage.active_model.model_type().as_str()),
+                40,
+            );
+        }
+        2 => {
+            let arm_idx = (storage.active_model.arm_switch as usize)
+                .min(crate::ui::format::SWITCH_COND_NAMES.len() - 1);
+            let arm_str = if arm_idx == 0 {
+                "NONE"
+            } else {
+                crate::ui::format::SWITCH_COND_NAMES[arm_idx]
+            };
+            widgets::draw_list_row(lcd, slot, inverted, "Arm Sw:", Some(arm_str), 52);
+        }
+        3 => {
+            let t_secs = storage.active_model.timer_secs;
+            let mut t_buf = [0u8; 8];
+            let t_str = if t_secs == 0 {
+                "OFF"
+            } else {
+                format_timer(t_secs, false, &mut t_buf)
+            };
+            widgets::draw_list_row(lcd, slot, inverted, "Timer:", Some(t_str), 52);
+        }
+        4 => {
+            let trig_str = match storage.active_model.timer_source {
+                0 => "OFF",
+                1 => "THs (RUN)",
+                2 => "THt (LTCH)",
+                3 => "ALWAYS ON",
+                s if (4..=17).contains(&s) => crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize],
+                _ => "OFF",
+            };
+            widgets::draw_list_row(lcd, slot, inverted, "T-Trig:", Some(trig_str), 52);
+        }
+        5 => {
+            if is_edit {
+                let mut cp_buf = *b"Copy -> M00";
+                write_dec2((sub_idx + 1) as u8, &mut cp_buf[9..11]);
+                widgets::draw_list_row(lcd, slot, inverted, ascii_as_str(&cp_buf), None, 0);
+            } else {
+                widgets::draw_list_row(lcd, slot, inverted, "Copy: [OK Duplicate]", None, 0);
+            }
+        }
+        6 => {
+            let proto_str = if storage.active_model.rf_protocol == 0 {
+                "AFHDS 2A"
+            } else {
+                "CRSF/ELRS"
+            };
+            widgets::draw_list_row(lcd, slot, inverted, "Protocol:", Some(proto_str), 64);
+        }
+        7 => {
+            widgets::draw_list_row(lcd, slot, inverted, "Telemetry: [SETUP]", None, 0);
+        }
+        8 => {
+            widgets::draw_list_row(lcd, slot, inverted, "Vario: [SETUP]", None, 0);
+        }
+        9 => {
+            widgets::draw_list_row(lcd, slot, inverted, "Reset: [OK Defaults]", None, 0);
+        }
+        _ => {}
+    }
 }
 
 #[inline(never)]
@@ -323,107 +420,22 @@ pub fn update_setup(
 
     widgets::draw_header(lcd, "MODEL SETUP");
 
-    let mut t_buf = [0u8; 8];
-
     for slot in 0..4 {
         let idx = ctrl.scroll_offset + slot;
         if idx >= FIELD_COUNT {
             break;
         }
-        let y = 14 + (slot as i32 * 9);
         let is_sel = !ctrl.editing && idx == ctrl.selected_item;
         let is_edit = ctrl.editing && idx == ctrl.selected_item;
-        let inverted = is_sel || is_edit;
-        if inverted {
-            lcd.fill_rect(2, y, 124, 9, true);
-        }
-
-        match idx {
-            0 => {
-                lcd.draw_str_6x10(4, y, "Name:", inverted);
-                let name_str = ascii_as_str(&storage.active_model.name);
-                lcd.draw_str_6x10(40, y, name_str, inverted);
-
-                if ctrl.editing && ctrl.selected_item == 0 {
-                    let char_x = 40 + (ctrl.sub_idx as i32 * 6);
-                    lcd.fill_rect(char_x - 1, y, 8, 9, true);
-                    let single_char = [storage.active_model.name[ctrl.sub_idx]];
-                    let c_str = ascii_as_str(&single_char);
-                    lcd.draw_str_6x10(char_x, y, c_str, true);
-                }
-            }
-            1 => {
-                let type_str = storage.active_model.model_type().as_str();
-                lcd.draw_str_6x10(4, y, "Type:", inverted);
-                lcd.draw_str_6x10(40, y, type_str, inverted);
-            }
-            2 => {
-                let arm_idx = (storage.active_model.arm_switch as usize)
-                    .min(crate::ui::format::SWITCH_COND_NAMES.len() - 1);
-                let arm_str = if arm_idx == 0 {
-                    "NONE"
-                } else {
-                    crate::ui::format::SWITCH_COND_NAMES[arm_idx]
-                };
-                lcd.draw_str_6x10(4, y, "Arm Sw:", inverted);
-                lcd.draw_str_6x10(52, y, arm_str, inverted);
-            }
-            3 => {
-                let t_secs = storage.active_model.timer_secs;
-                let t_str = if t_secs == 0 {
-                    "OFF"
-                } else {
-                    format_timer(t_secs, false, &mut t_buf)
-                };
-                lcd.draw_str_6x10(4, y, "Timer:", inverted);
-                lcd.draw_str_6x10(52, y, t_str, inverted);
-            }
-            4 => {
-                let trig_str = match storage.active_model.timer_source {
-                    0 => "OFF",
-                    1 => "THs (RUN)",
-                    2 => "THt (LTCH)",
-                    3 => "ALWAYS ON",
-                    s if (4..=17).contains(&s) => {
-                        crate::ui::format::SWITCH_COND_NAMES[(s - 3) as usize]
-                    }
-                    _ => "OFF",
-                };
-                lcd.draw_str_6x10(4, y, "T-Trig:", inverted);
-                lcd.draw_str_6x10(52, y, trig_str, inverted);
-            }
-            5 => {
-                if ctrl.editing && ctrl.selected_item == 5 {
-                    let mut cp_buf = *b"Copy -> M00";
-                    let target_num = (ctrl.sub_idx + 1) as u8;
-                    cp_buf[9] = b'0' + (target_num / 10);
-                    cp_buf[10] = b'0' + (target_num % 10);
-                    let cp_str = ascii_as_str(&cp_buf);
-                    lcd.draw_str_6x10(4, y, cp_str, inverted);
-                } else {
-                    lcd.draw_str_6x10(4, y, "Copy: [OK Duplicate]", inverted);
-                }
-            }
-            6 => {
-                let proto_str = if storage.active_model.rf_protocol == 0 {
-                    "AFHDS 2A"
-                } else {
-                    "CRSF/ELRS"
-                };
-                lcd.draw_str_6x10(4, y, "Protocol:", inverted);
-                lcd.draw_str_6x10(64, y, proto_str, inverted);
-            }
-            7 => {
-                lcd.draw_str_6x10(4, y, "Telemetry: [SETUP]", inverted);
-            }
-            8 => {
-                lcd.draw_str_6x10(4, y, "Vario: [SETUP]", inverted);
-            }
-            9 => {
-                lcd.draw_str_6x10(4, y, "Reset: [OK Defaults]", inverted);
-            }
-            _ => {}
-        }
+        render_setup_row(
+            lcd,
+            slot,
+            idx,
+            is_sel,
+            is_edit,
+            ctrl.sub_idx,
+            storage,
+        );
     }
 
     if ctrl.editing {
