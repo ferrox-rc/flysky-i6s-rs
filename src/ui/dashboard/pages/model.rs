@@ -7,7 +7,13 @@ use crate::ui::format::{ascii_as_str, format_vbat, u32_to_hex};
 use crate::ui::widgets;
 
 #[inline(never)]
-pub fn render(lcd: &mut St7567, storage: &RadioStorage, telem: &TelemetryData, is_binding: bool) {
+pub fn render(
+    lcd: &mut St7567,
+    storage: &RadioStorage,
+    telem: &TelemetryData,
+    is_binding: bool,
+    now_ms: u32,
+) {
     let active = storage.active_model();
     let is_crsf = active.rf_protocol == 1;
 
@@ -46,7 +52,17 @@ pub fn render(lcd: &mut St7567, storage: &RadioStorage, telem: &TelemetryData, i
         if telem.rx_voltage_mv > 0 {
             let mut rxv_buf = [0u8; 6];
             let rxv_str = format_vbat(telem.rx_voltage_mv, &mut rxv_buf);
-            lcd.draw_str_6x10(22, 44, rxv_str, false);
+            let elapsed = now_ms.wrapping_sub(telem.last_rx_voltage_ms);
+            let is_stale = (telem.last_rx_voltage_ms == 0) || (elapsed >= 2500);
+            if is_stale {
+                let mut s_buf = [0u8; 8];
+                let len = rxv_str.len();
+                s_buf[..len].copy_from_slice(rxv_str.as_bytes());
+                s_buf[len] = b'*';
+                lcd.draw_str_6x10(22, 44, ascii_as_str(&s_buf[..len + 1]), false);
+            } else {
+                lcd.draw_str_6x10(22, 44, rxv_str, false);
+            }
         } else {
             lcd.draw_str_6x10(22, 44, "----", false);
         }
