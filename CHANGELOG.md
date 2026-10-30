@@ -5,21 +5,40 @@ All notable changes to the `flysky-i6s-rs` project will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.1] - 2026-10-27
+## [0.3.1] - 2026-10-30
 
 ### Added
 - **ExpressLRS / CRSF Switch-Based Arming (`0x16` Extended Frame) ([`src/crsf/protocol.rs`](src/crsf/protocol.rs), [`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/storage.rs`](src/storage.rs), [`src/ui/menu/screens/setup.rs`](src/ui/menu/screens/setup.rs))**:
   - Implemented the ExpressLRS 4.0+ extended `0x16` RC channels packet appending a 23rd payload status byte (`CRSF_CHANNELS_STATUS_ARMED`, 27-byte wire frame) to communicate arming state directly from the transmitter.
   - Added configurable `Arm Mode: CH5 (Std) / Switch` toggle under `PROTOCOL SETUP -> CRSF` to freely select between legacy Channel 5 arming and switch-based arming without locking `CH5` (`AUX1`).
   - Extended arm switch selection to all 28 transmitter switch positions (`SA^`..`SWMv`), enabling `SG`/`SH` on header `J4` or `SWI`..`SWM` on `PC1..PC5` to act as dedicated arm switches.
+- **Extended Telemetry Sensors & Staleness Indicators ([`src/crsf/mod.rs`](src/crsf/mod.rs), [`src/ui/dashboard/pages/telemetry.rs`](src/ui/dashboard/pages/telemetry.rs), [`src/ui/dashboard/pages/model.rs`](src/ui/dashboard/pages/model.rs))**:
+  - Added visual staleness indicator (`*`) after 2.5 seconds of silence across custom telemetry tiles and the Model Dashboard RX battery display.
+  - Added CRSF individual cell voltage decoding (`0x0E` `CELLS` frame) and dedicated `CELLS` telemetry sensor display.
+  - Added full support for extended sensors: GPS (`0x02`), Attitude / Pitch / Roll (`0x1E`), Flight Mode (`0x21`), RPM, and Temperature.
+  - Unified CRSF and AFHDS 2A RX battery staleness timestamping across both protocols.
 - **Upstream Feature Sync from `flysky-i6x-rs` v0.26.0**:
   - Global Variables (`GV1..GV5`) in matrix mixer source and weight modulation.
   - Aftermarket Hall effect gimbal support with anti-jitter center deadband and adaptive calibration limits.
   - Barometric and variometer telemetry decoding (`vspeed` and `altitude`) with acoustic tone synthesis and `VARIO SETUP` UI.
   - EEPROM Diagnostics page 4 with real-time I2C status.
 
+### Fixed
+- **Variometer & Altitude Filtering**:
+  - Improved climb/sink rate calculation with 0.1m decimeter altitude differential tracking.
+  - Retained 4-tap Exponential Moving Average (EMA) filtering during 0 cm/s sensor reports to ensure smooth leveling decay.
+- **Telemetry Frame Dispatching**:
+  - Ensured all CRSF telemetry frames are fully processed and stored even under rapid bursts.
+
+### Performance
+- **LCD Formatting & UI Flash Savings (-6.3 KB)**:
+  - Consolidated number and fixed-point string formatters into zero-allocation `format_fixed`, `format_vbat`, and `u32_to_dec_5` helpers.
+  - Unified menu row rendering and custom telemetry tile blitters.
+  - Expanded free flash headroom on STM32F072 (128 KB) from 8,884 B (6.8%) to **13,416 B (10.2%)**.
+
 ### Changed
 - Converted all documentation formulas and LaTeX KaTeX math to clean, universally compatible Markdown.
+
 
 ## [0.3.0] - 2026-10-20
 
